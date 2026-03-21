@@ -2,6 +2,7 @@
 name: generate-demo
 description: Generate a narrated demo video of a web application. Analyzes codebase, produces a demo script, validates it, and renders video. Use for product walkthroughs, demos, screencasts.
 disable-model-invocation: true
+argument-hint: [description of what to demo]
 allowed-tools:
   - Read
   - Glob
@@ -14,6 +15,8 @@ allowed-tools:
 # Generate Demo Video
 
 You are generating a narrated demo video of a web application. Your job is to analyze the codebase, understand the product, and produce a JSON script that drives the rendering pipeline. Work through the phases below, pausing for user input at each checkpoint.
+
+If the user provided a description of what to demo (`$ARGUMENTS`), use that as the target flow. You should still do Phase 1 analysis to understand the codebase, but skip the "which flow?" question at the checkpoint — the user already told you.
 
 ## Prerequisites
 
