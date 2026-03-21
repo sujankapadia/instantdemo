@@ -25,9 +25,27 @@ ffmpeg → final MP4
 - **Support teams** — how-to videos generated from help docs
 - **Sales engineers** — custom demos per prospect, generated on demand
 
+## Core insight
+
+The hard parts of making a demo video — script authoring, selector discovery, narration writing — are exactly what an LLM is good at. The rendering pipeline (TTS + Playwright + ffmpeg) is fully automatable. Combining the two means no human needs to touch a screen recorder or video editor.
+
 ## Key differentiator
 
 Videos are **regeneratable**. Traditional screen recordings are frozen in time — one UI change and you re-record, re-narrate, re-edit. InstantDemo scripts are code: version them, parameterize them, re-run them.
+
+## Product workflow
+
+1. User pastes a URL (or connects their staging env)
+2. App crawls the page, builds a DOM map of interactive elements
+3. User describes the flow in natural language ("show signup, fill the form, land on dashboard")
+4. LLM generates the script JSON (selectors + narration)
+5. User previews/edits the script in a visual timeline editor
+6. Pipeline renders the video with chosen TTS voice
+7. User downloads MP4 or embeds it
+
+## Monetization
+
+Charge per video render, or monthly plan. Primary costs are TTS API usage and compute for browser recording.
 
 ## Origin
 
