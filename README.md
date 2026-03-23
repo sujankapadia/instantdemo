@@ -48,10 +48,14 @@ cp -r instantdemo/plugins/instantdemo/skills/generate-demo ~/.claude/skills/gene
 pip install playwright
 playwright install chromium
 brew install ffmpeg
-pip install google-cloud-sdk   # or piper-tts, or set ELEVENLABS_API_KEY
+
+# TTS provider (pick one)
+pip install "kokoro>=0.9.4" soundfile           # Kokoro (local, free, recommended)
+pip install google-cloud-sdk                    # Google Cloud TTS
+# or set ELEVENLABS_API_KEY in .env             # ElevenLabs (paid)
 ```
 
-See [TTS-PROVIDERS.md](TTS-PROVIDERS.md) for detailed TTS provider setup.
+See [TTS-PROVIDERS.md](TTS-PROVIDERS.md) for detailed TTS provider setup. See [docs/kokoro-tts.md](docs/kokoro-tts.md) for Kokoro voices and configuration.
 
 ## Usage
 

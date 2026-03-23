@@ -29,13 +29,15 @@ playwright install chromium
 brew install ffmpeg
 
 # TTS provider (pick one)
-pip install piper-tts pathvalidate              # Piper (local, free)
+pip install "kokoro>=0.9.4" soundfile           # Kokoro (local, free, recommended)
+pip install piper-tts pathvalidate              # Piper (local, free, robotic)
 pip install google-cloud-sdk                    # Google Cloud TTS
 # or set ELEVENLABS_API_KEY in .env             # ElevenLabs (paid)
 
 # Render a script
+python plugins/instantdemo/skills/generate-demo/scripts/render.py script.json --tts kokoro
+python plugins/instantdemo/skills/generate-demo/scripts/render.py script.json --tts kokoro --kokoro-voice af_bella -o demo.mp4
 python plugins/instantdemo/skills/generate-demo/scripts/render.py script.json --tts google
-python plugins/instantdemo/skills/generate-demo/scripts/render.py script.json --tts piper --piper-model /path/to/model.onnx -o demo.mp4
 ```
 
 Output defaults to `{script-stem}-demo.mp4` in the current directory.
@@ -50,7 +52,7 @@ Single-file rendering pipeline (`plugins/instantdemo/skills/generate-demo/script
 2. **Browser Recording** — Playwright launches Chromium with video recording, executes each segment's action (any Playwright page method), sleeping for `max(audio_duration, pause_after_ms)` to stay in sync
 3. **Merge** — ffmpeg concatenates audio clips with silence gaps, then muxes audio + video into the final MP4
 
-TTS providers: `--tts google` (default), `--tts elevenlabs`, `--tts piper`. Actions are open-ended Playwright page methods — `goto`, `click`, `fill`, `hover`, `scroll`, `wait`, etc.
+TTS providers: `--tts kokoro` (recommended), `--tts google`, `--tts elevenlabs`, `--tts piper`. Actions are open-ended Playwright page methods — `goto`, `click`, `fill`, `hover`, `scroll`, `wait`, etc.
 
 ## Demo Script Format
 
@@ -71,7 +73,7 @@ Scripts are JSON files defining the demo flow. See `references/REFERENCE.md` in 
 
 - **Playwright** (`playwright.sync_api`) — browser automation + video capture
 - **ffmpeg / ffprobe** — invoked via `subprocess` for audio/video processing
-- **TTS CLIs/APIs** — `piper` CLI, `gcloud` CLI (texttospeech), or ElevenLabs REST API
+- **TTS** — Kokoro (local, `kokoro` pip package), `piper` CLI, `gcloud` CLI (texttospeech), or ElevenLabs REST API
 
 ## Origin and Next Steps
 
