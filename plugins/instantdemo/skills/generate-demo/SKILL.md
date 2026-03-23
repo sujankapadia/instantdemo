@@ -136,11 +136,12 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:3000
 **Checkpoint — STOP and wait for user input**: Report validation results. If everything passes, use `AskUserQuestion` to ask if the user wants to render now or tweak the script first. Show the render command:
 
 ```bash
-python ${CLAUDE_SKILL_DIR}/scripts/render.py demo-script.json --tts google -o demo.mp4
+python ${CLAUDE_SKILL_DIR}/scripts/render.py demo-script.json --tts kokoro -o demo.mp4
 ```
 
 Available TTS providers:
-- `--tts google` — Google Cloud WaveNet (default, requires `GCP_PROJECT` in `.env` + `gcloud auth login`)
+- `--tts kokoro` — Kokoro local TTS (recommended, no API keys needed, high quality, fast). Options: `--kokoro-voice af_heart` (default), `--kokoro-speed 1.0`
+- `--tts google` — Google Cloud WaveNet (requires `GCP_PROJECT` in `.env` + `gcloud auth login`)
 - `--tts elevenlabs` — ElevenLabs (requires `ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID` in `.env`)
 - `--tts piper` — Piper local TTS (requires `--piper-model /path/to/model.onnx`)
 
