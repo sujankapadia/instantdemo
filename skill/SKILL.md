@@ -32,10 +32,12 @@ Analyze the codebase to understand what this application does and how it works.
 4. **Check for seed data / fixtures**: Look for `seed.py`, `fixtures.json`, `docker-compose.yml`, database migrations, or setup scripts that populate the app with sample data
 5. **Check for auth**: Is there a login? Look for dev credentials in `.env.example`, README, or a local auth bypass. Note what's needed to access the app.
 
-**Checkpoint**: Summarize what the app does, list the main screens/features, and ask the user:
+**Checkpoint — STOP and wait for user input**: Summarize what the app does, list the main screens/features, and use the `AskUserQuestion` tool to ask:
 - Which flow or feature should the demo showcase?
 - Is the app currently running? On what port?
 - Is there seed data loaded, or do we need to set that up first?
+
+Do NOT proceed to Phase 2 until the user responds.
 
 ## Phase 2: Plan the Narrative
 
@@ -53,7 +55,7 @@ Then plan the narrative:
 - **Narration defaults** (override per user preference): short sentences (<15 words), present tense, spoken-word style, no jargon, contractions OK
 - Use empty narration (`""`) for setup segments like login or scrolling to position
 
-**Checkpoint**: Present the narrative plan as a numbered list of segments with draft narration and proposed actions. Get user approval before continuing.
+**Checkpoint — STOP and wait for user input**: Present the narrative plan as a numbered list of segments with draft narration and proposed actions. Use the `AskUserQuestion` tool to ask for approval. Do NOT proceed to Phase 3 until the user approves.
 
 ## Phase 3: Gather Technical Details
 
@@ -129,7 +131,7 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:3000
 
 **Data check**: Confirm the pages show real content, not empty states.
 
-**Checkpoint**: Report validation results. If everything passes, show the render command:
+**Checkpoint — STOP and wait for user input**: Report validation results. If everything passes, use `AskUserQuestion` to ask if the user wants to render now or tweak the script first. Show the render command:
 
 ```bash
 python ${CLAUDE_SKILL_DIR}/scripts/render.py demo-script.json --tts google -o demo.mp4
