@@ -80,6 +80,8 @@ For each segment in the approved narrative, find the implementation details.
 - `wait` — no action, narration only
 - Any other Playwright `page` method works too (`select_option`, `press`, `check`, etc.)
 
+**SPA navigation**: For single-page applications (React, Vue, etc.), use `goto` only for the first navigation. For subsequent pages, click a nav link to use the client-side router — this avoids loading skeletons appearing in the video.
+
 **Pacing** (`pause_after_ms` values):
 - After navigation: 1000-1500ms (page needs to render)
 - After visual changes the viewer needs to absorb: 1500-2500ms
