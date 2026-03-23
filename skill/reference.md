@@ -236,6 +236,23 @@ For pages that lazy-load content on scroll:
 
 Split into two segments so the narration about loaded content plays after the content appears.
 
+### Scrolling inside a container (virtualized lists, panels)
+
+The `scroll` action scrolls the page viewport (`window.scrollBy`). For content inside a scrollable container (e.g., a chat panel, sidebar, or virtualized list), use `evaluate` to target the element directly:
+
+```json
+{
+  "narration": "Scroll through the conversation.",
+  "action": "evaluate",
+  "expression": "document.querySelector('[data-testid=conversation-scroll]')?.scrollBy({ top: 500, behavior: 'smooth' })",
+  "pause_after_ms": 2000
+}
+```
+
+Tip: add a `data-testid` to the scrollable element in your app — it's more stable than chaining CSS classes.
+
+**JSON quoting**: The `expression` is inside a JSON string, so use unquoted attribute selectors (`[data-testid=conversation-scroll]`) or escaped double quotes (`\"...\"`) inside the expression. Don't use single quotes around attribute values — they work in JS but can cause confusion when nested in JSON.
+
 ## Narration Guide
 
 These are **recommended defaults** — override them based on the user's preferences for tone, audience, and style.

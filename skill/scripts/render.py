@@ -48,14 +48,32 @@ def _load_env(env_path: Path) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
+def _silent_clip(tmp_dir: Path, index: int) -> Path:
+    """Generate a minimal silent WAV clip for segments with no narration."""
+    output_path = tmp_dir / f"segment_{index}_silent.wav"
+    subprocess.run(  # nosec B607
+        [
+            "ffmpeg", "-y", "-f", "lavfi", "-i",
+            "anullsrc=r=44100:cl=stereo", "-t", "0.1",
+            str(output_path),
+        ],
+        capture_output=True,
+    )
+    return output_path
+
+
 def generate_audio_piper(
     segments: list[dict], tmp_dir: Path, piper_model: str
 ) -> list[Path]:
     """Generate WAV audio clips using Piper TTS (local, offline)."""
     clips = []
     for i, seg in enumerate(segments):
-        output_path = tmp_dir / f"segment_{i}.wav"
         text = seg["narration"]
+        if not text.strip():
+            clips.append(_silent_clip(tmp_dir, i))
+            print(f"  Segment {i}: empty narration, using silence")
+            continue
+        output_path = tmp_dir / f"segment_{i}.wav"
         print(f"  Generating audio for segment {i}: {text[:50]}...")
         result = subprocess.run(  # nosec B607
             ["piper", "--model", piper_model, "--output_file", str(output_path)],
@@ -100,8 +118,12 @@ def generate_audio_google(
     api_url = "https://texttospeech.googleapis.com/v1/text:synthesize"
     clips = []
     for i, seg in enumerate(segments):
-        output_path = tmp_dir / f"segment_{i}.wav"
         text = seg["narration"]
+        if not text.strip():
+            clips.append(_silent_clip(tmp_dir, i))
+            print(f"  Segment {i}: empty narration, using silence")
+            continue
+        output_path = tmp_dir / f"segment_{i}.wav"
         print(f"  Generating audio for segment {i}: {text[:50]}...")
 
         request_body = json.dumps(
@@ -154,8 +176,12 @@ def generate_audio_elevenlabs(
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
     clips = []
     for i, seg in enumerate(segments):
-        output_path = tmp_dir / f"segment_{i}.mp3"
         text = seg["narration"]
+        if not text.strip():
+            clips.append(_silent_clip(tmp_dir, i))
+            print(f"  Segment {i}: empty narration, using silence")
+            continue
+        output_path = tmp_dir / f"segment_{i}.mp3"
         print(f"  Generating audio for segment {i}: {text[:50]}...")
 
         request_body = json.dumps(
@@ -264,10 +290,11 @@ _ACTION_FIELD_MAP = {
     "press": lambda page, seg: page.press(seg["selector"], seg["key"]),
     "check": lambda page, seg: page.check(seg["selector"]),
     "uncheck": lambda page, seg: page.uncheck(seg["selector"]),
+    "evaluate": lambda page, seg: page.evaluate(seg["expression"]),
 }
 
 # Fields that are part of the segment schema, not Playwright method args.
-_RESERVED_FIELDS = {"narration", "action", "pause_after_ms", "wait_for", "url", "selector", "value", "pixels", "key"}
+_RESERVED_FIELDS = {"narration", "action", "pause_after_ms", "wait_for", "url", "selector", "value", "pixels", "key", "expression"}
 
 
 def _action_navigate(page, seg: dict) -> None:
