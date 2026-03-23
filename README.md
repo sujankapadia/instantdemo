@@ -49,7 +49,7 @@ Charge per video render, or monthly plan. Primary costs are TTS API usage and co
 
 ## Origin
 
-Built as a proof-of-concept inside [claude-code-analytics](https://github.com/sujankapadia/claude-code-analytics), where Claude Code authored the demo pipeline end-to-end: script generation (by reading frontend source for selectors), TTS integration (Piper, Google Cloud, ElevenLabs), Playwright browser recording, and ffmpeg merging. See [PIPELINE.md](PIPELINE.md) for the current pipeline architecture.
+Built as a proof-of-concept inside [claude-code-analytics](https://github.com/sujankapadia/claude-code-analytics), where Claude Code authored the demo pipeline end-to-end: script generation (by reading frontend source for selectors), TTS integration (Piper, Google Cloud, ElevenLabs), Playwright browser recording, and ffmpeg merging. See [TTS-PROVIDERS.md](TTS-PROVIDERS.md) for TTS provider setup and configuration.
 
 ## Using the Skill
 
@@ -60,7 +60,7 @@ InstantDemo is packaged as a Claude Code skill. Install it:
 git clone https://github.com/sujankapadia/instantdemo.git
 
 # Copy to your skills directory
-cp -r instantdemo ~/.claude/skills/generate-demo
+cp -r instantdemo/skills/generate-demo ~/.claude/skills/generate-demo
 ```
 
 Then in any project with a running web app:
@@ -83,9 +83,9 @@ pip install google-cloud-sdk   # or piper-tts, or set ELEVENLABS_API_KEY
 ### Rendering directly
 
 ```bash
-python ~/.claude/skills/generate-demo/scripts/render.py script.json --tts google -o demo.mp4
+python skills/generate-demo/scripts/render.py script.json --tts google -o demo.mp4
 ```
 
 ## Status
 
-Proof-of-concept pipeline working, packaged as a Claude Code skill. See `docs/` for research on alternative distribution approaches (MCP server, Pi Agent SDK, OpenCode).
+Proof-of-concept pipeline working, packaged as a Claude Code skill.

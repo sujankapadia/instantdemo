@@ -91,7 +91,7 @@ For each segment in the approved narrative, find the implementation details.
 Read the schema and examples:
 
 ```
-${CLAUDE_SKILL_DIR}/reference.md
+${CLAUDE_SKILL_DIR}/references/REFERENCE.md
 ```
 
 Write the JSON script to a file. Suggest `demo-script.json` in the project root, or ask the user where they'd like it.
