@@ -256,9 +256,7 @@ _ACTION_FIELD_MAP = {
         page.wait_for_selector(seg["selector"], timeout=10000),
         page.hover(seg["selector"]),
     ),
-    "scroll": lambda page, seg: page.evaluate(
-        f"window.scrollBy(0, {seg.get('pixels', 300)})"
-    ),
+    "scroll": lambda page, seg: _action_scroll(page, seg),
     "wait": lambda _page, _seg: None,
     "select_option": lambda page, seg: page.select_option(
         seg["selector"], seg["value"]
@@ -281,6 +279,16 @@ def _action_navigate(page, seg: dict) -> None:
     else:
         page.wait_for_load_state("load")
         time.sleep(1)
+
+
+def _action_scroll(page, seg: dict) -> None:
+    """Handle scroll action with smooth behavior."""
+    pixels = seg.get("pixels", 300)
+    page.evaluate(
+        f"window.scrollBy({{ top: {pixels}, behavior: 'smooth' }})"
+    )
+    # Give the smooth scroll animation time to complete
+    time.sleep(min(abs(pixels) / 500, 1.5))
 
 
 def _dispatch_action(page, seg: dict) -> None:
