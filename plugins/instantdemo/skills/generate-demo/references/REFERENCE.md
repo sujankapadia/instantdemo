@@ -203,6 +203,19 @@ Playwright's `networkidle` wait state never resolves on pages with persistent co
 
 The `wait_for` field waits for a specific element to appear (15s timeout), which is reliable regardless of network activity.
 
+### SPA page transitions
+
+For single-page applications (React, Vue, Next.js, etc.), use `goto` only for the **first navigation** to load the app and its JS bundle. For all subsequent page transitions, **click a nav link** to use the client-side router. This avoids full-page reloads that show loading skeletons and spinners in the recorded video.
+
+```json
+[
+  { "action": "goto", "url": "http://localhost:3000/", "narration": "Here's the app.", "pause_after_ms": 1500 },
+  { "action": "click", "selector": "a[href='/dashboard']", "narration": "Let's check the dashboard.", "pause_after_ms": 2000 }
+]
+```
+
+The first `goto` will always show some loading — keep its narration short and generic so the loading state passes quickly. If the app has no visible nav link to the target page, `evaluate` with `history.pushState` or router-specific navigation can work as an alternative.
+
 ### Auth bypass for local dev
 
 If the app has auth, check for dev-mode bypass. Common patterns:
