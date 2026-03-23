@@ -60,7 +60,7 @@ InstantDemo is packaged as a Claude Code skill. Install it:
 git clone https://github.com/sujankapadia/instantdemo.git
 
 # Copy to your skills directory
-cp -r instantdemo/skills/generate-demo ~/.claude/skills/generate-demo
+cp -r instantdemo/plugins/instantdemo/skills/generate-demo ~/.claude/plugins/instantdemo/skills/generate-demo
 ```
 
 Then in any project with a running web app:
@@ -83,7 +83,7 @@ pip install google-cloud-sdk   # or piper-tts, or set ELEVENLABS_API_KEY
 ### Rendering directly
 
 ```bash
-python skills/generate-demo/scripts/render.py script.json --tts google -o demo.mp4
+python plugins/instantdemo/skills/generate-demo/scripts/render.py script.json --tts google -o demo.mp4
 ```
 
 ## Status

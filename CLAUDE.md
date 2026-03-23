@@ -10,12 +10,12 @@ Extracted from the `claude-code-analytics` project (`github.com/sujankapadia/cla
 
 ## Claude Code Skill
 
-The project is packaged as a Claude Code skill at `~/.claude/skills/generate-demo/`. Install by copying the skill directory:
+The project is packaged as a Claude Code skill at `~/.claude/plugins/instantdemo/skills/generate-demo/`. Install by copying the skill directory:
 
 ```bash
-cp -r skills/generate-demo ~/.claude/skills/generate-demo
+cp -r plugins/instantdemo/skills/generate-demo ~/.claude/plugins/instantdemo/skills/generate-demo
 # Or symlink for development:
-ln -s $(pwd)/skills/generate-demo ~/.claude/skills/generate-demo
+ln -s $(pwd)/plugins/instantdemo/skills/generate-demo ~/.claude/plugins/instantdemo/skills/generate-demo
 ```
 
 Then use `/generate-demo` in any project to generate a demo video. The skill walks through codebase analysis, narrative planning, script generation, validation, and rendering.
@@ -34,8 +34,8 @@ pip install google-cloud-sdk                    # Google Cloud TTS
 # or set ELEVENLABS_API_KEY in .env             # ElevenLabs (paid)
 
 # Render a script
-python skills/generate-demo/scripts/render.py script.json --tts google
-python skills/generate-demo/scripts/render.py script.json --tts piper --piper-model /path/to/model.onnx -o demo.mp4
+python plugins/instantdemo/skills/generate-demo/scripts/render.py script.json --tts google
+python plugins/instantdemo/skills/generate-demo/scripts/render.py script.json --tts piper --piper-model /path/to/model.onnx -o demo.mp4
 ```
 
 Output defaults to `{script-stem}-demo.mp4` in the current directory.
@@ -44,7 +44,7 @@ There is no test suite, linter, or build step.
 
 ## Architecture
 
-Single-file rendering pipeline (`skills/generate-demo/scripts/render.py`) with three sequential phases:
+Single-file rendering pipeline (`plugins/instantdemo/skills/generate-demo/scripts/render.py`) with three sequential phases:
 
 1. **Audio Generation** — reads the script JSON, runs each segment's narration through the chosen TTS provider, outputs WAV clips to a temp directory
 2. **Browser Recording** — Playwright launches Chromium with video recording, executes each segment's action (any Playwright page method), sleeping for `max(audio_duration, pause_after_ms)` to stay in sync

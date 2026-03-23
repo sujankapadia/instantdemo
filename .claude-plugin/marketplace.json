@@ -10,7 +10,7 @@
     {
       "name": "instantdemo",
       "description": "Generate narrated demo videos of web applications. Analyzes your codebase, produces a demo script with narration and Playwright browser actions, validates it, and renders an MP4 with TTS narration.",
-      "source": "./",
+      "source": "./plugins/instantdemo",
       "version": "1.0.0",
       "author": {
         "name": "Sujan Kapadia"
