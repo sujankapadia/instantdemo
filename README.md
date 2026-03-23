@@ -1,75 +1,46 @@
 # InstantDemo
 
-Turn words into narrated demo videos of your web app. Describe what to show, get a polished screencast — no screen recording, no voiceover sessions, no video editing.
-
-## Vision
-
-A self-service tool that generates narrated product walkthroughs from natural language descriptions. Videos are regeneratable — ship a UI update, re-run the script, get an updated video in minutes.
+A Claude Code skill that generates narrated demo videos of web applications. Describe what to show, and the skill analyzes your codebase, writes a demo script, and renders an MP4 — no screen recording, no voiceover sessions, no video editing.
 
 ## How it works
 
 ```
-"Show the signup flow, fill the form, land on dashboard"
+/generate-demo show the signup flow and dashboard
     ↓
-LLM inspects your app → generates a script (selectors + narration)
+Claude Code reads your source — routes, components, page structure
+    ↓
+Produces a JSON script (Playwright actions + narration)
     ↓
 TTS engine → audio clips
 Playwright → browser recording
 ffmpeg → final MP4
 ```
 
-## Use cases
+The skill walks through five phases with checkpoints at each step so you stay in control:
 
-- **Developer advocates** — product walkthroughs that stay current with the UI
-- **SaaS founders** — landing page videos without re-recording after every release
-- **Support teams** — how-to videos generated from help docs
-- **Sales engineers** — custom demos per prospect, generated on demand
+1. **Understand the product** — reads README, routes, components, seed data, auth
+2. **Plan the narrative** — picks a flow, drafts narration, asks for approval
+3. **Gather technical details** — finds stable selectors, wait conditions, pacing
+4. **Produce the script** — writes a JSON file matching the schema
+5. **Validate and render** — checks URLs and selectors, then renders the video
 
-## Core insight
+Videos are **regeneratable**. UI changed? Re-run the script. New feature? Add a segment. It's version-controlled JSON, not a frozen screen recording.
 
-The hard parts of making a demo video — script authoring, selector discovery, narration writing — are exactly what an LLM is good at. The rendering pipeline (TTS + Playwright + ffmpeg) is fully automatable. Combining the two means no human needs to touch a screen recorder or video editor.
+## Install
 
-## Key differentiator
-
-Videos are **regeneratable**. Traditional screen recordings are frozen in time — one UI change and you re-record, re-narrate, re-edit. InstantDemo scripts are code: version them, parameterize them, re-run them.
-
-## Product workflow
-
-1. User pastes a URL (or connects their staging env)
-2. App crawls the page, builds a DOM map of interactive elements
-3. User describes the flow in natural language ("show signup, fill the form, land on dashboard")
-4. LLM generates the script JSON (selectors + narration)
-5. User previews/edits the script in a visual timeline editor
-6. Pipeline renders the video with chosen TTS voice
-7. User downloads MP4 or embeds it
-
-## Monetization
-
-Charge per video render, or monthly plan. Primary costs are TTS API usage and compute for browser recording.
-
-## Origin
-
-Built as a proof-of-concept inside [claude-code-analytics](https://github.com/sujankapadia/claude-code-analytics), where Claude Code authored the demo pipeline end-to-end: script generation (by reading frontend source for selectors), TTS integration (Piper, Google Cloud, ElevenLabs), Playwright browser recording, and ffmpeg merging. See [TTS-PROVIDERS.md](TTS-PROVIDERS.md) for TTS provider setup and configuration.
-
-## Using the Skill
-
-InstantDemo is packaged as a Claude Code skill. Install it:
+### As a Claude Code plugin
 
 ```bash
-# Clone the repo
+/plugin marketplace add sujankapadia/instantdemo
+/plugin install instantdemo@sujankapadia-instantdemo
+```
+
+### Manual install
+
+```bash
 git clone https://github.com/sujankapadia/instantdemo.git
-
-# Copy to your skills directory
-cp -r instantdemo/plugins/instantdemo/skills/generate-demo ~/.claude/plugins/instantdemo/skills/generate-demo
+cp -r instantdemo/plugins/instantdemo/skills/generate-demo ~/.claude/skills/generate-demo
 ```
-
-Then in any project with a running web app:
-
-```
-/generate-demo
-```
-
-The skill walks you through: codebase analysis → narrative planning → script generation → validation → rendering.
 
 ### Prerequisites
 
@@ -80,12 +51,22 @@ brew install ffmpeg
 pip install google-cloud-sdk   # or piper-tts, or set ELEVENLABS_API_KEY
 ```
 
-### Rendering directly
+See [TTS-PROVIDERS.md](TTS-PROVIDERS.md) for detailed TTS provider setup.
 
-```bash
-python plugins/instantdemo/skills/generate-demo/scripts/render.py script.json --tts google -o demo.mp4
+## Usage
+
+In any project with a running web app:
+
+```
+/generate-demo show the Active Sessions page and click a session card
 ```
 
-## Status
+Or without arguments — the skill explores the codebase and asks which flow to demo:
 
-Proof-of-concept pipeline working, packaged as a Claude Code skill.
+```
+/generate-demo
+```
+
+## Origin
+
+Built as a proof of concept inside [claude-code-analytics](https://github.com/sujankapadia/claude-code-analytics), where Claude Code authored the demo pipeline end-to-end by reading frontend source code for selectors, writing narration, and wiring up TTS + Playwright + ffmpeg.
