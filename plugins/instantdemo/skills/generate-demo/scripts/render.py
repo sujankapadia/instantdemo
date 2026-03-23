@@ -225,6 +225,39 @@ def generate_audio_elevenlabs(
     return clips
 
 
+def generate_audio_kokoro(
+    segments: list[dict], tmp_dir: Path, voice: str, speed: float
+) -> list[Path]:
+    """Generate WAV audio clips using Kokoro TTS (local, high quality, fast)."""
+    try:
+        import soundfile as sf
+        from kokoro import KPipeline
+    except ImportError:
+        print(
+            "  Kokoro not installed. Run: pip install 'kokoro>=0.9.4' soundfile",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    print(f"  Loading Kokoro model (voice={voice}, speed={speed})...")
+    pipeline = KPipeline(lang_code=voice[0])  # first char is language code
+
+    clips = []
+    for i, seg in enumerate(segments):
+        text = seg["narration"]
+        if not text.strip():
+            clips.append(_silent_clip(tmp_dir, i))
+            print(f"  Segment {i}: empty narration, using silence")
+            continue
+        output_path = tmp_dir / f"segment_{i}.wav"
+        print(f"  Generating audio for segment {i}: {text[:50]}...")
+        for _gs, _ps, audio in pipeline(text, voice=voice, speed=speed):
+            sf.write(str(output_path), audio, 24000)
+            break  # one sentence per segment, take the first chunk
+        clips.append(output_path)
+    return clips
+
+
 # ---------------------------------------------------------------------------
 # Audio / Video utilities
 # ---------------------------------------------------------------------------
@@ -546,7 +579,7 @@ def main():
     )
     parser.add_argument(
         "--tts",
-        choices=["piper", "google", "elevenlabs"],
+        choices=["piper", "google", "elevenlabs", "kokoro"],
         default="google",
         help="TTS provider (default: google)",
     )
@@ -568,6 +601,18 @@ def main():
         type=str,
         default=None,
         help="Path to Piper ONNX model (or set PIPER_MODEL_PATH env var)",
+    )
+    parser.add_argument(
+        "--kokoro-voice",
+        type=str,
+        default="af_heart",
+        help="Kokoro voice name (default: af_heart). See docs/kokoro-tts.md for full list.",
+    )
+    parser.add_argument(
+        "--kokoro-speed",
+        type=float,
+        default=1.0,
+        help="Kokoro speech speed (default: 1.0)",
     )
     args = parser.parse_args()
 
@@ -612,6 +657,10 @@ def main():
         audio_clips = generate_audio_google(segments, tmp_dir, env_path)
     elif provider_name == "elevenlabs":
         audio_clips = generate_audio_elevenlabs(segments, tmp_dir, env_path)
+    elif provider_name == "kokoro":
+        audio_clips = generate_audio_kokoro(
+            segments, tmp_dir, args.kokoro_voice, args.kokoro_speed
+        )
     else:
         print(f"  Unknown TTS provider: {provider_name}", file=sys.stderr)
         sys.exit(1)
