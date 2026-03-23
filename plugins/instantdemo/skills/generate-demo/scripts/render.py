@@ -348,11 +348,18 @@ def record_browser_video(
     clip_durations: list[float],
     resolution: dict,
     tmp_dir: Path,
-) -> Path:
-    """Record browser interactions using Playwright with video capture."""
+) -> tuple[Path, list[tuple[float, float]]]:
+    """Record browser interactions with video capture, tracking segment timestamps.
+
+    Returns (video_path, timestamps) where timestamps is a list of
+    (start, end) pairs in seconds relative to the recording start.
+    Each start marks when the action completed (page ready, no loading),
+    and end marks when the segment sleep finished.
+    """
     from playwright.sync_api import sync_playwright
 
     video_path = None
+    timestamps = []
     with sync_playwright() as p:
         browser = p.chromium.launch()
         context = browser.new_context(
@@ -367,6 +374,7 @@ def record_browser_video(
             },
         )
         page = context.new_page()
+        recording_start = time.monotonic()
 
         for i, seg in enumerate(segments):
             action = seg["action"]
@@ -378,8 +386,14 @@ def record_browser_video(
 
             _dispatch_action(page, seg)
 
+            # Action complete, page is ready — mark the clean start
+            seg_start = time.monotonic() - recording_start
+
             # Wait for the duration of the narration + any extra pause
             time.sleep(wait_ms / 1000)
+
+            seg_end = time.monotonic() - recording_start
+            timestamps.append((seg_start, seg_end))
 
         # Close context to finalize video
         video = page.video
@@ -390,7 +404,7 @@ def record_browser_video(
         context.close()
         browser.close()
 
-    return Path(video_path)
+    return Path(video_path), timestamps
 
 
 # ---------------------------------------------------------------------------
@@ -405,16 +419,23 @@ def combine_audio_video(
     segments: list[dict],
     output_path: Path,
     tmp_dir: Path,
+    timestamps: list[tuple[float, float]],
 ) -> None:
-    """Merge audio clips with video into final MP4 using ffmpeg."""
+    """Merge audio clips with video into final MP4 using ffmpeg.
+
+    Uses segment timestamps to trim loading frames from the video before
+    merging with audio. Each segment's video is extracted from the continuous
+    recording starting when the action completed (page ready), excluding
+    any loading/skeleton frames that preceded it.
+    """
     # Normalize all clips to WAV for consistent concatenation
     wav_clips = [_ensure_wav(clip, i, tmp_dir) for i, clip in enumerate(audio_clips)]
 
-    # Build concat list with silence gaps between segments
-    concat_list = tmp_dir / "audio_concat.txt"
-    entries = []
+    # Build audio concat list with silence gaps between segments
+    audio_concat_list = tmp_dir / "audio_concat.txt"
+    audio_entries = []
     for i, wav in enumerate(wav_clips):
-        entries.append(f"file '{wav.resolve()}'")
+        audio_entries.append(f"file '{wav.resolve()}'")
         pause_ms = segments[i].get("pause_after_ms", 0)
         audio_ms = clip_durations[i] * 1000
         gap_ms = max(0, max(audio_ms, pause_ms) - audio_ms)
@@ -434,9 +455,9 @@ def combine_audio_video(
                 ],
                 capture_output=True,
             )
-            entries.append(f"file '{gap_silence.resolve()}'")
+            audio_entries.append(f"file '{gap_silence.resolve()}'")
 
-    concat_list.write_text("\n".join(entries))
+    audio_concat_list.write_text("\n".join(audio_entries))
 
     # Concatenate all audio clips into a single WAV
     combined_audio = tmp_dir / "combined_audio.wav"
@@ -449,7 +470,7 @@ def combine_audio_video(
             "-safe",
             "0",
             "-i",
-            str(concat_list),
+            str(audio_concat_list),
             "-c",
             "copy",
             str(combined_audio),
@@ -457,8 +478,23 @@ def combine_audio_video(
         capture_output=True,
     )
 
-    # Merge video + audio into final MP4
-    print(f"  Merging video + audio into {output_path}...")
+    # Trim, concatenate, and mux in a single ffmpeg pass
+    # This decodes the source WebM once, trims segments in memory,
+    # concatenates them, and encodes to H.264 exactly once.
+    print("  Trimming segments and merging with audio...")
+    filter_parts = []
+    for i, (seg_start, seg_end) in enumerate(timestamps):
+        duration = seg_end - seg_start
+        filter_parts.append(
+            f"[0:v]trim=start={seg_start:.3f}:duration={duration:.3f},"
+            f"setpts=PTS-STARTPTS[v{i}]"
+        )
+    concat_inputs = "".join(f"[v{i}]" for i in range(len(timestamps)))
+    filter_parts.append(
+        f"{concat_inputs}concat=n={len(timestamps)}:v=1:a=0[outv]"
+    )
+    filter_complex = ";".join(filter_parts)
+
     result = subprocess.run(  # nosec B607
         [
             "ffmpeg",
@@ -467,10 +503,22 @@ def combine_audio_video(
             str(video_path),
             "-i",
             str(combined_audio),
+            "-filter_complex",
+            filter_complex,
+            "-map",
+            "[outv]",
+            "-map",
+            "1:a",
             "-c:v",
             "libx264",
+            "-crf",
+            "18",
+            "-preset",
+            "slow",
             "-c:a",
             "aac",
+            "-b:a",
+            "192k",
             "-shortest",
             str(output_path),
         ],
@@ -574,13 +622,16 @@ def main():
 
     # Phase B: Record browser video
     print("\nPhase B: Recording browser with Playwright...")
-    video_path = record_browser_video(segments, clip_durations, resolution, tmp_dir)
+    video_path, timestamps = record_browser_video(
+        segments, clip_durations, resolution, tmp_dir
+    )
     print(f"  Video saved: {video_path}")
 
     # Phase C: Combine audio + video
     print("\nPhase C: Combining audio + video with ffmpeg...")
     combine_audio_video(
-        video_path, audio_clips, clip_durations, segments, output_path, tmp_dir
+        video_path, audio_clips, clip_durations, segments, output_path, tmp_dir,
+        timestamps,
     )
     print(f"\nDone! Output: {output_path}")
     print(f"Temp files at: {tmp_dir}")
