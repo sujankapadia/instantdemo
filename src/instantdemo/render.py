@@ -464,11 +464,10 @@ def combine_audio_video(
     # Normalize all clips to WAV for consistent concatenation
     wav_clips = [_ensure_wav(clip, i, tmp_dir) for i, clip in enumerate(audio_clips)]
 
-    # Build audio concat list with silence gaps between segments
-    audio_concat_list = tmp_dir / "audio_concat.txt"
-    audio_entries = []
+    # Build the ordered list of audio files (per-segment audio + gap silences).
+    audio_files: list[Path] = []
     for i, wav in enumerate(wav_clips):
-        audio_entries.append(f"file '{wav.resolve()}'")
+        audio_files.append(wav)
         pause_ms = segments[i].get("pause_after_ms", 0)
         audio_ms = clip_durations[i] * 1000
         gap_ms = max(0, max(audio_ms, pause_ms) - audio_ms)
@@ -488,24 +487,30 @@ def combine_audio_video(
                 ],
                 capture_output=True,
             )
-            audio_entries.append(f"file '{gap_silence.resolve()}'")
+            audio_files.append(gap_silence)
 
-    audio_concat_list.write_text("\n".join(audio_entries))
-
-    # Concatenate all audio clips into a single WAV
+    # Concatenate via filter_complex `concat` rather than the concat demuxer
+    # with `-c copy`. The demuxer doesn't normalize formats — when the
+    # silence helpers (44100 stereo) are mixed with a TTS provider that
+    # outputs a different format (e.g. Kokoro at 24000 mono), the output
+    # WAV header takes the first file's format and downstream byte counts
+    # produce a wildly wrong duration. filter_complex resamples to a common
+    # format and produces correct-duration output.
     combined_audio = tmp_dir / "combined_audio.wav"
+    audio_inputs: list[str] = []
+    for path in audio_files:
+        audio_inputs.extend(["-i", str(path)])
+    n = len(audio_files)
+    audio_filter = (
+        "".join(f"[{i}:a]" for i in range(n))
+        + f"concat=n={n}:v=0:a=1[out]"
+    )
     subprocess.run(  # nosec B607
-        [
-            "ffmpeg",
-            "-y",
-            "-f",
-            "concat",
-            "-safe",
-            "0",
-            "-i",
-            str(audio_concat_list),
-            "-c",
-            "copy",
+        ["ffmpeg", "-y"] + audio_inputs + [
+            "-filter_complex",
+            audio_filter,
+            "-map",
+            "[out]",
             str(combined_audio),
         ],
         capture_output=True,
