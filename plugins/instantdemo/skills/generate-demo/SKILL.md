@@ -20,7 +20,17 @@ If the user provided a description of what to demo (`$ARGUMENTS`), use that as t
 
 ## Prerequisites
 
-The rendering pipeline requires: `playwright` (pip), Chromium (`playwright install chromium`), `ffmpeg`, and a TTS provider (Google Cloud TTS by default). If these aren't installed, tell the user what's needed before proceeding.
+The rendering pipeline requires the `instantdemo` Python package, plus Chromium and ffmpeg. Install with:
+
+```bash
+pip install 'instantdemo[kokoro]'   # bundles the renderer + Kokoro TTS
+playwright install chromium
+brew install ffmpeg                 # or your platform's package manager
+```
+
+Other TTS providers can be selected at render time: `--tts google` (requires `gcloud auth login`), `--tts elevenlabs` (requires API key), `--tts piper` (requires a local model file).
+
+If `instantdemo` isn't installed, tell the user what's needed before proceeding.
 
 ## Phase 1: Understand the Product
 
@@ -136,7 +146,7 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:3000
 **Checkpoint — STOP and wait for user input**: Report validation results. If everything passes, use `AskUserQuestion` to ask if the user wants to render now or tweak the script first. Show the render command:
 
 ```bash
-python ${CLAUDE_SKILL_DIR}/scripts/render.py demo-script.json --tts kokoro -o demo.mp4
+instantdemo render demo-script.json --tts kokoro -o demo.mp4
 ```
 
 Available TTS providers:

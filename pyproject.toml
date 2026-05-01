@@ -48,3 +48,8 @@ packages = ["src/instantdemo"]
 
 [tool.hatch.build.targets.sdist]
 include = ["src/instantdemo", "README.md", "LICENSE", "pyproject.toml"]
+
+[tool.pyright]
+include = ["src"]
+extraPaths = ["src"]
+pythonVersion = "3.11"
