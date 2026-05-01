@@ -75,6 +75,19 @@ def update_inputs(state: dict, *, url: str, describe: str | None) -> dict:
     return state
 
 
+def record_phase_metrics(state_dir: Path, phase_number: int, **metrics) -> None:
+    """Merge arbitrary metric fields into a phase's state entry.
+
+    Used by phase runners after a query() finishes to stash
+    cost / duration / num_turns / session_id_phase. Kept SDK-agnostic
+    (the caller pulls fields off ResultMessage).
+    """
+    s = load(state_dir)
+    entry = s.setdefault("phases", {}).setdefault(str(phase_number), {})
+    entry.update(metrics)
+    save(state_dir, s)
+
+
 @contextmanager
 def phase_run(state_dir: Path, phase_number: int) -> Iterator[dict]:
     """Bracket a phase's execution: mark started_at, then completed_at on
