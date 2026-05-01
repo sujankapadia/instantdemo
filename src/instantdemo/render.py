@@ -568,9 +568,10 @@ def combine_audio_video(
 # ---------------------------------------------------------------------------
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="Render a narrated demo video from a JSON script definition"
+        prog="instantdemo render",
+        description="Render a narrated demo video from a JSON script definition",
     )
     parser.add_argument(
         "script",
@@ -614,7 +615,7 @@ def main():
         default=1.0,
         help="Kokoro speech speed (default: 1.0)",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     # Resolve paths
     script_path = args.script.resolve()
