@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from claude_agent_sdk import ClaudeAgentOptions, ResultMessage
 
+from .. import metrics as _metrics
 from .. import state
 
 PHASES = ("analyze", "narrate", "gather", "script", "validate")
@@ -100,15 +101,38 @@ async def run_query(prompt: str, options: "ClaudeAgentOptions") -> tuple[str, An
 
 
 def record_phase_result(state_dir: Path, phase_number: int, result: "ResultMessage") -> None:
-    """Stash standard metrics from a query() ResultMessage into state.json."""
-    state.record_phase_metrics(
+    """Capture metrics from a query() ResultMessage.
+
+    Writes to two places:
+      - state.json (current state — overwrites prior phase entry on re-run)
+      - metrics.jsonl (append-only history — one row per phase per run)
+    """
+    usage = result.usage or {}
+    fields = {
+        "cost_usd": result.total_cost_usd,
+        "duration_ms": result.duration_ms,
+        "duration_api_ms": result.duration_api_ms,
+        "num_turns": result.num_turns,
+        "is_error": result.is_error,
+        "stop_reason": result.stop_reason,
+        "session_id_phase": result.session_id,
+        "input_tokens": usage.get("input_tokens"),
+        "output_tokens": usage.get("output_tokens"),
+        "cache_creation_tokens": usage.get("cache_creation_input_tokens"),
+        "cache_read_tokens": usage.get("cache_read_input_tokens"),
+    }
+
+    # state.json — phase entry gets these fields merged in
+    state.record_phase_metrics(state_dir, phase_number, **fields)
+
+    # metrics.jsonl — one append-only row, with run identifiers added
+    snapshot = state.load(state_dir)
+    _metrics.append(
         state_dir,
-        phase_number,
-        cost_usd=result.total_cost_usd,
-        duration_ms=result.duration_ms,
-        duration_api_ms=result.duration_api_ms,
-        num_turns=result.num_turns,
-        session_id_phase=result.session_id,
+        run_session_id=snapshot.get("session_id"),
+        phase_number=phase_number,
+        phase_name=phase_name_from_number(phase_number),
+        **fields,
     )
 
 
