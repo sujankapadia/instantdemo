@@ -23,6 +23,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from claude_agent_sdk import ClaudeAgentOptions, ResultMessage
+
+from .. import state
 
 PHASES = ("analyze", "narrate", "gather", "script", "validate")
 """Phase names in execution order, indexed by 1-based phase number."""
@@ -69,3 +75,47 @@ def phase_name_from_number(number: int) -> str:
     if not 1 <= number <= len(PHASES):
         raise ValueError(f"Invalid phase number {number}; must be 1..{len(PHASES)}")
     return PHASES[number - 1]
+
+
+async def run_query(prompt: str, options: "ClaudeAgentOptions") -> tuple[str, Any]:
+    """Run a `query()` against the Agent SDK and stream agent text to stdout.
+
+    Returns (collected_text, result_message). result_message is a
+    ResultMessage on success or None if the run finished without one
+    (which the caller should treat as an error).
+    """
+    from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock, query
+
+    text_chunks: list[str] = []
+    result = None
+    async for msg in query(prompt=prompt, options=options):
+        if isinstance(msg, AssistantMessage):
+            for block in msg.content:
+                if isinstance(block, TextBlock):
+                    print(block.text, flush=True)
+                    text_chunks.append(block.text)
+        elif isinstance(msg, ResultMessage):
+            result = msg
+    return "\n".join(text_chunks), result
+
+
+def record_phase_result(state_dir: Path, phase_number: int, result: "ResultMessage") -> None:
+    """Stash standard metrics from a query() ResultMessage into state.json."""
+    state.record_phase_metrics(
+        state_dir,
+        phase_number,
+        cost_usd=result.total_cost_usd,
+        duration_ms=result.duration_ms,
+        duration_api_ms=result.duration_api_ms,
+        num_turns=result.num_turns,
+        session_id_phase=result.session_id,
+    )
+
+
+def summarize_run(phase_number: int, artifact: Path, result: "ResultMessage") -> str:
+    """Format the per-phase one-liner shown after a successful run."""
+    return (
+        f"\nPhase {phase_number} done — {artifact} "
+        f"(${result.total_cost_usd:.2f}, {result.duration_ms / 1000:.1f}s, "
+        f"{result.num_turns} turns)"
+    )
