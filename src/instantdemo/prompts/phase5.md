@@ -12,15 +12,25 @@ Run these checks:
 
 2. **Selector existence** — for each segment whose action requires a
    selector (`click`, `hover`, `fill`, `check`, `select_option`, etc.),
-   verify the selector resolves on the relevant page. Use a short
+   verify the selector becomes available on the relevant page. Use a
    Playwright probe via `python -c` (or write a temp script and run it).
-   Use `page.query_selector(selector)` to test — `None` means missing.
+
+   **Use `page.wait_for_selector(selector, timeout=10000)`, not
+   `page.query_selector(selector)`.** The renderer itself uses
+   `wait_for_selector` with a timeout — your probe should mirror that
+   behavior. SPA pages routinely populate their DOM via SSE / fetch /
+   lazy loading after the initial route mount; a `query_selector`
+   returning `None` doesn't mean the selector is missing, just that it
+   isn't there *yet*. A `wait_for_selector` that times out after 10s
+   is what genuine missing means.
+
    Walk through the script in order so each page is visited via the
    same navigation path the renderer will use (otherwise SPA-only
    selectors won't be reachable).
 
 3. **`wait_for` selectors** — if a segment has a `wait_for` field, also
-   check that selector exists on the destination page.
+   verify that selector resolves (again, with `wait_for_selector`, not
+   `query_selector`) on the destination page.
 
 Probe scripts should be small and conservative:
    - 15-second timeout per page load
