@@ -31,6 +31,7 @@ import sys
 from pathlib import Path
 
 from instantdemo import __version__
+from . import checkpoints, state
 from .phases import (
     Context,
     PHASES,
@@ -176,16 +177,34 @@ def _import_phase_runner(number: int):
     raise AssertionError(f"unreachable: phase {name}")  # pragma: no cover
 
 
+# Phase 5 invokes the renderer; there's nothing to review afterwards.
+# The pre-render review (when real Phase 5 lands) happens inside the
+# phase itself, between validation and the render call.
+PHASES_WITH_REVIEW = (1, 2, 3, 4)
+
+
 def _run_phase(number: int, context: Context) -> None:
     name = phase_name_from_number(number)
     print(f"\n=== Phase {number}: {name} ===")
     runner = _import_phase_runner(number)
-    runner(context)
+    with state.phase_run(context.state_dir, number):
+        runner(context)
+    if number in PHASES_WITH_REVIEW:
+        artifact = context.phase_artifact(number)
+        checkpoints.review(artifact, no_edit=context.no_edit)
+
+
+def _init_state(context: Context) -> None:
+    """Ensure state.json exists and records the run-level inputs."""
+    context.state_dir.mkdir(parents=True, exist_ok=True)
+    s = state.load(context.state_dir)
+    state.update_inputs(s, url=context.url, describe=context.describe)
+    state.save(context.state_dir, s)
 
 
 def cmd_generate(args: argparse.Namespace) -> int:
     context = _resolve_context(args)
-    context.state_dir.mkdir(parents=True, exist_ok=True)
+    _init_state(context)
     for n in range(args.from_phase, len(PHASES) + 1):
         _run_phase(n, context)
     print("\nDone.")
@@ -194,7 +213,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
 
 def cmd_phase(args: argparse.Namespace) -> int:
     context = _resolve_context(args)
-    context.state_dir.mkdir(parents=True, exist_ok=True)
+    _init_state(context)
     _run_phase(args.number, context)
     return 0
 
@@ -212,10 +231,19 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(raw_args)
 
-    if args.command == "generate":
-        return cmd_generate(args)
-    if args.command == "phase":
-        return cmd_phase(args)
+    try:
+        if args.command == "generate":
+            return cmd_generate(args)
+        if args.command == "phase":
+            return cmd_phase(args)
+    except RuntimeError as e:
+        # Phase runners raise RuntimeError for known user-facing issues
+        # (e.g. missing prior-phase artifact). Print without the traceback.
+        print(f"\nError: {e}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("\nAborted.", file=sys.stderr)
+        return 130
 
     parser.print_help()
     return 0
