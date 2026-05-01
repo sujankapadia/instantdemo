@@ -1,26 +1,45 @@
 """Phase 4 — Produce the demo-script.json.
 
-Stub. Real implementation will use the Agent SDK with Write tool only,
-producing a JSON script that conforms to the schema.
+Translates the Phase 3 technical plan into the JSON the renderer expects.
+This is mechanical: every field the renderer needs has already been
+resolved by Phase 3. Phase 4 just wraps the segments in the script
+envelope, normalizes field names, and writes the file.
+
+Tools: Write (and only Write — the agent shouldn't be exploring the
+codebase at this stage).
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 
-from . import Context
+from claude_agent_sdk import ClaudeAgentOptions
+
+from .. import prompts
+from . import (
+    Context,
+    record_phase_result,
+    run_query,
+    summarize_run,
+)
 
 
-STUB_SCRIPT = {
-    "_stub": True,
-    "_note": (
-        "This is a placeholder demo-script.json written by the Phase 4 stub. "
-        "Real Phase 4 lands when the Agent SDK runner is wired up."
-    ),
-    "title": "Stub Demo",
-    "resolution": {"width": 1280, "height": 720},
-    "segments": [],
-}
+def _build_prompt(phase3_text: str, output_path: str) -> str:
+    template = prompts.load("phase4")
+    return (
+        "The following is the per-segment technical plan from Phase 3.\n"
+        "Each segment has its action, narration, target, and pacing\n"
+        "already resolved.\n"
+        "\n"
+        "---\n"
+        f"{phase3_text}\n"
+        "---\n"
+        "\n"
+        f"Write the resulting demo-script.json to: {output_path}\n"
+        "\n"
+        f"{template}"
+    )
 
 
 def run(context: Context) -> None:
@@ -29,7 +48,54 @@ def run(context: Context) -> None:
         raise RuntimeError(
             f"Phase 3 artifact missing at {phase3}. Run phase 3 first."
         )
+    phase3_text = phase3.read_text()
+
     artifact = context.phase_artifact(4)  # demo-script.json in source root
     artifact.parent.mkdir(parents=True, exist_ok=True)
-    artifact.write_text(json.dumps(STUB_SCRIPT, indent=2) + "\n")
-    print(f"Phase 4 (stub) wrote {artifact}")
+
+    options = ClaudeAgentOptions(
+        cwd=str(context.source),
+        allowed_tools=["Write"],
+        permission_mode="bypassPermissions",
+    )
+    prompt = _build_prompt(phase3_text, str(artifact))
+    _agent_text, result = asyncio.run(run_query(prompt, options))
+
+    if result is None:
+        raise RuntimeError(
+            "Phase 4: the Claude Agent SDK did not return a ResultMessage."
+        )
+
+    if not artifact.exists():
+        raise RuntimeError(
+            f"Phase 4 finished but {artifact} was not created. "
+            "The agent may have written to a different path."
+        )
+
+    # Validate the JSON now rather than at render time.
+    try:
+        script = json.loads(artifact.read_text())
+    except json.JSONDecodeError as e:
+        raise RuntimeError(
+            f"Phase 4 wrote {artifact} but it isn't valid JSON: {e}"
+        ) from e
+
+    # Quick schema spot-check — surfaces obvious problems before Phase 5
+    # tries to validate selectors against a live app.
+    for required in ("title", "resolution", "segments"):
+        if required not in script:
+            raise RuntimeError(
+                f"Phase 4 produced a script missing the {required!r} field."
+            )
+    if not isinstance(script["segments"], list) or not script["segments"]:
+        raise RuntimeError("Phase 4 produced a script with no segments.")
+    for i, seg in enumerate(script["segments"], start=1):
+        for required in ("action", "narration"):
+            if required not in seg:
+                raise RuntimeError(
+                    f"Phase 4 segment {i} is missing the {required!r} field."
+                )
+
+    record_phase_result(context.state_dir, 4, result)
+    print(summarize_run(4, artifact, result))
+    print(f"  ({len(script['segments'])} segments)")
