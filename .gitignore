@@ -1,1 +1,22 @@
 _archive/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+build/
+dist/
+.eggs/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# Tooling
+.coverage
+htmlcov/
+
+# Local instantdemo state (when running the CLI from this repo)
+.instantdemo/
