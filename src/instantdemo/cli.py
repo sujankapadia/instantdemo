@@ -1,30 +1,202 @@
-"""Command-line entry point for instantdemo."""
+"""Command-line entry point for instantdemo.
+
+Subcommand layout:
+
+    instantdemo --version
+    instantdemo --help
+
+    instantdemo generate
+        --url URL                      (required)
+        [--source PATH]                (default: cwd)
+        [--describe TEXT]              (optional flow description)
+        [--tts {kokoro,google,...}]    (default: kokoro)
+        [--output PATH]                (default: demo.mp4 in source)
+        [--from-phase N]               (resume from phase N)
+        [--no-edit]                    (skip $EDITOR checkpoints)
+
+    instantdemo phase {1..5}
+        [--source PATH] [other generate flags as needed]
+
+    instantdemo render <forwarded args>
+        (delegates entirely to instantdemo.render.main())
+
+The `render` subcommand is pre-routed before argparse sees its flags so
+that `instantdemo render --help` shows the renderer's own help text.
+"""
 
 from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 from instantdemo import __version__
+from .phases import (
+    Context,
+    PHASES,
+    phase_name_from_number,
+)
+
+
+TTS_CHOICES = ("kokoro", "google", "elevenlabs", "piper")
+
+
+def _resolve_context(args: argparse.Namespace) -> Context:
+    """Build a Context from parsed CLI args."""
+    source = Path(args.source).resolve() if args.source else Path.cwd()
+    state_dir = source / ".instantdemo"
+    if args.output:
+        output = Path(args.output).resolve()
+    else:
+        output = source / "demo.mp4"
+    return Context(
+        url=args.url,
+        source=source,
+        describe=args.describe,
+        state_dir=state_dir,
+        output=output,
+        tts=args.tts,
+        no_edit=args.no_edit,
+    )
+
+
+def _add_common_flags(parser: argparse.ArgumentParser) -> None:
+    """Flags shared between `generate` and `phase`."""
+    parser.add_argument(
+        "--url",
+        required=True,
+        help="URL of the running app to demo (e.g. http://localhost:3000)",
+    )
+    parser.add_argument(
+        "--source",
+        type=Path,
+        default=None,
+        help="Path to the codebase (default: current directory)",
+    )
+    parser.add_argument(
+        "--describe",
+        default=None,
+        help="What to demo (free-form description, optional)",
+    )
+    parser.add_argument(
+        "--tts",
+        choices=TTS_CHOICES,
+        default="kokoro",
+        help="TTS provider for the render step (default: kokoro)",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=None,
+        help="Final MP4 path (default: <source>/demo.mp4)",
+    )
+    parser.add_argument(
+        "--no-edit",
+        action="store_true",
+        help="Skip $EDITOR checkpoints between phases",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="instantdemo",
         description="Generate narrated demo videos of web applications.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Subcommands:\n"
-            "  render  Render an MP4 from a demo-script.json (use "
-            "`instantdemo render --help` for flags)\n"
+            "  generate  Run all 5 phases end-to-end (analyze → render)\n"
+            "  phase N   Run a single phase by number (1..5)\n"
+            "  render    Render an MP4 from a demo-script.json\n"
+            "\n"
+            "Use `instantdemo <subcommand> --help` for subcommand flags.\n"
         ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--version",
         action="version",
         version=f"instantdemo {__version__}",
     )
+
+    subparsers = parser.add_subparsers(dest="command", metavar="<command>")
+
+    # generate
+    generate = subparsers.add_parser(
+        "generate",
+        help="Run the full 5-phase workflow end-to-end",
+        description="Run all 5 phases end-to-end with optional $EDITOR checkpoints.",
+    )
+    _add_common_flags(generate)
+    generate.add_argument(
+        "--from-phase",
+        type=int,
+        choices=range(1, len(PHASES) + 1),
+        default=1,
+        metavar="N",
+        help="Resume from phase N (1..5). Earlier phases must already have artifacts.",
+    )
+
+    # phase
+    phase = subparsers.add_parser(
+        "phase",
+        help="Run a single phase by number (1..5)",
+        description="Run a single phase. Useful for debugging and dev iteration.",
+    )
+    phase.add_argument(
+        "number",
+        type=int,
+        choices=range(1, len(PHASES) + 1),
+        metavar="N",
+        help="Phase number (1..5)",
+    )
+    _add_common_flags(phase)
+
     return parser
+
+
+def _import_phase_runner(number: int):
+    """Lazy-import the phase module's run() so a missing optional dep
+    doesn't blow up the whole CLI at startup."""
+    name = phase_name_from_number(number)
+    if name == "analyze":
+        from .phases import analyze
+        return analyze.run
+    if name == "narrate":
+        from .phases import narrate
+        return narrate.run
+    if name == "gather":
+        from .phases import gather
+        return gather.run
+    if name == "script":
+        from .phases import script
+        return script.run
+    if name == "validate":
+        from .phases import validate
+        return validate.run
+    raise AssertionError(f"unreachable: phase {name}")  # pragma: no cover
+
+
+def _run_phase(number: int, context: Context) -> None:
+    name = phase_name_from_number(number)
+    print(f"\n=== Phase {number}: {name} ===")
+    runner = _import_phase_runner(number)
+    runner(context)
+
+
+def cmd_generate(args: argparse.Namespace) -> int:
+    context = _resolve_context(args)
+    context.state_dir.mkdir(parents=True, exist_ok=True)
+    for n in range(args.from_phase, len(PHASES) + 1):
+        _run_phase(n, context)
+    print("\nDone.")
+    return 0
+
+
+def cmd_phase(args: argparse.Namespace) -> int:
+    context = _resolve_context(args)
+    context.state_dir.mkdir(parents=True, exist_ok=True)
+    _run_phase(args.number, context)
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -38,7 +210,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     parser = build_parser()
-    parser.parse_args(raw_args)
+    args = parser.parse_args(raw_args)
+
+    if args.command == "generate":
+        return cmd_generate(args)
+    if args.command == "phase":
+        return cmd_phase(args)
+
     parser.print_help()
     return 0
 
