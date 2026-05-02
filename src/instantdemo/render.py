@@ -392,6 +392,32 @@ _ACTION_FIELD_MAP = {
 _RESERVED_FIELDS = {"narration", "action", "pause_after_ms", "wait_for", "url", "selector", "value", "pixels", "key", "expression"}
 
 
+def _parse_resolution(text: str) -> dict:
+    """argparse type that turns 'WxH' into {'width': W, 'height': H}.
+
+    Accepts both 'x' and 'X' as the separator. Rejects non-positive
+    integers and obviously-bogus values so users see the error at
+    parse time rather than mid-render.
+    """
+    raw = text.strip().lower()
+    parts = raw.replace("X", "x").split("x")
+    if len(parts) != 2:
+        raise argparse.ArgumentTypeError(
+            f"resolution must be WIDTHxHEIGHT (e.g. 1920x1080), got {text!r}"
+        )
+    try:
+        width, height = int(parts[0]), int(parts[1])
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"resolution dimensions must be integers, got {text!r}"
+        )
+    if width <= 0 or height <= 0:
+        raise argparse.ArgumentTypeError(
+            f"resolution dimensions must be positive, got {text!r}"
+        )
+    return {"width": width, "height": height}
+
+
 def _glide_to(page, selector: str, steps: int = 24) -> None:
     """Move the mouse to the selector's center with intermediate steps so
     the injected cursor visibly glides instead of teleporting. No-op if
@@ -701,6 +727,14 @@ def main(argv=None):
         default=1.0,
         help="Kokoro speech speed (default: 1.0)",
     )
+    parser.add_argument(
+        "--resolution",
+        type=_parse_resolution,
+        default=None,
+        metavar="WxH",
+        help="Override the script's resolution (e.g. 1920x1080). "
+        "Default: 1920x1080 if the script doesn't specify a resolution.",
+    )
     args = parser.parse_args(argv)
 
     # Resolve paths
@@ -724,7 +758,15 @@ def main(argv=None):
 
     script = json.loads(script_path.read_text())
     segments = script["segments"]
-    resolution = script["resolution"]
+
+    # Resolution priority: --resolution flag > script's "resolution" field > 1920x1080 default
+    if args.resolution is not None:
+        resolution = args.resolution
+    elif "resolution" in script:
+        resolution = script["resolution"]
+    else:
+        resolution = {"width": 1920, "height": 1080}
+    print(f"Resolution: {resolution['width']}x{resolution['height']}")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
