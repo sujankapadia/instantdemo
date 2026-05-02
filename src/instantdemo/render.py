@@ -25,6 +25,65 @@ import urllib.request
 from pathlib import Path
 
 
+# Injected via context.add_init_script — gives the recorded video a
+# visible cursor that follows mouse moves and pulses on click.
+# Playwright's video recorder doesn't render the OS cursor, so we draw
+# our own as a DOM element. Hosted in a closed shadow root to keep it
+# out of the page's DOM tree (and away from page scripts that enumerate
+# everything). DOMContentLoaded guard avoids running before
+# document.documentElement is ready in some navigation timings.
+_CURSOR_INJECT_SCRIPT = """
+(() => {
+  const inject = () => {
+    const host = document.createElement('div');
+    host.style.cssText = 'position:fixed;top:0;left:0;width:0;height:0;z-index:2147483647;pointer-events:none';
+    document.documentElement.appendChild(host);
+
+    const root = host.attachShadow({ mode: 'closed' });
+    root.innerHTML = `
+      <style>
+        .cursor {
+          position: fixed;
+          top: 0; left: 0;
+          width: 14px; height: 14px;
+          background: rgba(255, 255, 255, 0.95);
+          border: 1.5px solid rgba(20, 20, 20, 0.75);
+          border-radius: 50%;
+          box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+          transform: translate(-100px, -100px);
+          transition: transform 0.18s cubic-bezier(0.2, 0.7, 0.3, 1);
+          pointer-events: none;
+          will-change: transform;
+        }
+        .cursor.click { animation: pulse 0.4s ease-out; }
+        @keyframes pulse {
+          0%   { box-shadow: 0 0 0 0 rgba(58, 162, 255, 0.6); }
+          100% { box-shadow: 0 0 0 24px rgba(58, 162, 255, 0); }
+        }
+      </style>
+      <div class="cursor" id="cur"></div>
+    `;
+    const cur = root.getElementById('cur');
+
+    document.addEventListener('mousemove', (e) => {
+      cur.style.transform = `translate(${e.clientX - 7}px, ${e.clientY - 7}px)`;
+    }, true);
+    document.addEventListener('mousedown', () => {
+      cur.classList.remove('click');
+      void cur.offsetWidth;  // restart animation
+      cur.classList.add('click');
+    }, true);
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', inject);
+  } else {
+    inject();
+  }
+})();
+"""
+
+
 # ---------------------------------------------------------------------------
 # Environment loading
 # ---------------------------------------------------------------------------
@@ -305,14 +364,17 @@ _ACTION_FIELD_MAP = {
     "goto": lambda page, seg: _action_navigate(page, seg),
     "click": lambda page, seg: (
         page.wait_for_selector(seg["selector"], timeout=10000),
+        _glide_to(page, seg["selector"]),
         page.click(seg["selector"]),
     ),
     "fill": lambda page, seg: (
         page.wait_for_selector(seg["selector"], timeout=10000),
+        _glide_to(page, seg["selector"]),
         page.fill(seg["selector"], seg["value"]),
     ),
     "hover": lambda page, seg: (
         page.wait_for_selector(seg["selector"], timeout=10000),
+        _glide_to(page, seg["selector"]),
         page.hover(seg["selector"]),
     ),
     "scroll": lambda page, seg: _action_scroll(page, seg),
@@ -328,6 +390,24 @@ _ACTION_FIELD_MAP = {
 
 # Fields that are part of the segment schema, not Playwright method args.
 _RESERVED_FIELDS = {"narration", "action", "pause_after_ms", "wait_for", "url", "selector", "value", "pixels", "key", "expression"}
+
+
+def _glide_to(page, selector: str, steps: int = 24) -> None:
+    """Move the mouse to the selector's center with intermediate steps so
+    the injected cursor visibly glides instead of teleporting. No-op if
+    the selector isn't resolvable to a bounding box (off-screen, hidden,
+    etc.) — the subsequent action still runs and Playwright's internal
+    move handles correctness."""
+    try:
+        box = page.locator(selector).bounding_box(timeout=2000)
+    except Exception:
+        return
+    if not box:
+        return
+    cx = box["x"] + box["width"] / 2
+    cy = box["y"] + box["height"] / 2
+    page.mouse.move(cx, cy, steps=steps)
+    time.sleep(0.2)  # let the cursor settle before the action fires
 
 
 def _action_navigate(page, seg: dict) -> None:
@@ -406,6 +486,7 @@ def record_browser_video(
                 "height": resolution["height"],
             },
         )
+        context.add_init_script(_CURSOR_INJECT_SCRIPT)
         page = context.new_page()
         recording_start = time.monotonic()
 
