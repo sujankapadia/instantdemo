@@ -185,6 +185,57 @@ infrastructure needed. Switch to WebSocket only if bidirectional
 control becomes necessary (e.g., chat-like interaction with the
 agent).
 
+### G3. Long-lived `ClaudeSDKClient` instead of `query()` per phase
+**Status:** Pending (follow-up — not blocking M0/M1)
+**Context:** SDK spike (`/tmp/sdk_spike3.py`) confirmed that
+`claude-agent-sdk` launches the `claude` CLI as a subprocess on
+every `query()` call, paying ~5–10s cold-start per phase. A 5-phase
+cold-start workflow burns ~25–50s before any real work.
+
+The SDK exposes an alternative: `ClaudeSDKClient`, a long-lived
+stateful client that keeps one subprocess alive across many queries.
+
+**Spike results:**
+
+| Metric | `query()` × 5 phases | `ClaudeSDKClient` reused |
+|---|---|---|
+| Cold-start cost | ~30s total | ~5s once |
+| Subsequent query latency | 5–10s subprocess startup | ~2s |
+| Cancellation | `asyncio.cancel` ~6s | `client.interrupt()` ~instant |
+| Per-phase context isolation | Implicit (fresh subprocess) | Via `session_id` parameter |
+
+The `session_id` parameter on `client.query(prompt, session_id="...")`
+lets each phase have isolated conversation context. Phase 1 uses
+`session_id="phase1"`, Phase 2 uses `session_id="phase2"`, etc.
+
+**Options:**
+- Migrate engine to `ClaudeSDKClient` for both CLI and GUI
+- Keep CLI on `query()`, switch only the GUI server to
+  `ClaudeSDKClient` (parallel paths)
+- Don't migrate — accept cold-start latency in the GUI
+
+**Recommendation:** Migrate engine to `ClaudeSDKClient`. Both CLI and
+GUI benefit from faster runs and instant cancellation. Architecture
+becomes: each `instantdemo` invocation creates one client, runs all
+phases against it with distinct `session_id`s, disconnects at the
+end. GUI server keeps the client alive across the FastAPI process
+lifetime (initialized in lifespan startup).
+
+**Tradeoffs:**
+- Refactoring cost — every phase module currently calls `query()`
+  directly. Migration is mechanical but touches all 5 phase files.
+- Single-subprocess assumption — if the GUI ever gets multi-user,
+  we'd need a client pool. Not a v1 concern.
+- Subprocess crash recovery — with `query()`, each phase is
+  insulated; with `ClaudeSDKClient`, a crash blocks all phases until
+  reconnect. Need a health check + reconnect path.
+
+**Filed as follow-up because:** the migration isn't required for
+the MVP. The CLI works today. We can build M0/M1 (no agent runs) and
+spike the migration before M2 (which depends on streaming and
+cancellation UX). If the migration is risky, M2 falls back to
+`query()` per phase with the cold-start latency baked in.
+
 ---
 
 ## H. Frontend stack
@@ -209,7 +260,11 @@ both markdown and JSON modes.
 
 ## Summary
 
-All 14 v1 decisions resolved. Ready for implementation planning.
+All 14 original v1 decisions resolved. Ready for implementation
+planning.
+
+**One follow-up open:** G3 (`ClaudeSDKClient` migration). Pending,
+not blocking M0/M1; revisit before M2.
 
 Deferred to v1.5+: B2 reorder, B3 insert, B4 delete, F2 per-segment
 voice. Per-phase prompt template editor (an option considered in C2)

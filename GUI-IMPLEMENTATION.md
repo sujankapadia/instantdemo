@@ -20,51 +20,82 @@ rather than refactoring later.
 
 ### Module layout
 
-GUI server lives at `src/instantdemo/server/`:
+GUI server lives at `src/instantdemo/server/`. Frontend source lives
+at `frontend/` at the repo root:
 
 ```
-src/instantdemo/
-├── cli.py                  # existing — adds `serve` subcommand
-├── render.py               # existing
-├── phases/                 # existing
-├── server/
-│   ├── __init__.py
-│   ├── app.py              # FastAPI app
-│   ├── routes/
-│   │   ├── project.py      # GET /api/project, project state
-│   │   ├── phases.py       # POST /api/phases/{n}/run, SSE stream
-│   │   ├── segments.py     # segment edit + re-render
-│   │   └── settings.py     # project settings (gear icon)
-│   ├── streaming.py        # SSE helpers, callback plumbing
-│   ├── state.py            # state.json read/write helpers
-│   └── web/                # bundled frontend assets (built)
-└── server_dev/             # frontend source — NOT shipped in pip pkg
+instantdemo/                # repo root
+├── src/instantdemo/
+│   ├── cli.py              # existing — adds `serve` subcommand
+│   ├── render.py           # existing
+│   ├── phases/             # existing
+│   └── server/
+│       ├── __init__.py
+│       ├── app.py          # FastAPI app
+│       ├── routes/
+│       │   ├── project.py  # GET /api/project, project state
+│       │   ├── phases.py   # POST /api/phases/{n}/run, SSE stream
+│       │   ├── segments.py # segment edit + re-render
+│       │   └── settings.py # project settings (gear icon)
+│       ├── streaming.py    # SSE helpers, callback plumbing
+│       ├── state.py        # state.json read/write helpers
+│       └── web/            # bundled frontend assets (built, gitignored)
+└── frontend/               # frontend source — NOT shipped in pip pkg
     ├── package.json
     ├── vite.config.ts
     ├── tsconfig.json
+    ├── tailwind.config.ts
+    ├── components.json     # shadcn config
     └── src/
         ├── main.tsx
         ├── App.tsx
         ├── components/
+        │   └── ui/         # shadcn components (copy-paste, owned by us)
         ├── hooks/
         └── api/
 ```
 
-**Why this split:** the frontend source (`server_dev/`) lives in the
-repo but is excluded from the pip package via the hatchling
-`[tool.hatch.build]` `exclude` config. Built assets land in
-`src/instantdemo/server/web/` and ship with the package. Users never
-need npm.
+**Why this split:** `frontend/` lives at the repo root for clarity
+(it's not "dev-only" — it's the source of truth for the UI). Built
+assets land in `src/instantdemo/server/web/` and ship inside the pip
+package. The build output directory is gitignored. Users never need
+npm.
 
 ### Frontend dev workflow
 
-- Run `cd server_dev && npm run dev` for Vite hot reload (port 5173)
+- Run `cd frontend && npm run dev` for Vite hot reload (port 5173)
 - Run `instantdemo serve` for FastAPI (port 8765 — pick something
   unlikely to clash)
 - Vite proxies `/api/*` to FastAPI via vite.config.ts
 - Production build: `npm run build` outputs to
   `../src/instantdemo/server/web/`. FastAPI serves those static
   assets at `/`.
+
+### Language and frontend stack
+
+- **TypeScript** with relaxed `tsconfig.json` (`strict: false`
+  initially). Tighten as the codebase grows.
+- **Tailwind CSS** for styling, set up via the official Vite plugin.
+- **shadcn/ui** for accessible primitives (Dialog, Dropdown, Tabs,
+  Tooltip, etc.). Components are copy-pasted into
+  `frontend/src/components/ui/` via the shadcn CLI; we own and edit
+  them. Built on Radix UI (behavior) + Tailwind (styling).
+- **CodeMirror 6** for markdown / JSON editors (per H2).
+- **Plain `useState` / `useReducer` + Context** for state in M0–M2.
+  Revisit at M3 if state complexity warrants Zustand or TanStack
+  Query.
+
+shadcn setup (~30–45 minutes during Pre-M0):
+
+```bash
+npm install -D tailwindcss postcss autoprefixer @tailwindcss/vite
+npx tailwindcss init -p
+npx shadcn@latest init
+npx shadcn@latest add button card dialog dropdown-menu tabs tooltip separator
+```
+
+After that, components are imported as
+`import { Button } from "@/components/ui/button"`.
 
 ### Build & release
 
@@ -91,42 +122,59 @@ need npm.
 
 ## M0 — Walking skeleton (~1–2 days)
 
-**Goal:** prove the architecture with the smallest possible end-to-end
-slice. One API endpoint, one React component, both running.
+**Goal:** prove the architecture end-to-end with the layout shell in
+place. Phase rail rendered with real status from `state.json`. No
+artifact viewing, no editing, no streaming yet — but the chrome is
+there for M1 to fill in.
 
 ### Deliverable
 
-Open browser to `localhost:8765`, see:
+Open browser to `localhost:8765`, see the IDE-style layout shell:
 
-```
-Project: claude-code-analytics
-Phases: [✓ Analyze] [✓ Narrate] [✓ Gather] [✓ Script] [✓ Validate]
-```
+- Header: project name, gear icon (non-functional placeholder)
+- Phase rail: 5 phase pills with status from `state.json`
+  (✓ complete / ● running / ○ pending / ✗ error), cost + duration
+  on hover
+- Editor pane (left ~60%): empty placeholder
+- Video + segments pane (right ~40%): empty placeholder
+- Log drawer (bottom): collapsed placeholder
 
-No styling, no editing, no streaming. Just proof that the FastAPI
-server can read state.json and the React frontend can render it.
+Styled with Tailwind + shadcn primitives so it looks like a real app,
+not raw HTML.
 
 ### Tasks
 
 1. Add `[gui]` optional extra to `pyproject.toml`
 2. Scaffold `src/instantdemo/server/app.py` with FastAPI + one route:
-   `GET /api/project` returns `state.json` contents
-3. Scaffold `server_dev/` with Vite + React + TypeScript
-4. Vite config: dev proxy `/api/*` → `localhost:8765`
-5. One React component fetches `/api/project` and renders phase pills
-6. Wire `instantdemo serve` CLI subcommand → uvicorn
-7. Static-file mount: FastAPI serves `server/web/` at `/`
-8. `scripts/build_gui.sh` — runs `npm run build` and copies output
+   `GET /api/project` returns `state.json` contents (project name,
+   phases dict with status/cost/duration per phase)
+3. Scaffold `frontend/` with Vite + React + TypeScript
+4. Set up Tailwind + shadcn (per Pre-M0 instructions); add base
+   components: button, card, separator, tooltip
+5. Vite config: dev proxy `/api/*` → `localhost:8765`
+6. Build the layout shell: header, phase rail, two empty panes, log
+   drawer. All using shadcn primitives + Tailwind
+7. PhaseRail component fetches `/api/project` and renders 5 pills
+   with real status, cost-on-hover (Tooltip from shadcn)
+8. Wire `instantdemo serve` CLI subcommand → uvicorn (in-process,
+   not subprocess); auto-open browser unless `--no-open` flag set
+9. Static-file mount: FastAPI serves `server/web/` at `/`
+10. `scripts/build_gui.sh` — runs `npm run build`, ensures output
+    landed in `src/instantdemo/server/web/`
 
 ### Acceptance
 
 - [ ] `pip install -e '.[gui]'` works
-- [ ] `cd server_dev && npm install && npm run dev` works
-- [ ] `instantdemo serve` starts on 127.0.0.1:8765
-- [ ] Browser shows project name + phase status from a real
-      `.instantdemo/` directory
+- [ ] `cd frontend && npm install && npm run dev` works
+- [ ] `instantdemo serve` starts on 127.0.0.1:8765, opens browser
+- [ ] Browser shows full layout shell (header + phase rail + empty
+      panes + drawer) styled with Tailwind
+- [ ] Phase rail reflects real `state.json` status — running this
+      against `claude-code-analytics` shows all 5 phases as ✓
 - [ ] Hot reload works (edit React → browser updates without
       restarting FastAPI)
+- [ ] Empty project state (`.instantdemo/` missing) doesn't crash;
+      shows a placeholder ("No project here yet")
 
 ---
 
@@ -143,22 +191,21 @@ plays. Segments listed. No editing.
 
 ### Tasks
 
-1. Layout shell: phase rail (top), editor (left ~60%), video+segments
-   (right ~40%), log drawer (bottom, collapsed by default)
-2. Install CodeMirror 6 with markdown + JSON modes
-3. Endpoints:
+(Layout shell is already in place from M0. M1 fills in the panes.)
+
+1. Install CodeMirror 6 with markdown + JSON modes
+2. Endpoints:
    - `GET /api/project/artifacts/{phase}` — returns artifact contents
      (markdown for 1/2/3/5, JSON for 4)
    - `GET /api/project/video` — streams the rendered MP4
    - `GET /api/project/segments` — parsed segments from script.json
-4. Phase pills: clickable, show status from state.json, show cost +
-   duration on hover
-5. Editor pane: read-only CodeMirror, switches content based on
+3. Phase pills become clickable — selection drives editor pane
+4. Editor pane: read-only CodeMirror, switches content based on
    selected phase
-6. Video pane: HTML5 `<video>` with the rendered MP4
-7. Segments list: each segment shows index, action, narration text,
+5. Video pane: HTML5 `<video>` with the rendered MP4
+6. Segments list: each segment shows index, action, narration text,
    duration. Click → jumps video to that timestamp
-8. Markdown rendering for phase artifacts (use `react-markdown` or
+7. Markdown rendering for phase artifacts (use `react-markdown` or
    render to HTML server-side)
 
 ### Acceptance
@@ -421,12 +468,75 @@ differentiating. M3 is what justifies the whole exercise.
 
 ---
 
+## SDK spike findings
+
+Ran three spikes against `claude-agent-sdk` 0.1.71
+(`/tmp/sdk_spike.py`, `/tmp/sdk_spike2.py`, `/tmp/sdk_spike3.py` —
+throwaway). Findings drove decision G3 in `GUI-DECISIONS.md`.
+
+### Streaming + cancellation API (architecture stands)
+
+- **`query()` returns an `AsyncIterator`** of typed messages
+  (UserMessage, AssistantMessage, SystemMessage, ResultMessage,
+  StreamEvent, RateLimitEvent). Async-iterate to consume.
+- **Set `include_partial_messages=True`** in `ClaudeAgentOptions` to
+  get per-token streaming via `StreamEvent` messages. Each carries
+  `event: dict` with the raw Anthropic-API streaming payload —
+  `type: content_block_delta` for token chunks.
+- **Cost is on `ResultMessage.total_cost_usd`** at end of run.
+
+### Cold-start is per-`query()` and significant
+
+Every `query()` call launches the `claude` CLI as a subprocess and
+waits ~5–10s for it to initialize. First `SystemMessage` at t=5.78s,
+first `StreamEvent` at t=9.79s in our tests. A 5-phase cold-start
+workflow with `query()`-per-phase pays this 5 times → ~25–50s
+overhead.
+
+### `ClaudeSDKClient` amortizes cold-start (recommended path)
+
+The SDK also exposes `ClaudeSDKClient` — a long-lived client that
+keeps one subprocess alive across many `client.query()` calls.
+Spike results:
+
+| Metric | `query()` × 5 phases | `ClaudeSDKClient` reused |
+|---|---|---|
+| Cold-start cost | ~30s total | ~5s once |
+| Subsequent query latency | 5–10s | ~2s |
+| Cancellation | `asyncio.cancel` ~6s | `client.interrupt()` instant |
+
+`session_id` parameter gives per-phase context isolation
+(no leakage between phases).
+
+**Decision (G3 in GUI-DECISIONS.md):** migrate engine to
+`ClaudeSDKClient`. Both CLI and GUI benefit. Touches all 5 phase
+files but the migration is mechanical. Filed as follow-up — not
+blocking M0/M1 but should land before M2.
+
+### UX implications (still apply)
+
+**Cold-start state.** First-run still pays ~5s for `connect()`. GUI
+shows "Starting agent..." during this window — distinct from
+"Loading data."
+
+**Cancellation is instant with `interrupt()`.** UI can disable the
+Stop button immediately and rely on the next `ResultMessage` to
+arrive within ~1s. No "Stopping..." purgatory.
+
+**Streaming spread depends on response length.** For tiny prompts
+("count to 10"), `StreamEvent`s arrive within 0.05s. For real
+Phase prompts (~30s of generation), events spread over the full
+duration — what gives the GUI live-feel output.
+
+**Cost-counting during cancellation.** With `interrupt()`, the
+`ResultMessage` arrives almost immediately and carries the partial
+cost. Less of a worry than with `query()`-based cancellation.
+
 ## Risk register
 
-**SDK streaming + cancellation semantics (M2).** If the
-claude-agent-sdk doesn't expose clean callbacks for streaming output
-or cancel tokens for in-flight runs, M2 architecture has to change.
-Spike this in M0 before committing.
+**SDK streaming + cancellation semantics (M2).** ✓ Resolved by
+spike — see findings above. Architecture stands; UX must
+accommodate cold-start and cancel-settle latencies.
 
 **Frontend bundle size.** React + CodeMirror 6 + video preview will
 be 500KB+ gzipped. Acceptable for localhost, but worth verifying it
@@ -471,11 +581,18 @@ discussion.
 
 ## What to build first
 
-Concretely: M0 task 1 — add `[gui]` extra to pyproject.toml and
-scaffold the FastAPI app. ~30 minutes. Once that runs, scaffold the
-React app. By end of day 1 of M0, you should have the walking
-skeleton working.
+SDK spike already complete (see findings above). Architecture stands.
 
-Before writing any code: spike the SDK streaming/cancellation question
-(M2 risk above). 30 minutes. If the SDK doesn't support what we need,
-adjust the plan before investing in the architecture.
+Concrete starting tasks:
+
+1. Add `[gui]` extra to `pyproject.toml` (~10 min)
+2. Scaffold `src/instantdemo/server/app.py` with FastAPI and the
+   `GET /api/project` route reading `state.json` (~30 min)
+3. Wire `instantdemo serve` CLI subcommand → uvicorn (~15 min)
+4. Scaffold `frontend/` with Vite + React + TS (~15 min)
+5. Set up Tailwind + shadcn (~30–45 min)
+6. Build the layout shell with placeholder panes + functional phase
+   rail (~half day)
+
+End of M0: walking skeleton renders against the existing
+claude-code-analytics project.
