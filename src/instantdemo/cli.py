@@ -175,6 +175,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Auto-reload on code changes (development only)",
     )
+    serve.add_argument(
+        "--project",
+        type=Path,
+        default=None,
+        help="Project directory to serve (default: current directory)",
+    )
 
     return parser
 
@@ -244,6 +250,7 @@ def cmd_phase(args: argparse.Namespace) -> int:
 
 def cmd_serve(args: argparse.Namespace) -> int:
     try:
+        import os
         import uvicorn
     except ImportError:
         print(
@@ -252,6 +259,13 @@ def cmd_serve(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
+    if args.project is not None:
+        project_path = Path(args.project).resolve()
+        if not project_path.is_dir():
+            print(f"Error: --project path is not a directory: {project_path}", file=sys.stderr)
+            return 1
+        os.environ["INSTANTDEMO_PROJECT_DIR"] = str(project_path)
+        print(f"Project directory: {project_path}")
     print(f"InstantDemo GUI: http://{args.host}:{args.port}")
     uvicorn.run(
         "instantdemo.server.app:app",

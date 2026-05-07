@@ -5,6 +5,8 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .routes import project
+
 
 def create_app() -> FastAPI:
     app = FastAPI(title="InstantDemo", version="0.1.0")
@@ -23,6 +25,8 @@ def create_app() -> FastAPI:
     @app.get("/api/health")
     def health() -> dict[str, bool]:
         return {"ok": True}
+
+    app.include_router(project.router)
 
     return app
 
