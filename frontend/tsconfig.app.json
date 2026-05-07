@@ -18,6 +18,13 @@
     /* Strictness */
     "strict": true,
 
+    /* Path aliases */
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+    "ignoreDeprecations": "6.0",
+
     /* Linting */
     "noUnusedLocals": true,
     "noUnusedParameters": true,
