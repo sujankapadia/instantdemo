@@ -11,6 +11,12 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  build: {
+    // Built assets land inside the pip package, served by FastAPI in
+    // production. Gitignored; rebuilt by scripts/build_gui.sh and CI.
+    outDir: path.resolve(__dirname, '../src/instantdemo/server/web'),
+    emptyOutDir: true,
+  },
   server: {
     port: 5173,
     proxy: {

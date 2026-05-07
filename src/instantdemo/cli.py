@@ -181,6 +181,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Project directory to serve (default: current directory)",
     )
+    serve.add_argument(
+        "--no-open",
+        action="store_true",
+        help="Don't open the browser automatically",
+    )
 
     return parser
 
@@ -251,6 +256,9 @@ def cmd_phase(args: argparse.Namespace) -> int:
 def cmd_serve(args: argparse.Namespace) -> int:
     try:
         import os
+        import threading
+        import time
+        import webbrowser
         import uvicorn
     except ImportError:
         print(
@@ -266,7 +274,18 @@ def cmd_serve(args: argparse.Namespace) -> int:
             return 1
         os.environ["INSTANTDEMO_PROJECT_DIR"] = str(project_path)
         print(f"Project directory: {project_path}")
-    print(f"InstantDemo GUI: http://{args.host}:{args.port}")
+    url = f"http://{args.host}:{args.port}"
+    print(f"InstantDemo GUI: {url}")
+    if not args.no_open and not args.reload:
+        # Defer the open() call so uvicorn has time to bind the port.
+        # Skipped under --reload because the worker restarts repeatedly.
+        def _open_later() -> None:
+            time.sleep(1.0)
+            try:
+                webbrowser.open(url)
+            except Exception:  # pragma: no cover
+                pass
+        threading.Thread(target=_open_later, daemon=True).start()
     uvicorn.run(
         "instantdemo.server.app:app",
         host=args.host,

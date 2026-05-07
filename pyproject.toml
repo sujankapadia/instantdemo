@@ -47,6 +47,12 @@ Issues = "https://github.com/sujankapadia/instantdemo/issues"
 [tool.hatch.build.targets.wheel]
 packages = ["src/instantdemo"]
 
+# The frontend bundle in src/instantdemo/server/web is gitignored
+# (it's a build artifact). force-include ensures it's still added to the
+# wheel when present, so pip-installed users get the GUI without npm.
+[tool.hatch.build.targets.wheel.force-include]
+"src/instantdemo/server/web" = "instantdemo/server/web"
+
 [tool.hatch.build.targets.sdist]
 include = ["src/instantdemo", "README.md", "LICENSE", "pyproject.toml"]
 

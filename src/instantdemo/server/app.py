@@ -2,10 +2,52 @@
 
 from __future__ import annotations
 
+from importlib.resources import files
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 from .routes import project
+
+
+_NOT_BUILT_HTML = """\
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>InstantDemo — frontend not built</title>
+  <style>
+    body { font-family: -apple-system, system-ui, sans-serif; padding: 3rem;
+           max-width: 720px; margin: 0 auto; color: #222; }
+    code { background: #f4f4f4; padding: 2px 6px; border-radius: 4px; }
+    pre  { background: #f4f4f4; padding: 1rem; border-radius: 6px; overflow-x: auto; }
+    h1   { margin-top: 0; }
+  </style>
+</head>
+<body>
+  <h1>Frontend not built</h1>
+  <p>The InstantDemo GUI server is running, but the frontend bundle is
+     missing. The API works (try <code>/api/health</code>), but the UI
+     can't load.</p>
+  <p>If you installed from a source checkout, build the frontend:</p>
+  <pre>./scripts/build_gui.sh</pre>
+  <p>Or run the Vite dev server (in a separate terminal) and open
+     <code>http://localhost:5173</code>:</p>
+  <pre>cd frontend &amp;&amp; npm install &amp;&amp; npm run dev</pre>
+  <p>If you installed from a wheel, please file a bug — the wheel
+     should have shipped with the bundle.</p>
+</body>
+</html>
+"""
+
+
+def _web_dir() -> Path:
+    """Return the path to the bundled frontend assets, regardless of how
+    the package was installed (editable, wheel, zipapp)."""
+    return Path(str(files("instantdemo").joinpath("server", "web")))
 
 
 def create_app() -> FastAPI:
@@ -27,6 +69,20 @@ def create_app() -> FastAPI:
         return {"ok": True}
 
     app.include_router(project.router)
+
+    web_dir = _web_dir()
+    index_html = web_dir / "index.html"
+
+    if index_html.exists():
+        # Serve the built SPA. `html=True` serves index.html for
+        # directory paths (e.g. "/").
+        app.mount("/", StaticFiles(directory=str(web_dir), html=True), name="web")
+    else:
+        # Helpful fallback for source checkouts where the bundle
+        # hasn't been built yet. Keeps the API usable.
+        @app.get("/", response_class=HTMLResponse)
+        def _not_built() -> str:
+            return _NOT_BUILT_HTML
 
     return app
 
