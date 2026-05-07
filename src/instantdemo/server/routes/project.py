@@ -8,13 +8,14 @@ that's the cwd of `instantdemo serve`; it can be overridden via the
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Path as PathParam
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from instantdemo import state as state_mod
 
@@ -67,6 +68,43 @@ class ArtifactResponse(BaseModel):
     format: ArtifactFormat
     exists: bool
     content: str | None = None
+
+
+class Segment(BaseModel):
+    """One segment from demo-script.json plus joined timing.
+
+    Action-specific fields (selector, url, pixels, wait_for, frame, key,
+    expression, value, ...) are passed through as-is via extra="allow"
+    so the API doesn't have to be updated when the script schema gains
+    new optional fields.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    index: int
+    action: str
+    narration: str = ""
+    pause_after_ms: int | None = None
+
+    # Joined from segment-timing.json. Null when timing file is absent.
+    start_s: float | None = None
+    end_s: float | None = None
+    audio_duration_s: float | None = None
+
+
+class SegmentsResponse(BaseModel):
+    """Segment list for the GUI's right-pane segments view.
+
+    `exists=False` means demo-script.json is missing (e.g. Phase 4
+    hasn't run yet). `has_timing=False` means the script is present but
+    the renderer hasn't emitted segment-timing.json — segments still
+    come back, just without start_s/end_s/audio_duration_s populated.
+    """
+
+    exists: bool
+    has_timing: bool
+    total_duration_s: float | None = None
+    segments: list[Segment] = []
 
 
 def _project_dir() -> Path:
@@ -136,6 +174,62 @@ def get_artifact(
         format=fmt,
         exists=True,
         content=path.read_text(),
+    )
+
+
+def _load_timing(state_dir: Path) -> dict[str, Any] | None:
+    """Read segment-timing.json if present, else None."""
+    path = state_dir / "segment-timing.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+@router.get("/project/segments", response_model=SegmentsResponse)
+def get_segments() -> SegmentsResponse:
+    pdir = _project_dir()
+    script_path = pdir / "demo-script.json"
+    state_dir = pdir / ".instantdemo"
+
+    if not script_path.exists():
+        return SegmentsResponse(exists=False, has_timing=False)
+
+    try:
+        script = json.loads(script_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return SegmentsResponse(exists=False, has_timing=False)
+
+    raw_segments = script.get("segments", []) or []
+
+    timing = _load_timing(state_dir)
+    timing_by_index: dict[int, dict[str, Any]] = {}
+    total_duration_s: float | None = None
+    if timing:
+        for entry in timing.get("segments", []) or []:
+            idx = entry.get("index")
+            if isinstance(idx, int):
+                timing_by_index[idx] = entry
+        total = timing.get("total_duration_s")
+        total_duration_s = float(total) if isinstance(total, (int, float)) else None
+
+    segments: list[Segment] = []
+    for i, raw in enumerate(raw_segments):
+        merged: dict[str, Any] = {**raw, "index": i}
+        t = timing_by_index.get(i)
+        if t is not None:
+            merged["start_s"] = t.get("start_s")
+            merged["end_s"] = t.get("end_s")
+            merged["audio_duration_s"] = t.get("audio_duration_s")
+        segments.append(Segment(**merged))
+
+    return SegmentsResponse(
+        exists=True,
+        has_timing=timing is not None,
+        total_duration_s=total_duration_s,
+        segments=segments,
     )
 
 

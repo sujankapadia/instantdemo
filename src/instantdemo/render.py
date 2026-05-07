@@ -341,6 +341,46 @@ def get_audio_duration(path: Path) -> float:
     return float(result.stdout.strip())
 
 
+def _write_segment_timing(
+    state_dir: Path,
+    segments: list[dict],
+    audio_durations_s: list[float],
+    output_filename: str,
+) -> None:
+    """Write per-segment playback timing to <state_dir>/segment-timing.json.
+
+    Mirrors the timing math used in record_browser_video: each segment's
+    duration is max(audio_duration, pause_after_ms / 1000), starts at the
+    cumulative end of prior segments. Used by the GUI to map segments
+    onto positions in the rendered video for click-to-seek.
+    """
+    cursor = 0.0
+    out_segments = []
+    for i, seg in enumerate(segments):
+        audio_s = audio_durations_s[i]
+        pause_s = (seg.get("pause_after_ms") or 0) / 1000
+        seg_s = max(audio_s, pause_s)
+        out_segments.append(
+            {
+                "index": i,
+                "start_s": round(cursor, 3),
+                "end_s": round(cursor + seg_s, 3),
+                "audio_duration_s": round(audio_s, 3),
+            }
+        )
+        cursor += seg_s
+
+    state_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "video": output_filename,
+        "total_duration_s": round(cursor, 3),
+        "segments": out_segments,
+    }
+    (state_dir / "segment-timing.json").write_text(
+        json.dumps(payload, indent=2) + "\n"
+    )
+
+
 def _ensure_wav(clip: Path, index: int, tmp_dir: Path) -> Path:
     """Convert an audio clip to WAV if it isn't already."""
     if clip.suffix == ".wav":
@@ -735,6 +775,12 @@ def main(argv=None):
         help="Override the script's resolution (e.g. 1920x1080). "
         "Default: 1920x1080 if the script doesn't specify a resolution.",
     )
+    parser.add_argument(
+        "--state-dir",
+        type=Path,
+        default=None,
+        help="Directory to write segment-timing.json (default: <script>/.instantdemo)",
+    )
     args = parser.parse_args(argv)
 
     # Resolve paths
@@ -811,6 +857,18 @@ def main(argv=None):
         video_path, audio_clips, clip_durations, segments, output_path, tmp_dir,
         timestamps,
     )
+
+    # Phase D: Write per-segment timing for the GUI segments view
+    state_dir = (
+        args.state_dir.resolve()
+        if args.state_dir
+        else script_path.parent / ".instantdemo"
+    )
+    _write_segment_timing(
+        state_dir, segments, clip_durations, output_path.name
+    )
+    print(f"  Timing: {state_dir / 'segment-timing.json'}")
+
     print(f"\nDone! Output: {output_path}")
     print(f"Temp files at: {tmp_dir}")
 
