@@ -32,3 +32,19 @@ export async function fetchProject(): Promise<ProjectState> {
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return (await res.json()) as ProjectState
 }
+
+export type PhaseNumber = 1 | 2 | 3 | 4 | 5
+export type ArtifactFormat = 'markdown' | 'json'
+
+export interface ArtifactResponse {
+  phase: PhaseNumber
+  format: ArtifactFormat
+  exists: boolean
+  content: string | null
+}
+
+export async function fetchArtifact(phase: PhaseNumber): Promise<ArtifactResponse> {
+  const res = await fetch(`/api/project/artifacts/${phase}`)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return (await res.json()) as ArtifactResponse
+}
