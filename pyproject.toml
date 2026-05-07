@@ -33,6 +33,7 @@ dependencies = [
 kokoro = ["kokoro>=0.9.4", "soundfile"]
 piper = ["piper-tts", "pathvalidate"]
 all-tts = ["kokoro>=0.9.4", "soundfile", "piper-tts", "pathvalidate"]
+gui = ["fastapi>=0.110", "uvicorn[standard]>=0.27", "sse-starlette>=2.0"]
 dev = ["pytest", "ruff"]
 
 [project.scripts]

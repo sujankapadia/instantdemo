@@ -109,6 +109,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  generate  Run all 5 phases end-to-end (analyze → render)\n"
             "  phase N   Run a single phase by number (1..5)\n"
             "  render    Render an MP4 from a demo-script.json\n"
+            "  serve     Start the GUI server (requires `instantdemo[gui]`)\n"
             "\n"
             "Use `instantdemo <subcommand> --help` for subcommand flags.\n"
         ),
@@ -151,6 +152,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Phase number (1..5)",
     )
     _add_common_flags(phase)
+
+    # serve (GUI)
+    serve = subparsers.add_parser(
+        "serve",
+        help="Start the GUI server (requires `instantdemo[gui]`)",
+        description="Start the GUI on http://127.0.0.1:8765",
+    )
+    serve.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Host to bind (default: 127.0.0.1)",
+    )
+    serve.add_argument(
+        "--port",
+        type=int,
+        default=8765,
+        help="Port to bind (default: 8765)",
+    )
+    serve.add_argument(
+        "--reload",
+        action="store_true",
+        help="Auto-reload on code changes (development only)",
+    )
 
     return parser
 
@@ -218,6 +242,27 @@ def cmd_phase(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_serve(args: argparse.Namespace) -> int:
+    try:
+        import uvicorn
+    except ImportError:
+        print(
+            "Error: GUI dependencies not installed. Install with:\n"
+            "  pip install 'instantdemo[gui]'",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"InstantDemo GUI: http://{args.host}:{args.port}")
+    uvicorn.run(
+        "instantdemo.server.app:app",
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
+        log_level="info",
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     raw_args = sys.argv[1:] if argv is None else list(argv)
 
@@ -236,6 +281,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_generate(args)
         if args.command == "phase":
             return cmd_phase(args)
+        if args.command == "serve":
+            return cmd_serve(args)
     except RuntimeError as e:
         # Phase runners raise RuntimeError for known user-facing issues
         # (e.g. missing prior-phase artifact). Print without the traceback.
