@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from importlib.resources import files
 from pathlib import Path
+from typing import AsyncIterator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from .routes import project
+from .routes import project, runs
 
 
 _NOT_BUILT_HTML = """\
@@ -50,8 +52,21 @@ def _web_dir() -> Path:
     return Path(str(files("instantdemo").joinpath("server", "web")))
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """FastAPI lifespan that owns the long-lived RunManager (and
+    therefore the ClaudeSDKClient) across the app's lifetime."""
+    app.state.run_manager = runs.RunManager()
+    try:
+        yield
+    finally:
+        manager = getattr(app.state, "run_manager", None)
+        if manager is not None:
+            await manager.shutdown()
+
+
 def create_app() -> FastAPI:
-    app = FastAPI(title="InstantDemo", version="0.1.0")
+    app = FastAPI(title="InstantDemo", version="0.1.0", lifespan=_lifespan)
 
     # In dev, the Vite dev server runs on a different port and proxies
     # /api/* to us. The proxy avoids cross-origin requests entirely, but
@@ -69,6 +84,7 @@ def create_app() -> FastAPI:
         return {"ok": True}
 
     app.include_router(project.router)
+    app.include_router(runs.router)
 
     web_dir = _web_dir()
     index_html = web_dir / "index.html"

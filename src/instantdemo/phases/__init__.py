@@ -68,6 +68,13 @@ class Context:
     # handles the set/reset for callers.
     dispatcher: Any | None = None
 
+    # Optional callback for emitting structured events (text chunks,
+    # tool use, phase boundaries). The CLI leaves this None — phases
+    # only print to stdout. The GUI server sets it to a queue-pusher
+    # so the SSE endpoint can stream events to the browser. Signature:
+    # `(event: dict[str, Any]) -> None`.
+    event_emitter: Any | None = None
+
     @property
     def script_path(self) -> Path:
         """Path to the user-facing demo-script.json (Phase 4 output)."""
@@ -142,6 +149,7 @@ async def run_query_on_client(
         )
 
     context.dispatcher.current_phase = session_id
+    emit = context.event_emitter
     try:
         text_chunks: list[str] = []
         result = None
@@ -152,6 +160,25 @@ async def run_query_on_client(
                     if isinstance(block, TextBlock):
                         print(block.text, flush=True)
                         text_chunks.append(block.text)
+                        if emit is not None:
+                            emit(
+                                {
+                                    "type": "text_chunk",
+                                    "session_id": session_id,
+                                    "text": block.text,
+                                }
+                            )
+                    elif emit is not None and type(block).__name__ == "ToolUseBlock":
+                        # Use duck-typing to avoid an extra import for
+                        # type-checking; ToolUseBlock has .name and .input.
+                        emit(
+                            {
+                                "type": "tool_use",
+                                "session_id": session_id,
+                                "tool": getattr(block, "name", ""),
+                                "tool_input": getattr(block, "input", {}),
+                            }
+                        )
             elif isinstance(msg, ResultMessage):
                 result = msg
                 break
