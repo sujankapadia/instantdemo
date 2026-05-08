@@ -186,55 +186,78 @@ control becomes necessary (e.g., chat-like interaction with the
 agent).
 
 ### G3. Long-lived `ClaudeSDKClient` instead of `query()` per phase
-**Status:** Pending (follow-up — not blocking M0/M1)
-**Context:** SDK spike (`/tmp/sdk_spike3.py`) confirmed that
-`claude-agent-sdk` launches the `claude` CLI as a subprocess on
-every `query()` call, paying ~5–10s cold-start per phase. A 5-phase
-cold-start workflow burns ~25–50s before any real work.
+**Status:** Resolved — shipped as Iteration 12 (commit 40d9493).
 
-The SDK exposes an alternative: `ClaudeSDKClient`, a long-lived
-stateful client that keeps one subprocess alive across many queries.
+**Context:** SDK spike confirmed that `claude-agent-sdk` launches
+the `claude` CLI as a subprocess on every `query()` call, paying
+~5–10s cold-start per phase. A 5-phase cold-start workflow burns
+~25–50s before any real work. `ClaudeSDKClient` reuses one
+subprocess across queries, paying the cold-start once.
 
-**Spike results:**
+**Implementation actually shipped:**
 
-| Metric | `query()` × 5 phases | `ClaudeSDKClient` reused |
+| Metric | `query()` × 5 phases (before) | `ClaudeSDKClient` reused (after) |
 |---|---|---|
 | Cold-start cost | ~30s total | ~5s once |
 | Subsequent query latency | 5–10s subprocess startup | ~2s |
 | Cancellation | `asyncio.cancel` ~6s | `client.interrupt()` ~instant |
-| Per-phase context isolation | Implicit (fresh subprocess) | Via `session_id` parameter |
+| Per-phase context isolation | Implicit (fresh subprocess) | Via `session_id` argument to `client.query()` |
+| Per-phase tool allowlist | `ClaudeAgentOptions(allowed_tools=...)` per call | `PreToolUse` hook + `PhaseDispatcher` |
 
-The `session_id` parameter on `client.query(prompt, session_id="...")`
-lets each phase have isolated conversation context. Phase 1 uses
-`session_id="phase1"`, Phase 2 uses `session_id="phase2"`, etc.
+Migration touched all 5 phase modules and the CLI. Phase `run()`
+became `async`; CLI's `cmd_generate` / `cmd_phase` wrap a single
+`asyncio.run` that owns the client lifecycle (connect → run phases
+→ disconnect in finally). Engine-level migration so both CLI and
+GUI benefit.
 
-**Options:**
-- Migrate engine to `ClaudeSDKClient` for both CLI and GUI
-- Keep CLI on `query()`, switch only the GUI server to
-  `ClaudeSDKClient` (parallel paths)
-- Don't migrate — accept cold-start latency in the GUI
+**Tool dispatcher: `can_use_tool` doesn't work; `PreToolUse` hook
+does.**
 
-**Recommendation:** Migrate engine to `ClaudeSDKClient`. Both CLI and
-GUI benefit from faster runs and instant cancellation. Architecture
-becomes: each `instantdemo` invocation creates one client, runs all
-phases against it with distinct `session_id`s, disconnects at the
-end. GUI server keeps the client alive across the FastAPI process
-lifetime (initialized in lifespan startup).
+The original plan was to use the SDK's `can_use_tool` callback to
+preserve per-phase allowlists on a shared client. Implementation
+revealed the callback only fires when the CLI is *about to prompt
+the user* — which it skips entirely under `bypassPermissions`, and
+also skips when `--allowedTools` isn't passed (the SDK omits the
+flag when `allowed_tools=[]`, so the CLI defaults to allowing all
+tools, and never asks for permission). Empirically the callback
+never fired in any of four permission modes tested.
 
-**Tradeoffs:**
-- Refactoring cost — every phase module currently calls `query()`
-  directly. Migration is mechanical but touches all 5 phase files.
-- Single-subprocess assumption — if the GUI ever gets multi-user,
-  we'd need a client pool. Not a v1 concern.
-- Subprocess crash recovery — with `query()`, each phase is
-  insulated; with `ClaudeSDKClient`, a crash blocks all phases until
-  reconnect. Need a health check + reconnect path.
+The mechanism that works is a `PreToolUse` hook, which fires
+unconditionally before every tool call and returns an
+allow/deny decision. The hook needs to know which phase is
+currently active. Two approaches that *don't* work:
+- The SDK's `session_id` field in the hook input is an SDK-internal
+  UUID, not the user-supplied `session_id=` argument to
+  `client.query()`. So we can't read the phase name from there.
+- `ContextVars` set in the orchestrator don't propagate across the
+  SDK's internal task boundary, so the hook callback can't read
+  them.
 
-**Filed as follow-up because:** the migration isn't required for
-the MVP. The CLI works today. We can build M0/M1 (no agent runs) and
-spike the migration before M2 (which depends on streaming and
-cancellation UX). If the migration is risky, M2 falls back to
-`query()` per phase with the cold-start latency baked in.
+The mechanism that *does* work is a small `PhaseDispatcher` class
+holding `current_phase` as an instance attribute. The orchestrator
+sets it before each phase's queries (via `run_query_on_client`)
+and resets in a `finally`. The hook is a bound method, so it sees
+each mutation directly. **Constraint: phases must run sequentially
+on a given dispatcher.** Concurrent queries on the same client
+would race the attribute. Acceptable for the current pipeline;
+documented in the agent_client module.
+
+**Other tradeoffs (mostly deferred):**
+- Refactoring cost paid in Iteration 12 — touched 5 phase files,
+  the CLI, and the Context dataclass. Mechanical.
+- Single-subprocess assumption — if the GUI ever gets multi-user
+  concurrent runs, we'd need either a client pool or to enforce
+  serialization. Not a v1 concern.
+- Subprocess crash recovery — with `query()` each phase had its own
+  subprocess; with `ClaudeSDKClient` a crash blocks all subsequent
+  phases until reconnect. Health check + reconnect path is a
+  follow-up worth filing if it ever bites; not needed for MVP.
+
+**Verified end-to-end** by re-running Phase 2 against the
+claude-code-analytics fixture: cost $0.04, 30.8s, 1 turn —
+consistent with prior `query()`-based runs. PhaseDispatcher
+deny path tested in isolation against synthetic queries before
+integrating.
 
 ---
 
@@ -263,8 +286,10 @@ both markdown and JSON modes.
 All 14 original v1 decisions resolved. Ready for implementation
 planning.
 
-**One follow-up open:** G3 (`ClaudeSDKClient` migration). Pending,
-not blocking M0/M1; revisit before M2.
+**G3 (`ClaudeSDKClient` migration)** shipped as Iteration 12 of M2
+(commit 40d9493). Implementation diverged from the original
+`can_use_tool`-based plan — see the G3 section for the full
+post-mortem.
 
 Deferred to v1.5+: B2 reorder, B3 insert, B4 delete, F2 per-segment
 voice. Per-phase prompt template editor (an option considered in C2)
