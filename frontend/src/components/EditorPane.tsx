@@ -4,6 +4,7 @@ import { json as jsonLang } from '@codemirror/lang-json'
 import { oneDark } from '@codemirror/theme-one-dark'
 import type { PhaseInfo } from './PhaseRail'
 import { MarkdownView } from './markdown/MarkdownView'
+import { ValidationView } from './ValidationView'
 import { useArtifact } from '@/hooks/useArtifact'
 import type { PhaseNumber } from '@/api/project'
 
@@ -67,6 +68,7 @@ function ArtifactView({ phase }: { phase: PhaseInfo }) {
         )}
         {result.status === 'success' && result.data.exists && (
           <ArtifactBody
+            phase={phase}
             format={result.data.format}
             content={result.data.content ?? ''}
           />
@@ -104,13 +106,13 @@ function NotRunYet({ phaseNum, phaseName }: { phaseNum: number; phaseName: strin
   )
 }
 
-function ArtifactBody({
-  format,
-  content,
-}: {
+interface ArtifactBodyProps {
+  phase: PhaseInfo
   format: 'markdown' | 'json'
   content: string
-}) {
+}
+
+function ArtifactBody({ phase, format, content }: ArtifactBodyProps) {
   if (format === 'json') {
     return (
       <CodeMirror
@@ -130,6 +132,9 @@ function ArtifactBody({
         height="100%"
       />
     )
+  }
+  if (phase.num === 5) {
+    return <ValidationView content={content} />
   }
   return <MarkdownView content={content} />
 }
