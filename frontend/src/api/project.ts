@@ -6,6 +6,7 @@ export type PhaseStatus =
   | 'in_progress'
   | 'completed'
   | 'error'
+  | 'canceled'
 
 export interface PhaseState {
   status?: PhaseStatus

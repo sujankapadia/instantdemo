@@ -23,7 +23,7 @@ from instantdemo import state as state_mod
 router = APIRouter(prefix="/api", tags=["project"])
 
 
-PhaseStatus = Literal["pending", "in_progress", "completed", "error"]
+PhaseStatus = Literal["pending", "in_progress", "completed", "error", "canceled"]
 PhaseNumber = Literal[1, 2, 3, 4, 5]
 ArtifactFormat = Literal["markdown", "json"]
 

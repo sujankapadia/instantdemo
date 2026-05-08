@@ -29,6 +29,7 @@ a clean slate.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from contextlib import contextmanager
@@ -105,6 +106,16 @@ def phase_run(state_dir: Path, phase_number: int) -> Iterator[dict]:
 
     try:
         yield entry
+    except asyncio.CancelledError:
+        # User-initiated cancel (GUI Stop button, Ctrl-C in CLI's
+        # asyncio.run, etc.). Distinct from a failure — the agent
+        # didn't go wrong, the human stopped it.
+        state = load(state_dir)
+        state.setdefault("phases", {}).setdefault(key, entry)
+        state["phases"][key]["status"] = "canceled"
+        state["phases"][key]["canceled_at"] = _now()
+        save(state_dir, state)
+        raise
     except BaseException:
         # Re-load to avoid clobbering anything the runner wrote, then mark
         # the failure timestamp.

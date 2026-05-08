@@ -139,7 +139,12 @@ async def run_query_on_client(
     final ResultMessage; the loop breaks on it so the iterator doesn't
     block waiting for further messages on this turn.
     """
-    from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
+    from claude_agent_sdk import (
+        AssistantMessage,
+        ResultMessage,
+        StreamEvent,
+        TextBlock,
+    )
 
     if context.client is None or context.dispatcher is None:
         raise RuntimeError(
@@ -155,30 +160,47 @@ async def run_query_on_client(
         result = None
         await context.client.query(prompt, session_id=session_id)
         async for msg in context.client.receive_response():
-            if isinstance(msg, AssistantMessage):
+            if isinstance(msg, StreamEvent):
+                # Per-token text deltas. include_partial_messages=True on
+                # ClaudeAgentOptions is what makes these arrive (otherwise
+                # we'd only see the AssistantMessage at end of turn).
+                evt = msg.event or {}
+                if evt.get("type") == "content_block_delta":
+                    delta = evt.get("delta") or {}
+                    if delta.get("type") == "text_delta":
+                        token = delta.get("text") or ""
+                        if token:
+                            print(token, end="", flush=True)
+                            if emit is not None:
+                                emit(
+                                    {
+                                        "type": "text_chunk",
+                                        "session_id": session_id,
+                                        "text": token,
+                                    }
+                                )
+            elif isinstance(msg, AssistantMessage):
+                # End-of-turn message. We've already streamed text via
+                # StreamEvent deltas; here we only collect the canonical
+                # text for the return value and emit tool-use events
+                # (tools are at the message level, not stream level).
+                printed_newline = False
                 for block in msg.content:
                     if isinstance(block, TextBlock):
-                        print(block.text, flush=True)
                         text_chunks.append(block.text)
+                        if not printed_newline:
+                            print(flush=True)
+                            printed_newline = True
+                    elif type(block).__name__ == "ToolUseBlock":
                         if emit is not None:
                             emit(
                                 {
-                                    "type": "text_chunk",
+                                    "type": "tool_use",
                                     "session_id": session_id,
-                                    "text": block.text,
+                                    "tool": getattr(block, "name", ""),
+                                    "tool_input": getattr(block, "input", {}),
                                 }
                             )
-                    elif emit is not None and type(block).__name__ == "ToolUseBlock":
-                        # Use duck-typing to avoid an extra import for
-                        # type-checking; ToolUseBlock has .name and .input.
-                        emit(
-                            {
-                                "type": "tool_use",
-                                "session_id": session_id,
-                                "tool": getattr(block, "name", ""),
-                                "tool_input": getattr(block, "input", {}),
-                            }
-                        )
             elif isinstance(msg, ResultMessage):
                 result = msg
                 break

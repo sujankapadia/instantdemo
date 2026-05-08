@@ -108,6 +108,12 @@ def make_agent_client(cwd: str) -> tuple[ClaudeSDKClient, PhaseDispatcher]:
     options = ClaudeAgentOptions(
         cwd=cwd,
         permission_mode="bypassPermissions",
+        # Per-token streaming. Without this, the SDK only emits
+        # AssistantMessage at end-of-turn (one big chunk). With it, we
+        # also get StreamEvent messages carrying content_block_delta
+        # text deltas — that's what makes the agent log feel "live"
+        # in the GUI drawer.
+        include_partial_messages=True,
         hooks={
             "PreToolUse": [HookMatcher(matcher=None, hooks=[dispatcher.hook])],  # type: ignore[list-item]
         },
