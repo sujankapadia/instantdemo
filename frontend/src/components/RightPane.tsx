@@ -1,26 +1,68 @@
-import { Film } from 'lucide-react'
+import { useCallback, useMemo, useRef, useState } from 'react'
+import { VideoPlayer } from './VideoPlayer'
+import { SegmentsList } from './SegmentsList'
+import { useSegments } from '@/hooks/useSegments'
+import type { Segment } from '@/api/project'
 
 export function RightPane() {
+  const segmentsState = useSegments()
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const [currentTimeS, setCurrentTimeS] = useState(0)
+
+  const segments =
+    segmentsState.status === 'success' ? segmentsState.data.segments : []
+  const hasTiming =
+    segmentsState.status === 'success' && segmentsState.data.has_timing
+
+  // Find which segment contains the current playback time.
+  const currentIndex = useMemo<number | null>(() => {
+    if (!hasTiming) return null
+    for (const seg of segments) {
+      if (seg.start_s === null || seg.end_s === null) continue
+      if (currentTimeS >= seg.start_s && currentTimeS < seg.end_s) {
+        return seg.index
+      }
+    }
+    return null
+  }, [segments, hasTiming, currentTimeS])
+
+  const handleSeek = useCallback((seg: Segment) => {
+    if (!videoRef.current || seg.start_s === null) return
+    videoRef.current.currentTime = seg.start_s
+    void videoRef.current.play()
+  }, [])
+
+  const listState = mapSegmentsListState(segmentsState)
+
   return (
     <aside className="flex h-full min-h-0 flex-col">
-      <div className="flex flex-1 items-center justify-center border-b border-border bg-muted/10 p-4">
-        <div className="flex aspect-video w-full max-w-md flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border bg-muted/30 text-muted-foreground">
-          <Film className="size-8 opacity-60" />
-          <span className="text-sm">Video preview</span>
-        </div>
+      <div className="border-b border-border bg-muted/10 p-4">
+        <VideoPlayer
+          ref={videoRef}
+          src="/api/project/video"
+          onTimeUpdate={setCurrentTimeS}
+        />
       </div>
-      <div className="flex h-64 shrink-0 flex-col">
-        <div className="flex h-9 shrink-0 items-center border-b border-border bg-muted/30 px-4">
-          <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Segments
-          </span>
-        </div>
-        <div className="flex flex-1 items-center justify-center p-4 text-center">
-          <p className="text-sm text-muted-foreground">
-            Segments will appear here once a script has been generated.
-          </p>
-        </div>
+      <div className="flex-1 min-h-0">
+        <SegmentsList
+          state={listState}
+          currentIndex={currentIndex}
+          onSelect={handleSeek}
+        />
       </div>
     </aside>
   )
+}
+
+function mapSegmentsListState(
+  state: ReturnType<typeof useSegments>,
+): React.ComponentProps<typeof SegmentsList>['state'] {
+  if (state.status === 'loading') return { status: 'loading' }
+  if (state.status === 'error') return { status: 'error', error: state.error }
+  if (!state.data.exists) return { status: 'empty' }
+  return {
+    status: 'success',
+    segments: state.data.segments,
+    hasTiming: state.data.has_timing,
+  }
 }

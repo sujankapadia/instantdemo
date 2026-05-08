@@ -48,3 +48,31 @@ export async function fetchArtifact(phase: PhaseNumber): Promise<ArtifactRespons
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return (await res.json()) as ArtifactResponse
 }
+
+// Mirrors Pydantic Segment model in routes/project.py. Action-specific
+// fields (selector, url, value, pixels, wait_for, frame, key, expression)
+// pass through via [key: string]: unknown so we can read them when the
+// underlying script has them, without re-typing them all here.
+export interface Segment {
+  index: number
+  action: string
+  narration: string
+  pause_after_ms: number | null
+  start_s: number | null
+  end_s: number | null
+  audio_duration_s: number | null
+  [key: string]: unknown
+}
+
+export interface SegmentsResponse {
+  exists: boolean
+  has_timing: boolean
+  total_duration_s: number | null
+  segments: Segment[]
+}
+
+export async function fetchSegments(): Promise<SegmentsResponse> {
+  const res = await fetch('/api/project/segments')
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return (await res.json()) as SegmentsResponse
+}

@@ -207,13 +207,26 @@ def get_segments() -> SegmentsResponse:
     timing = _load_timing(state_dir)
     timing_by_index: dict[int, dict[str, Any]] = {}
     total_duration_s: float | None = None
+    timing_used = False
+
     if timing:
-        for entry in timing.get("segments", []) or []:
-            idx = entry.get("index")
-            if isinstance(idx, int):
-                timing_by_index[idx] = entry
-        total = timing.get("total_duration_s")
-        total_duration_s = float(total) if isinstance(total, (int, float)) else None
+        timing_segs = timing.get("segments", []) or []
+        # Heuristic: timing is stale when its segment count doesn't match
+        # the current script (user edited demo-script.json after the last
+        # render, etc.). Ignore stale timing rather than serve stamps that
+        # point at the wrong content. Doesn't catch in-place edits that
+        # preserve segment count; a checksum-based check could but isn't
+        # worth the complexity until it bites.
+        if len(timing_segs) == len(raw_segments):
+            timing_used = True
+            for entry in timing_segs:
+                idx = entry.get("index")
+                if isinstance(idx, int):
+                    timing_by_index[idx] = entry
+            total = timing.get("total_duration_s")
+            total_duration_s = (
+                float(total) if isinstance(total, (int, float)) else None
+            )
 
     segments: list[Segment] = []
     for i, raw in enumerate(raw_segments):
@@ -227,7 +240,7 @@ def get_segments() -> SegmentsResponse:
 
     return SegmentsResponse(
         exists=True,
-        has_timing=timing is not None,
+        has_timing=timing_used,
         total_duration_s=total_duration_s,
         segments=segments,
     )
