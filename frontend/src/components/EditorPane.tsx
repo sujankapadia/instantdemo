@@ -1,10 +1,9 @@
 import { Loader2 } from 'lucide-react'
-import ReactMarkdown from 'react-markdown'
-import remarkBreaks from 'remark-breaks'
 import CodeMirror from '@uiw/react-codemirror'
 import { json as jsonLang } from '@codemirror/lang-json'
 import { oneDark } from '@codemirror/theme-one-dark'
 import type { PhaseInfo } from './PhaseRail'
+import { MarkdownView } from './markdown/MarkdownView'
 import { useArtifact } from '@/hooks/useArtifact'
 import type { PhaseNumber } from '@/api/project'
 
@@ -132,22 +131,5 @@ function ArtifactBody({
       />
     )
   }
-  return (
-    <article
-      className={[
-        'prose prose-invert max-w-none p-6',
-        // Looser rhythm for the structured-segment markdown produced by
-        // Phase 2; defaults are too tight for ### + bold-label content.
-        'prose-headings:mt-8 prose-headings:mb-3',
-        'prose-h1:text-2xl prose-h2:text-xl prose-h3:text-base prose-h3:font-semibold',
-        'prose-hr:my-6 prose-hr:border-border',
-        'prose-strong:text-foreground prose-strong:font-semibold',
-        'prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:rounded',
-        'prose-code:text-foreground prose-code:before:content-none prose-code:after:content-none',
-        'prose-p:my-2',
-      ].join(' ')}
-    >
-      <ReactMarkdown remarkPlugins={[remarkBreaks]}>{content}</ReactMarkdown>
-    </article>
-  )
+  return <MarkdownView content={content} />
 }
