@@ -18,16 +18,13 @@ For the first run we use defaults.
 
 from __future__ import annotations
 
-import asyncio
-
-from claude_agent_sdk import ClaudeAgentOptions
-
 from .. import prompts
+from ..agent_client import session_id_for_phase
 from ..checkpoints import parse_answer_block
 from . import (
     Context,
     record_phase_result,
-    run_query,
+    run_query_on_client,
     summarize_run,
 )
 
@@ -82,7 +79,13 @@ def _build_artifact(narrative_text: str, inputs: dict[str, str]) -> str:
     )
 
 
-def run(context: Context) -> None:
+async def run(context: Context) -> None:
+    if context.client is None:
+        raise RuntimeError(
+            "Phase 2: no agent client provided in context. The CLI is "
+            "responsible for creating and passing through a ClaudeSDKClient."
+        )
+
     phase1 = context.phase_artifact(1)
     if not phase1.exists():
         raise RuntimeError(
@@ -98,12 +101,9 @@ def run(context: Context) -> None:
     inputs = _resolve_inputs(context, phase1_answers, phase2_answers)
     prompt = _build_prompt(phase1_text, inputs)
 
-    options = ClaudeAgentOptions(
-        cwd=str(context.source),
-        allowed_tools=[],  # Pure reasoning — no filesystem access needed.
-        permission_mode="bypassPermissions",
+    narrative_text, result = await run_query_on_client(
+        context, prompt, session_id=session_id_for_phase(2)
     )
-    narrative_text, result = asyncio.run(run_query(prompt, options))
 
     if result is None:
         raise RuntimeError(

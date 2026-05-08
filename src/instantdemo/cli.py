@@ -218,12 +218,12 @@ def _import_phase_runner(number: int):
 PHASES_WITH_REVIEW = (1, 2, 3, 4)
 
 
-def _run_phase(number: int, context: Context) -> None:
+async def _run_phase(number: int, context: Context) -> None:
     name = phase_name_from_number(number)
     print(f"\n=== Phase {number}: {name} ===")
     runner = _import_phase_runner(number)
     with state.phase_run(context.state_dir, number):
-        runner(context)
+        await runner(context)
     if number in PHASES_WITH_REVIEW:
         artifact = context.phase_artifact(number)
         checkpoints.review(artifact, no_edit=context.no_edit)
@@ -237,19 +237,47 @@ def _init_state(context: Context) -> None:
     state.save(context.state_dir, s)
 
 
+async def _run_phases_with_client(
+    context: Context, phase_numbers: list[int]
+) -> None:
+    """Connect a single ClaudeSDKClient and run the requested phases
+    sequentially against it. Cold-start cost is paid once at connect()
+    instead of per-phase, and per-phase tool allowlists are preserved
+    via the PreToolUse hook dispatcher set up in agent_client."""
+    from .agent_client import make_agent_client
+
+    client, dispatcher = make_agent_client(cwd=str(context.source))
+    await client.connect()
+    context.client = client
+    context.dispatcher = dispatcher
+    try:
+        for n in phase_numbers:
+            await _run_phase(n, context)
+    finally:
+        try:
+            await client.disconnect()
+        finally:
+            context.client = None
+            context.dispatcher = None
+
+
 def cmd_generate(args: argparse.Namespace) -> int:
+    import asyncio
+
     context = _resolve_context(args)
     _init_state(context)
-    for n in range(args.from_phase, len(PHASES) + 1):
-        _run_phase(n, context)
+    phase_numbers = list(range(args.from_phase, len(PHASES) + 1))
+    asyncio.run(_run_phases_with_client(context, phase_numbers))
     print("\nDone.")
     return 0
 
 
 def cmd_phase(args: argparse.Namespace) -> int:
+    import asyncio
+
     context = _resolve_context(args)
     _init_state(context)
-    _run_phase(args.number, context)
+    asyncio.run(_run_phases_with_client(context, [args.number]))
     return 0
 
 

@@ -22,17 +22,15 @@ probe.
 
 from __future__ import annotations
 
-import asyncio
 import re
 
-from claude_agent_sdk import ClaudeAgentOptions
-
 from .. import prompts
+from ..agent_client import session_id_for_phase
 from ..render import main as render_main
 from . import (
     Context,
     record_phase_result,
-    run_query,
+    run_query_on_client,
     summarize_run,
 )
 
@@ -71,15 +69,17 @@ def _parse_directive(report: str) -> tuple[str, str | None]:
     return last.group("directive"), last.group("reason")
 
 
-def _run_validation(context: Context) -> tuple[str, "object | None"]:
+async def _run_validation(context: Context) -> tuple[str, "object | None"]:
     """Run the agent validation pass. Returns (report_text, ResultMessage)."""
-    options = ClaudeAgentOptions(
-        cwd=str(context.source),
-        allowed_tools=["Read", "Bash"],
-        permission_mode="bypassPermissions",
-    )
+    if context.client is None:
+        raise RuntimeError(
+            "Phase 5: no agent client provided in context. The CLI is "
+            "responsible for creating and passing through a ClaudeSDKClient."
+        )
     prompt = _build_prompt(context)
-    return asyncio.run(run_query(prompt, options))
+    return await run_query_on_client(
+        context, prompt, session_id=session_id_for_phase(5)
+    )
 
 
 def _invoke_renderer(context: Context) -> None:
@@ -96,7 +96,7 @@ def _invoke_renderer(context: Context) -> None:
     render_main(argv)
 
 
-def run(context: Context) -> None:
+async def run(context: Context) -> None:
     if not context.script_path.exists():
         raise RuntimeError(
             f"Demo script missing at {context.script_path}. Run phase 4 first."
@@ -105,7 +105,7 @@ def run(context: Context) -> None:
     artifact = context.phase_artifact(5)
     artifact.parent.mkdir(parents=True, exist_ok=True)
 
-    report_text, result = _run_validation(context)
+    report_text, result = await _run_validation(context)
 
     if result is None:
         raise RuntimeError(

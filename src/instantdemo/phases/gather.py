@@ -13,15 +13,12 @@ demo-script.json without further inference.
 
 from __future__ import annotations
 
-import asyncio
-
-from claude_agent_sdk import ClaudeAgentOptions
-
 from .. import prompts
+from ..agent_client import session_id_for_phase
 from . import (
     Context,
     record_phase_result,
-    run_query,
+    run_query_on_client,
     summarize_run,
 )
 
@@ -48,7 +45,13 @@ def _build_prompt(phase2_text: str, url: str) -> str:
     )
 
 
-def run(context: Context) -> None:
+async def run(context: Context) -> None:
+    if context.client is None:
+        raise RuntimeError(
+            "Phase 3: no agent client provided in context. The CLI is "
+            "responsible for creating and passing through a ClaudeSDKClient."
+        )
+
     phase2 = context.phase_artifact(2)
     if not phase2.exists():
         raise RuntimeError(
@@ -59,13 +62,10 @@ def run(context: Context) -> None:
     artifact = context.phase_artifact(3)
     artifact.parent.mkdir(parents=True, exist_ok=True)
 
-    options = ClaudeAgentOptions(
-        cwd=str(context.source),
-        allowed_tools=["Read", "Glob", "Grep"],
-        permission_mode="bypassPermissions",
-    )
     prompt = _build_prompt(phase2_text, context.url)
-    detailed_text, result = asyncio.run(run_query(prompt, options))
+    detailed_text, result = await run_query_on_client(
+        context, prompt, session_id=session_id_for_phase(3)
+    )
 
     if result is None:
         raise RuntimeError(

@@ -1,25 +1,20 @@
 """Phase 1 — Understand the product.
 
-Runs the codebase-analysis prompt through the Claude Agent SDK with
-read-only filesystem tools (Read, Glob, Grep). Streams the agent's
+Runs the codebase-analysis prompt through the shared ClaudeSDKClient
+with read-only filesystem tools (Read, Glob, Grep). Streams the agent's
 prose to stdout while the run is in progress, then writes the final
 text to `.instantdemo/phase1.md` with an answer block at the top for
 the user to fill in before Phase 2 begins.
-
-This mirrors the pattern validated in `instantdemo-sdk-spike/spike.py`.
 """
 
 from __future__ import annotations
 
-import asyncio
-
-from claude_agent_sdk import ClaudeAgentOptions
-
 from .. import prompts
+from ..agent_client import session_id_for_phase
 from . import (
     Context,
     record_phase_result,
-    run_query,
+    run_query_on_client,
     summarize_run,
 )
 
@@ -45,17 +40,20 @@ def _build_artifact(agent_text: str, context: Context) -> str:
     )
 
 
-def run(context: Context) -> None:
+async def run(context: Context) -> None:
+    if context.client is None:
+        raise RuntimeError(
+            "Phase 1: no agent client provided in context. The CLI is "
+            "responsible for creating and passing through a ClaudeSDKClient."
+        )
+
     artifact = context.phase_artifact(1)
     artifact.parent.mkdir(parents=True, exist_ok=True)
 
-    options = ClaudeAgentOptions(
-        cwd=str(context.source),
-        allowed_tools=["Read", "Glob", "Grep"],
-        permission_mode="bypassPermissions",
-    )
     prompt = _build_prompt(context)
-    agent_text, result = asyncio.run(run_query(prompt, options))
+    agent_text, result = await run_query_on_client(
+        context, prompt, session_id=session_id_for_phase(1)
+    )
 
     if result is None:
         raise RuntimeError(

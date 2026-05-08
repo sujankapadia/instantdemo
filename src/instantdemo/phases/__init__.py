@@ -26,7 +26,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from claude_agent_sdk import ClaudeAgentOptions, ResultMessage
+    from claude_agent_sdk import (
+        ClaudeAgentOptions,
+        ClaudeSDKClient,
+        ResultMessage,
+    )
 
 from .. import metrics as _metrics
 from .. import state
@@ -51,6 +55,18 @@ class Context:
     output: Path                # final MP4 path (used by phase 5)
     tts: str                    # TTS provider name (used by phase 5)
     no_edit: bool               # if True, skip $EDITOR checkpoints
+
+    # Long-lived ClaudeSDKClient injected by the CLI for the duration of
+    # a generate/phase command. Phases call client.query() against this.
+    # Typed as Any to avoid forcing every importer of phases to also
+    # import the SDK; the real type is claude_agent_sdk.ClaudeSDKClient.
+    client: Any | None = None
+
+    # The PhaseDispatcher paired with `client`. Phases must set
+    # dispatcher.current_phase before invoking the SDK so the PreToolUse
+    # hook routes per-phase tool allowlists correctly. run_query_on_client
+    # handles the set/reset for callers.
+    dispatcher: Any | None = None
 
     @property
     def script_path(self) -> Path:
@@ -79,11 +95,12 @@ def phase_name_from_number(number: int) -> str:
 
 
 async def run_query(prompt: str, options: "ClaudeAgentOptions") -> tuple[str, Any]:
-    """Run a `query()` against the Agent SDK and stream agent text to stdout.
+    """Run a one-shot `query()` against the Agent SDK and stream agent
+    text to stdout.
 
-    Returns (collected_text, result_message). result_message is a
-    ResultMessage on success or None if the run finished without one
-    (which the caller should treat as an error).
+    Retained for the rare case where a fully isolated subprocess run is
+    wanted (mostly tests). The phase pipeline uses run_query_on_client
+    instead, which reuses one ClaudeSDKClient across all phases.
     """
     from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock, query
 
@@ -98,6 +115,49 @@ async def run_query(prompt: str, options: "ClaudeAgentOptions") -> tuple[str, An
         elif isinstance(msg, ResultMessage):
             result = msg
     return "\n".join(text_chunks), result
+
+
+async def run_query_on_client(
+    context: "Context",
+    prompt: str,
+    session_id: str,
+) -> tuple[str, Any]:
+    """Run a prompt against the Context's connected ClaudeSDKClient.
+
+    Sets `context.dispatcher.current_phase = session_id` so the
+    PreToolUse hook dispatches tool permissions to the right phase
+    allowlist, then resets it after the response completes.
+
+    Returns (collected_text, result_message). result_message is the
+    final ResultMessage; the loop breaks on it so the iterator doesn't
+    block waiting for further messages on this turn.
+    """
+    from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
+
+    if context.client is None or context.dispatcher is None:
+        raise RuntimeError(
+            "run_query_on_client requires both context.client and "
+            "context.dispatcher to be set. The CLI's "
+            "_run_phases_with_client should provide both."
+        )
+
+    context.dispatcher.current_phase = session_id
+    try:
+        text_chunks: list[str] = []
+        result = None
+        await context.client.query(prompt, session_id=session_id)
+        async for msg in context.client.receive_response():
+            if isinstance(msg, AssistantMessage):
+                for block in msg.content:
+                    if isinstance(block, TextBlock):
+                        print(block.text, flush=True)
+                        text_chunks.append(block.text)
+            elif isinstance(msg, ResultMessage):
+                result = msg
+                break
+        return "\n".join(text_chunks), result
+    finally:
+        context.dispatcher.current_phase = ""
 
 
 def record_phase_result(state_dir: Path, phase_number: int, result: "ResultMessage") -> None:
