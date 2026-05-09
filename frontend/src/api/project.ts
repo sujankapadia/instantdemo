@@ -26,6 +26,7 @@ export interface ProjectState {
   session_id?: string | null
   created_at?: string | null
   phases: Record<string, PhaseState>
+  current_run_id?: string | null
 }
 
 export async function fetchProject(): Promise<ProjectState> {

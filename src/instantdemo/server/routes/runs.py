@@ -200,10 +200,16 @@ class RunManager:
             for phase_num in request.phases:
                 phases_dict[str(phase_num)] = {"status": "pending"}
             state_mod.update_inputs(s, url=request.url, describe=request.describe)
-            state_mod.save(state_dir, s)
 
             run = _Run(run_id=str(uuid.uuid4()), phases=request.phases)
             self.active = run
+
+            # Record the active run on state.json so a refreshing browser
+            # can detect that something is running server-side. Cleared
+            # in _execute's finally block when the run terminates.
+            s["current_run_id"] = run.run_id
+            state_mod.save(state_dir, s)
+
             run.task = asyncio.create_task(
                 self._execute(run, request, project),
                 name=f"run-{run.run_id}",
@@ -403,6 +409,15 @@ class RunManager:
         finally:
             run.ended_at = _now_iso()
             run.current_phase = None
+            # Clear the active-run pointer in state.json so the browser
+            # stops showing the "run in progress" banner on refresh.
+            try:
+                s = state_mod.load(state_dir)
+                if s.get("current_run_id") == run.run_id:
+                    s["current_run_id"] = None
+                    state_mod.save(state_dir, s)
+            except Exception:
+                pass
             run._done.set()
 
 

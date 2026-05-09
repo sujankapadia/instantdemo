@@ -54,6 +54,10 @@ class ProjectState(BaseModel):
     session_id: str | None = None
     created_at: str | None = None
     phases: dict[str, PhaseState] = {}
+    # Set by the run manager while a multi-phase run is active. Cleared
+    # on terminal events. The GUI uses this to detect that a run is
+    # still in flight after a browser refresh.
+    current_run_id: str | None = None
 
 
 class ArtifactResponse(BaseModel):
@@ -147,6 +151,7 @@ def get_project() -> ProjectState:
         session_id=raw.get("session_id"),
         created_at=raw.get("created_at"),
         phases=phases,
+        current_run_id=raw.get("current_run_id"),
     )
 
 

@@ -38,11 +38,12 @@ function EmptyProjectPane({ projectDir }: { projectDir?: string }) {
             <p className="font-mono text-xs text-muted-foreground">{projectDir}</p>
           ) : null}
           <p className="text-sm text-muted-foreground">
-            Run{' '}
+            Click <strong>New project</strong> in the header to generate a
+            demo from the GUI, or run{' '}
             <code className="rounded bg-muted px-1 py-0.5 text-xs">
               instantdemo generate
             </code>{' '}
-            to create a demo for this project.
+            from a terminal.
           </p>
         </div>
       </div>

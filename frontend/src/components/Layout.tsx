@@ -13,6 +13,8 @@ import { LogDrawer } from './LogDrawer'
 import { ErrorBanner } from './ErrorBanner'
 import { NewProjectModal } from './NewProjectModal'
 import { PauseBanner } from './PauseBanner'
+import { PhaseFailureBanner } from './PhaseFailureBanner'
+import { RunInProgressBanner } from './RunInProgressBanner'
 import { useProject } from '@/hooks/useProject'
 import { useRun } from '@/hooks/useRun'
 
@@ -98,12 +100,35 @@ export function Layout() {
       {isError ? (
         <ErrorBanner message={state.error} onRetry={refetch} />
       ) : null}
-      {run.status === 'error' && run.error ? (
-        <ErrorBanner
-          message={`Run failed: ${run.error}`}
-          onRetry={() => {/* user re-runs via per-phase button */}}
-        />
+      {run.status === 'idle' && data?.current_run_id ? (
+        <RunInProgressBanner runId={data.current_run_id} />
       ) : null}
+      {(() => {
+        // Phase-specific failure banner takes precedence over the
+        // generic run-error banner when we know which phase broke.
+        if (run.status !== 'error') return null
+        for (const [num, upd] of run.phaseUpdates) {
+          if (upd.status === 'error') {
+            return (
+              <PhaseFailureBanner
+                phaseNumber={num}
+                phaseName={
+                  ['Analyze', 'Narrate', 'Gather', 'Script', 'Validate'][
+                    num - 1
+                  ] ?? ''
+                }
+                error={upd.error ?? run.error ?? 'Unknown error'}
+              />
+            )
+          }
+        }
+        return run.error ? (
+          <ErrorBanner
+            message={`Run failed: ${run.error}`}
+            onRetry={() => {/* user re-runs via per-phase button */}}
+          />
+        ) : null
+      })()}
       {run.status === 'paused' ? (
         <PauseBanner
           completedPhase={run.pausedAfter}

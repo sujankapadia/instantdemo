@@ -67,7 +67,9 @@ function StatusIcon({
 
 function tooltipContent(phase: PhaseInfo, isCurrentlyRunning: boolean): string | null {
   if (isCurrentlyRunning) return 'Running…'
-  if (phase.stale) return 'Stale — upstream phase has run more recently'
+  if (phase.stale) {
+    return 'Stale — upstream phase has run more recently. Click ▶ to re-run.'
+  }
   const detail = phase.detail
   if (!detail) return null
   if (phase.status === 'completed') {
