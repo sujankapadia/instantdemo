@@ -1,28 +1,59 @@
-import { useEffect, useRef } from 'react'
-import { Loader2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Loader2, Pencil, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 import type { Segment } from '@/api/project'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import type { RunStatus } from '@/hooks/useRun'
 
-interface SegmentsListProps {
+export interface SegmentsListState {
   state:
     | { status: 'loading' }
     | { status: 'success'; segments: Segment[]; hasTiming: boolean }
     | { status: 'error'; error: string }
     | { status: 'empty' }
+}
+
+interface SegmentsListProps {
+  state: SegmentsListState['state']
   currentIndex: number | null
   onSelect: (segment: Segment) => void
+  /** Editing controls — undefined disables editing affordances entirely. */
+  editing?: EditingProps
+  runStatus: RunStatus
+}
+
+export interface EditingProps {
+  /** Index of the segment currently being edited inline, or null. */
+  editingIndex: number | null
+  /** Set of indices that have been edited but not re-rendered yet. */
+  staleIndices: Set<number>
+  /** Index whose audio is currently being re-rendered. */
+  rerenderingIndex: number | null
+  /** Per-segment error messages (PATCH or re-render failures). */
+  errorByIndex: Record<number, string>
+  onBeginEdit: (index: number) => void
+  onSaveEdit: (index: number, narration: string) => Promise<void>
+  onCancelEdit: () => void
+  onRerender: (index: number) => Promise<void>
 }
 
 export function SegmentsList({
   state,
   currentIndex,
   onSelect,
+  editing,
+  runStatus,
 }: SegmentsListProps) {
+  const isRunActive =
+    runStatus === 'running' ||
+    runStatus === 'starting' ||
+    runStatus === 'paused'
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-9 shrink-0 items-center justify-between border-b border-border bg-muted/30 px-4">
@@ -46,6 +77,8 @@ export function SegmentsList({
             hasTiming={state.hasTiming}
             currentIndex={currentIndex}
             onSelect={onSelect}
+            editing={editing}
+            isRunActive={isRunActive}
           />
         )}
       </div>
@@ -88,11 +121,15 @@ function SegmentsBody({
   hasTiming,
   currentIndex,
   onSelect,
+  editing,
+  isRunActive,
 }: {
   segments: Segment[]
   hasTiming: boolean
   currentIndex: number | null
   onSelect: (segment: Segment) => void
+  editing?: EditingProps
+  isRunActive: boolean
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -127,6 +164,8 @@ function SegmentsBody({
           hasTiming={hasTiming}
           active={currentIndex === seg.index}
           onSelect={onSelect}
+          editing={editing}
+          isRunActive={isRunActive}
         />
       ))}
     </div>
@@ -147,28 +186,69 @@ function SegmentRow({
   hasTiming,
   active,
   onSelect,
+  editing,
+  isRunActive,
 }: {
   segment: Segment
   hasTiming: boolean
   active: boolean
   onSelect: (segment: Segment) => void
+  editing?: EditingProps
+  isRunActive: boolean
 }) {
   const seekable = hasTiming && segment.start_s !== null
   const indexLabel = String(segment.index + 1).padStart(2, '0')
   const narration = segment.narration?.trim() || '(no narration)'
+  const isBeingEdited = editing?.editingIndex === segment.index
+  const isStale = editing?.staleIndices.has(segment.index) ?? false
+  const isRerendering = editing?.rerenderingIndex === segment.index
+  const error = editing?.errorByIndex[segment.index]
+  const editingDisabled =
+    isRunActive ||
+    isRerendering ||
+    (editing?.editingIndex !== null &&
+      editing?.editingIndex !== undefined &&
+      editing.editingIndex !== segment.index)
+  const editingDisabledReason = isRunActive
+    ? 'Wait for the current run to finish'
+    : isRerendering
+      ? 'Re-rendering audio…'
+      : editing?.editingIndex !== null && editing?.editingIndex !== undefined
+        ? 'Finish editing the current segment first'
+        : ''
+
+  // Use a div + role=button rather than a real <button>: when the row
+  // is non-seekable (no timing data) we want click-to-seek disabled,
+  // but a disabled <button> blocks click events on its children too,
+  // which would prevent the nested pencil / re-render icons from
+  // working. A div lets us conditionally handle the seek without
+  // disabling child clicks.
+  const handleRowClick = () => {
+    if (seekable && !isBeingEdited) onSelect(segment)
+  }
+  const handleRowKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if ((e.key === 'Enter' || e.key === ' ') && seekable && !isBeingEdited) {
+      e.preventDefault()
+      onSelect(segment)
+    }
+  }
 
   const row = (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={seekable && !isBeingEdited ? 0 : -1}
       data-segment-index={segment.index}
-      onClick={() => seekable && onSelect(segment)}
-      disabled={!seekable}
+      onClick={handleRowClick}
+      onKeyDown={handleRowKeyDown}
+      aria-disabled={!seekable || isBeingEdited}
       className={cn(
-        'grid w-full grid-cols-[2.25rem_minmax(3.5rem,auto)_minmax(4rem,auto)_1fr] items-center gap-3 px-4 py-2 text-left text-sm transition-colors',
-        seekable
+        'group grid w-full grid-cols-[2.25rem_minmax(3.5rem,auto)_minmax(4rem,auto)_1fr_auto] items-center gap-3 px-4 py-2 text-left text-sm transition-colors',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        seekable && !isBeingEdited
           ? 'cursor-pointer hover:bg-secondary/50'
           : 'cursor-default text-muted-foreground',
         active && 'bg-secondary/80 text-foreground',
+        isBeingEdited && 'bg-secondary/40',
       )}
     >
       <span
@@ -198,17 +278,199 @@ function SegmentRow({
         {segment.action}
       </span>
       <span className="truncate text-foreground/90">{narration}</span>
-    </button>
+      {editing ? (
+        <div className="flex items-center gap-1">
+          {isStale ? (
+            <RowIconButton
+              icon={
+                isRerendering ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <RotateCcw className="size-3.5" />
+                )
+              }
+              label="Re-render audio"
+              onClick={() => void editing.onRerender(segment.index)}
+              disabled={editingDisabled}
+              disabledReason={editingDisabledReason}
+              accentClass={isStale ? 'text-amber-400' : undefined}
+              alwaysVisible
+            />
+          ) : null}
+          <RowIconButton
+            icon={<Pencil className="size-3.5" />}
+            label="Edit narration"
+            onClick={() => editing.onBeginEdit(segment.index)}
+            disabled={editingDisabled || isBeingEdited}
+            disabledReason={editingDisabledReason}
+          />
+        </div>
+      ) : null}
+    </div>
   )
 
-  // Tooltip with full narration when truncated.
+  return (
+    <div>
+      {seekable ? (
+        <Tooltip>
+          <TooltipTrigger asChild>{row}</TooltipTrigger>
+          <TooltipContent side="left" className="max-w-sm">
+            <p className="text-xs leading-relaxed">{narration}</p>
+          </TooltipContent>
+        </Tooltip>
+      ) : (
+        row
+      )}
+      {isBeingEdited && editing ? (
+        <SegmentEditor
+          initialNarration={segment.narration}
+          rerendering={isRerendering}
+          error={error ?? null}
+          onSave={(text) => editing.onSaveEdit(segment.index, text)}
+          onCancel={editing.onCancelEdit}
+        />
+      ) : null}
+      {!isBeingEdited && error ? (
+        <p className="px-4 pb-2 text-xs text-destructive">{error}</p>
+      ) : null}
+    </div>
+  )
+}
+
+function RowIconButton({
+  icon,
+  label,
+  onClick,
+  disabled,
+  disabledReason,
+  accentClass,
+  alwaysVisible,
+}: {
+  icon: React.ReactNode
+  label: string
+  onClick: () => void
+  disabled?: boolean
+  disabledReason?: string
+  accentClass?: string
+  alwaysVisible?: boolean
+}) {
+  const button = (
+    <span
+      role="button"
+      tabIndex={disabled ? -1 : 0}
+      aria-label={label}
+      aria-disabled={disabled}
+      onClick={(e) => {
+        e.stopPropagation()
+        if (!disabled) onClick()
+      }}
+      onKeyDown={(e) => {
+        if ((e.key === 'Enter' || e.key === ' ') && !disabled) {
+          e.preventDefault()
+          e.stopPropagation()
+          onClick()
+        }
+      }}
+      className={cn(
+        'inline-flex size-5 items-center justify-center rounded transition-opacity',
+        disabled
+          ? 'cursor-not-allowed opacity-30 hover:bg-transparent'
+          : 'cursor-pointer hover:bg-secondary hover:text-foreground',
+        accentClass ?? 'text-muted-foreground/60',
+        alwaysVisible
+          ? 'opacity-100'
+          : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100',
+      )}
+    >
+      {icon}
+    </span>
+  )
+
+  // Always show a tooltip — the icons are too small to communicate
+  // their purpose by glyph alone. When disabled, the disabled reason
+  // takes precedence over the action label.
+  const tooltipText = disabled && disabledReason ? disabledReason : label
   return (
     <Tooltip>
-      <TooltipTrigger asChild>{row}</TooltipTrigger>
-      <TooltipContent side="left" className="max-w-sm">
-        <p className="text-xs leading-relaxed">{narration}</p>
-      </TooltipContent>
+      <TooltipTrigger asChild>{button}</TooltipTrigger>
+      <TooltipContent side="left">{tooltipText}</TooltipContent>
     </Tooltip>
+  )
+}
+
+function SegmentEditor({
+  initialNarration,
+  rerendering,
+  error,
+  onSave,
+  onCancel,
+}: {
+  initialNarration: string
+  rerendering: boolean
+  error: string | null
+  onSave: (narration: string) => Promise<void>
+  onCancel: () => void
+}) {
+  const [text, setText] = useState(initialNarration)
+  const [saving, setSaving] = useState(false)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    textareaRef.current?.focus()
+  }, [])
+
+  const handleSave = async () => {
+    if (saving || rerendering || !text.trim()) return
+    setSaving(true)
+    try {
+      await onSave(text.trim())
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const busy = saving || rerendering
+  const dirty = text.trim() !== initialNarration.trim()
+
+  return (
+    <div className="border-t border-border bg-background px-4 py-3">
+      <textarea
+        ref={textareaRef}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        disabled={busy}
+        rows={4}
+        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 resize-y"
+        placeholder="Narration…"
+      />
+      {error ? (
+        <p className="mt-2 text-xs text-destructive">{error}</p>
+      ) : null}
+      <div className="mt-2 flex justify-end gap-2">
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={onCancel}
+          disabled={busy}
+        >
+          Cancel
+        </Button>
+        <Button
+          size="sm"
+          onClick={() => void handleSave()}
+          disabled={busy || !dirty || !text.trim()}
+        >
+          {saving ? (
+            <>
+              <Loader2 className="size-3 animate-spin" />
+              Saving…
+            </>
+          ) : (
+            'Save'
+          )}
+        </Button>
+      </div>
+    </div>
   )
 }
 

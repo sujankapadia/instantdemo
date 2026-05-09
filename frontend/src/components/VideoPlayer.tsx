@@ -18,7 +18,7 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
 
     if (errored) {
       return (
-        <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border bg-muted/30 text-muted-foreground">
+        <div className="flex h-full w-full flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border bg-muted/30 text-muted-foreground">
           <Film className="size-8 opacity-60" />
           <span className="text-sm">No video rendered yet</span>
           <span className="text-xs text-muted-foreground/80">
@@ -34,7 +34,10 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
         src={src}
         controls
         preload="metadata"
-        className="aspect-video w-full rounded-md bg-black"
+        // h-full + object-contain lets the video fill the resizable
+        // panel while preserving its aspect ratio. mx-auto centers
+        // when the panel is wider than the video.
+        className="h-full w-full object-contain mx-auto rounded-md bg-black"
         onError={() => setErrored(true)}
         onTimeUpdate={(event) => {
           if (onTimeUpdate) {

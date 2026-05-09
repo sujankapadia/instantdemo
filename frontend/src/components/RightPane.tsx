@@ -1,18 +1,50 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { VideoPlayer } from './VideoPlayer'
-import { SegmentsList } from './SegmentsList'
+import { SegmentsList, type EditingProps } from './SegmentsList'
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from './ui/resizable'
 import { useSegments } from '@/hooks/useSegments'
 import type { Segment } from '@/api/project'
+import {
+  patchSegmentNarration,
+  reRenderSegmentAudio,
+} from '@/api/segments'
+import type { RunStatus } from '@/hooks/useRun'
 
-export function RightPane() {
+interface RightPaneProps {
+  runStatus: RunStatus
+}
+
+export function RightPane({ runStatus }: RightPaneProps) {
   const segmentsState = useSegments()
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const [currentTimeS, setCurrentTimeS] = useState(0)
+  const [videoVersion, setVideoVersion] = useState(() => Date.now())
+
+  // Editing state — kept here so RightPane can coordinate with the
+  // segments hook (refetch after re-render) and the video element
+  // (cache-bust after re-render).
+  const [editingIndex, setEditingIndex] = useState<number | null>(null)
+  const [staleIndices, setStaleIndices] = useState<Set<number>>(
+    () => new Set(),
+  )
+  const [rerenderingIndex, setRerenderingIndex] = useState<number | null>(
+    null,
+  )
+  const [errorByIndex, setErrorByIndex] = useState<Record<number, string>>(
+    {},
+  )
 
   const segments =
-    segmentsState.status === 'success' ? segmentsState.data.segments : []
+    segmentsState.state.status === 'success'
+      ? segmentsState.state.data.segments
+      : []
   const hasTiming =
-    segmentsState.status === 'success' && segmentsState.data.has_timing
+    segmentsState.state.status === 'success' &&
+    segmentsState.state.data.has_timing
 
   // Find which segment contains the current playback time.
   const currentIndex = useMemo<number | null>(() => {
@@ -32,30 +64,122 @@ export function RightPane() {
     void videoRef.current.play()
   }, [])
 
-  const listState = mapSegmentsListState(segmentsState)
+  const handleBeginEdit = useCallback((index: number) => {
+    setEditingIndex((prev) => (prev === null ? index : prev))
+    // Clear any previous error for this segment when re-opening editor.
+    setErrorByIndex((prev) => {
+      if (!(index in prev)) return prev
+      const next = { ...prev }
+      delete next[index]
+      return next
+    })
+  }, [])
+
+  const handleCancelEdit = useCallback(() => {
+    setEditingIndex(null)
+  }, [])
+
+  const handleSaveEdit = useCallback(
+    async (index: number, narration: string) => {
+      try {
+        await patchSegmentNarration(index, narration)
+        setStaleIndices((prev) => {
+          const next = new Set(prev)
+          next.add(index)
+          return next
+        })
+        setErrorByIndex((prev) => {
+          if (!(index in prev)) return prev
+          const next = { ...prev }
+          delete next[index]
+          return next
+        })
+        setEditingIndex(null)
+        // Refresh segments so the list reflects the new narration text.
+        segmentsState.refetch()
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        setErrorByIndex((prev) => ({ ...prev, [index]: msg }))
+        // Leave the editor open so the user sees the error.
+      }
+    },
+    [segmentsState],
+  )
+
+  const handleRerender = useCallback(
+    async (index: number) => {
+      if (rerenderingIndex !== null) return
+      setRerenderingIndex(index)
+      setErrorByIndex((prev) => {
+        if (!(index in prev)) return prev
+        const next = { ...prev }
+        delete next[index]
+        return next
+      })
+      try {
+        await reRenderSegmentAudio(index)
+        setStaleIndices((prev) => {
+          if (!prev.has(index)) return prev
+          const next = new Set(prev)
+          next.delete(index)
+          return next
+        })
+        // Bust the video element's cache so the new MP4 is fetched.
+        setVideoVersion(Date.now())
+        // Refresh segments — segment-timing.json was rewritten.
+        segmentsState.refetch()
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        setErrorByIndex((prev) => ({ ...prev, [index]: msg }))
+      } finally {
+        setRerenderingIndex(null)
+      }
+    },
+    [rerenderingIndex, segmentsState],
+  )
+
+  const editing: EditingProps = {
+    editingIndex,
+    staleIndices,
+    rerenderingIndex,
+    errorByIndex,
+    onBeginEdit: handleBeginEdit,
+    onSaveEdit: handleSaveEdit,
+    onCancelEdit: handleCancelEdit,
+    onRerender: handleRerender,
+  }
+
+  const listState = mapSegmentsListState(segmentsState.state)
 
   return (
     <aside className="flex h-full min-h-0 flex-col">
-      <div className="border-b border-border bg-muted/10 p-4">
-        <VideoPlayer
-          ref={videoRef}
-          src="/api/project/video"
-          onTimeUpdate={setCurrentTimeS}
-        />
-      </div>
-      <div className="flex-1 min-h-0">
-        <SegmentsList
-          state={listState}
-          currentIndex={currentIndex}
-          onSelect={handleSeek}
-        />
-      </div>
+      <ResizablePanelGroup orientation="vertical">
+        <ResizablePanel defaultSize={55} minSize={20}>
+          <div className="h-full border-b border-border bg-muted/10 p-4">
+            <VideoPlayer
+              ref={videoRef}
+              src={`/api/project/video?v=${videoVersion}`}
+              onTimeUpdate={setCurrentTimeS}
+            />
+          </div>
+        </ResizablePanel>
+        <ResizableHandle withHandle />
+        <ResizablePanel defaultSize={45} minSize={20}>
+          <SegmentsList
+            state={listState}
+            currentIndex={currentIndex}
+            onSelect={handleSeek}
+            editing={editing}
+            runStatus={runStatus}
+          />
+        </ResizablePanel>
+      </ResizablePanelGroup>
     </aside>
   )
 }
 
 function mapSegmentsListState(
-  state: ReturnType<typeof useSegments>,
+  state: ReturnType<typeof useSegments>['state'],
 ): React.ComponentProps<typeof SegmentsList>['state'] {
   if (state.status === 'loading') return { status: 'loading' }
   if (state.status === 'error') return { status: 'error', error: state.error }

@@ -29,6 +29,11 @@ export function Layout() {
   const run = useRun({ onStart: refetch, onComplete: refetch })
   const [selected, setSelected] = useState<number>(1)
   const [newProjectOpen, setNewProjectOpen] = useState(false)
+  // Editor pane (phase artifacts / JSON) is hidden by default — those
+  // are developer-facing and text-heavy. The right pane (video +
+  // segments) is the primary end-user surface. Toggle in the header
+  // shows the editor; clicking a phase pill auto-opens it.
+  const [editorVisible, setEditorVisible] = useState(false)
 
   const isLoading = state.status === 'loading'
   const isError = state.status === 'error'
@@ -96,6 +101,8 @@ export function Layout() {
         cumulativeCost={run.cumulativeCost}
         onCancel={() => void run.cancel()}
         onNewProject={() => setNewProjectOpen(true)}
+        editorVisible={editorVisible}
+        onToggleEditor={() => setEditorVisible((v) => !v)}
       />
       {isError ? (
         <ErrorBanner message={state.error} onRetry={refetch} />
@@ -139,20 +146,39 @@ export function Layout() {
       <PhaseRail
         phases={phases}
         selected={selected}
-        onSelect={setSelected}
+        onSelect={(num) => {
+          setSelected(num)
+          // Auto-open the editor when the user explicitly clicks a
+          // phase pill — they want to see that phase's content.
+          if (!editorVisible) setEditorVisible(true)
+        }}
         loading={isLoading}
         runStatus={run.status}
         currentPhase={run.currentPhase}
         onRunPhase={empty ? undefined : handleRunPhase}
       />
-      <main className="flex min-h-0 flex-1">
-        <div className="flex-[3] min-w-0">
-          <EditorPane phase={phase} empty={empty} projectDir={projectDir} />
-        </div>
-        <div className="flex-[2] min-w-0">
-          <RightPane />
-        </div>
-      </main>
+      {(() => {
+        // Empty project? Always show the editor pane so the user sees
+        // the onboarding message regardless of the toggle. Once they
+        // start a project, the toggle controls visibility normally.
+        const showEditor = editorVisible || empty
+        return (
+          <main className="flex min-h-0 flex-1">
+            {showEditor ? (
+              <div className="flex-[3] min-w-0">
+                <EditorPane
+                  phase={phase}
+                  empty={empty}
+                  projectDir={projectDir}
+                />
+              </div>
+            ) : null}
+            <div className={showEditor ? 'flex-[2] min-w-0' : 'flex-1 min-w-0'}>
+              <RightPane runStatus={run.status} />
+            </div>
+          </main>
+        )
+      })()}
       <LogDrawer log={run.log} status={run.status} />
       <NewProjectModal
         open={newProjectOpen}

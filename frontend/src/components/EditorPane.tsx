@@ -4,6 +4,7 @@ import { json as jsonLang } from '@codemirror/lang-json'
 import { oneDark } from '@codemirror/theme-one-dark'
 import type { PhaseInfo } from './PhaseRail'
 import { MarkdownView } from './markdown/MarkdownView'
+import { PhaseDriftNotice } from './PhaseDriftNotice'
 import { ValidationView } from './ValidationView'
 import { useArtifact } from '@/hooks/useArtifact'
 import type { PhaseNumber } from '@/api/project'
@@ -136,6 +137,16 @@ function ArtifactBody({ phase, format, content }: ArtifactBodyProps) {
   }
   if (phase.num === 5) {
     return <ValidationView content={content} />
+  }
+  if (phase.num === 2 || phase.num === 3) {
+    return (
+      <div className="flex h-full flex-col">
+        <PhaseDriftNotice phaseNumber={phase.num} />
+        <div className="flex-1 min-h-0 overflow-auto">
+          <MarkdownView content={content} />
+        </div>
+      </div>
+    )
   }
   return <MarkdownView content={content} />
 }

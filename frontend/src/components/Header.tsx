@@ -1,5 +1,10 @@
-import { Plus, Settings, Square } from 'lucide-react'
+import { PanelLeftClose, PanelLeftOpen, Plus, Settings, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { formatCostUsd } from '@/lib/format'
 import type { RunStatus } from '@/hooks/useRun'
@@ -12,6 +17,8 @@ interface HeaderProps {
   cumulativeCost: number
   onCancel: () => void
   onNewProject: () => void
+  editorVisible: boolean
+  onToggleEditor: () => void
 }
 
 export function Header({
@@ -22,6 +29,8 @@ export function Header({
   cumulativeCost,
   onCancel,
   onNewProject,
+  editorVisible,
+  onToggleEditor,
 }: HeaderProps) {
   const isActive =
     runStatus === 'running' ||
@@ -78,6 +87,21 @@ export function Header({
             New project
           </Button>
         )}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={editorVisible ? 'Hide phase details' : 'Show phase details'}
+              onClick={onToggleEditor}
+            >
+              {editorVisible ? <PanelLeftClose /> : <PanelLeftOpen />}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {editorVisible ? 'Hide phase details' : 'Show phase details'}
+          </TooltipContent>
+        </Tooltip>
         <Button variant="ghost" size="icon" aria-label="Settings">
           <Settings />
         </Button>
