@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from .routes import project, runs
+from .routes import project, runs, segments
 
 
 _NOT_BUILT_HTML = """\
@@ -85,6 +85,7 @@ def create_app() -> FastAPI:
 
     app.include_router(project.router)
     app.include_router(runs.router)
+    app.include_router(segments.router)
 
     web_dir = _web_dir()
     index_html = web_dir / "index.html"

@@ -381,6 +381,105 @@ def _write_segment_timing(
     )
 
 
+def _build_combined_audio(
+    audio_clips: list[Path],
+    clip_durations: list[float],
+    segments: list[dict],
+    tmp_dir: Path,
+) -> Path:
+    """Concat per-segment audio clips with silence padding, return path
+    to the combined WAV. Same logic as the combine_audio_video tail —
+    extracted so audio-only re-render can reuse it without going through
+    video trim+concat."""
+    wav_clips = [_ensure_wav(clip, i, tmp_dir) for i, clip in enumerate(audio_clips)]
+    audio_files: list[Path] = []
+    for i, wav in enumerate(wav_clips):
+        audio_files.append(wav)
+        pause_ms = segments[i].get("pause_after_ms", 0)
+        audio_ms = clip_durations[i] * 1000
+        gap_ms = max(0, max(audio_ms, pause_ms) - audio_ms)
+        if gap_ms > 0:
+            gap_silence = tmp_dir / f"silence_{i}.wav"
+            subprocess.run(  # nosec B607
+                [
+                    "ffmpeg", "-y",
+                    "-f", "lavfi",
+                    "-i", "anullsrc=r=44100:cl=stereo",
+                    "-t", str(gap_ms / 1000),
+                    str(gap_silence),
+                ],
+                capture_output=True,
+            )
+            audio_files.append(gap_silence)
+
+    combined_audio = tmp_dir / "combined_audio.wav"
+    audio_inputs: list[str] = []
+    for path in audio_files:
+        audio_inputs.extend(["-i", str(path)])
+    n = len(audio_files)
+    audio_filter = (
+        "".join(f"[{i}:a]" for i in range(n))
+        + f"concat=n={n}:v=0:a=1[out]"
+    )
+    subprocess.run(  # nosec B607
+        ["ffmpeg", "-y"] + audio_inputs + [
+            "-filter_complex", audio_filter,
+            "-map", "[out]",
+            str(combined_audio),
+        ],
+        capture_output=True,
+    )
+    return combined_audio
+
+
+def remux_audio_only(
+    existing_video: Path,
+    audio_clips: list[Path],
+    clip_durations: list[float],
+    segments: list[dict],
+    output_path: Path,
+    tmp_dir: Path,
+) -> None:
+    """Replace the audio track of an existing demo.mp4 with newly-built
+    audio, copying the video stream untouched (no re-encoding).
+
+    Used by the GUI's per-segment audio re-render path: the user edited
+    a segment's narration; we regenerate audio for every segment, splice
+    them with silence padding, and mux against the unchanged video.
+
+    Limitation (v1): if total new audio length differs significantly
+    from the video, ffmpeg's `-shortest` truncates whichever stream
+    runs out first. Minor narration edits stay within the original
+    slot and are fine. Big lengthening edits get the tail of the new
+    audio cut off — the GUI should detect overflow at submit time and
+    warn (or fall back to a full re-render) rather than rely on this
+    silently truncating.
+    """
+    combined_audio = _build_combined_audio(
+        audio_clips, clip_durations, segments, tmp_dir
+    )
+
+    print("  Re-muxing existing video with new audio (no re-encode)...")
+    result = subprocess.run(  # nosec B607
+        [
+            "ffmpeg", "-y",
+            "-i", str(existing_video),
+            "-i", str(combined_audio),
+            "-map", "0:v",
+            "-map", "1:a",
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-shortest",
+            str(output_path),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg remux failed: {result.stderr}")
+
+
 def _ensure_wav(clip: Path, index: int, tmp_dir: Path) -> Path:
     """Convert an audio clip to WAV if it isn't already."""
     if clip.suffix == ".wav":
