@@ -154,9 +154,14 @@ class RunManager:
             self._client_cwd = None
 
     async def start_run(self, request: RunRequest) -> _Run:
-        """Validate inputs, lazily connect the client, spawn the
-        background pipeline task. Returns the _Run synchronously
-        once the task is launched."""
+        """Validate inputs, lazily connect the client, reset state for
+        the requested phases, then spawn the background pipeline task.
+
+        The phase reset happens synchronously here (not in _execute) so
+        that the response we return to the client reflects the new
+        pending state — eliminates a race where the client could
+        refetch /api/project and see stale phase data from a previous
+        run before the background task gets to clear it."""
         for phase_num in request.phases:
             if not 1 <= phase_num <= len(PHASES):
                 raise HTTPException(
@@ -172,6 +177,19 @@ class RunManager:
                 )
             project = _project_dir()
             await self._ensure_client(str(project))
+
+            # Reset state for phases in this run. Phases not in the
+            # request keep their existing entries (so a targeted re-run
+            # of phase 3 doesn't wipe phases 1, 2, 4, 5).
+            state_dir = project / ".instantdemo"
+            state_dir.mkdir(parents=True, exist_ok=True)
+            s = state_mod.load(state_dir)
+            phases_dict = s.setdefault("phases", {})
+            for phase_num in request.phases:
+                phases_dict[str(phase_num)] = {"status": "pending"}
+            state_mod.update_inputs(s, url=request.url, describe=request.describe)
+            state_mod.save(state_dir, s)
+
             run = _Run(run_id=str(uuid.uuid4()), phases=request.phases)
             self.active = run
             run.task = asyncio.create_task(
@@ -262,12 +280,8 @@ class RunManager:
             dispatcher=self._dispatcher,
             event_emitter=lambda evt: run.queue.put_nowait(evt),
         )
-
-        # Initialize state.json with run-level inputs.
-        state_dir.mkdir(parents=True, exist_ok=True)
-        s = state_mod.load(state_dir)
-        state_mod.update_inputs(s, url=request.url, describe=request.describe)
-        state_mod.save(state_dir, s)
+        # State.json was already prepared in start_run (phases reset to
+        # pending, run-level inputs recorded). Just proceed.
 
         try:
             for phase_num in request.phases:

@@ -52,17 +52,27 @@ export interface UseRunReturn {
   cancel: () => Promise<void>
 }
 
+interface UseRunOptions {
+  /** Fires once the POST /api/runs returns successfully and the SSE
+   * stream is subscribed. Use this to refetch /api/project so the
+   * phase rail reflects the backend's per-run state reset (phases in
+   * the request were marked pending) before any phase_started event
+   * arrives. */
+  onStart?: () => void
+  /** Fires when the run finishes — any terminal status (complete,
+   * canceled, error). Typically used to refetch /api/project to
+   * surface the persisted state.json metrics. */
+  onComplete?: () => void
+}
+
 /**
  * Hook owning the lifecycle of a single multi-phase run. It POSTs
  * /api/runs, subscribes to the SSE event stream, and exposes the
  * accumulated state so the UI can animate phase pills, render live
  * agent text in the drawer, and tick the cost meter.
- *
- * `onComplete` (optional) fires when the run finishes (any terminal
- * status). Callers typically use it to refetch /api/project so the
- * phase rail reflects ground-truth state after the run.
  */
-export function useRun(onComplete?: () => void): UseRunReturn {
+export function useRun(options?: UseRunOptions): UseRunReturn {
+  const { onStart, onComplete } = options ?? {}
   const [status, setStatus] = useState<RunStatus>('idle')
   const [runId, setRunId] = useState<string | null>(null)
   const [currentPhase, setCurrentPhase] = useState<number | null>(null)
@@ -76,7 +86,12 @@ export function useRun(onComplete?: () => void): UseRunReturn {
   const subscriptionRef = useRef<StreamSubscription | null>(null)
   const runIdRef = useRef<string | null>(null)
   const logIdRef = useRef(0)
+  const onStartRef = useRef(onStart)
   const onCompleteRef = useRef(onComplete)
+
+  useEffect(() => {
+    onStartRef.current = onStart
+  }, [onStart])
 
   useEffect(() => {
     onCompleteRef.current = onComplete
@@ -228,6 +243,11 @@ export function useRun(onComplete?: () => void): UseRunReturn {
         setRunId(info.run_id)
         runIdRef.current = info.run_id
         setStatus('running')
+        // Backend reset state.json's phases for this run before
+        // returning. Refetch project state so the rail reflects that
+        // immediately (otherwise the user sees stale entries from a
+        // prior run until the first phase_complete event lands).
+        onStartRef.current?.()
         subscriptionRef.current = subscribeToRunStream(
           info.run_id,
           handleEvent,

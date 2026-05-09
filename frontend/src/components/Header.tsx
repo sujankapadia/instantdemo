@@ -1,4 +1,4 @@
-import { Settings, Square } from 'lucide-react'
+import { Plus, Settings, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { formatCostUsd } from '@/lib/format'
@@ -11,6 +11,7 @@ interface HeaderProps {
   runStatus: RunStatus
   cumulativeCost: number
   onCancel: () => void
+  onNewProject: () => void
 }
 
 export function Header({
@@ -20,6 +21,7 @@ export function Header({
   runStatus,
   cumulativeCost,
   onCancel,
+  onNewProject,
 }: HeaderProps) {
   const isRunning = runStatus === 'running' || runStatus === 'starting'
   const showCost =
@@ -62,7 +64,17 @@ export function Header({
             <Square className="size-3" />
             Stop
           </Button>
-        ) : null}
+        ) : (
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={onNewProject}
+            disabled={loading}
+          >
+            <Plus className="size-3" />
+            New project
+          </Button>
+        )}
         <Button variant="ghost" size="icon" aria-label="Settings">
           <Settings />
         </Button>

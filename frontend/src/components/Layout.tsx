@@ -11,6 +11,7 @@ import { EditorPane } from './EditorPane'
 import { RightPane } from './RightPane'
 import { LogDrawer } from './LogDrawer'
 import { ErrorBanner } from './ErrorBanner'
+import { NewProjectModal } from './NewProjectModal'
 import { useProject } from '@/hooks/useProject'
 import { useRun } from '@/hooks/useRun'
 
@@ -22,8 +23,9 @@ const LOADING_PHASES: PhaseInfo[] = PHASE_NUMBERS.map((num) => ({
 
 export function Layout() {
   const { state, refetch } = useProject()
-  const run = useRun(refetch)
+  const run = useRun({ onStart: refetch, onComplete: refetch })
   const [selected, setSelected] = useState<number>(1)
+  const [newProjectOpen, setNewProjectOpen] = useState(false)
 
   const isLoading = state.status === 'loading'
   const isError = state.status === 'error'
@@ -53,6 +55,18 @@ export function Layout() {
     [data, run],
   )
 
+  const handleNewProjectSubmit = useCallback(
+    (values: { url: string; describe: string; tts: 'kokoro' }) => {
+      void run.startRun({
+        phases: [1, 2, 3, 4, 5],
+        url: values.url,
+        describe: values.describe || undefined,
+        tts: values.tts,
+      })
+    },
+    [run],
+  )
+
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
       <Header
@@ -62,6 +76,7 @@ export function Layout() {
         runStatus={run.status}
         cumulativeCost={run.cumulativeCost}
         onCancel={() => void run.cancel()}
+        onNewProject={() => setNewProjectOpen(true)}
       />
       {isError ? (
         <ErrorBanner message={state.error} onRetry={refetch} />
@@ -90,6 +105,16 @@ export function Layout() {
         </div>
       </main>
       <LogDrawer log={run.log} status={run.status} />
+      <NewProjectModal
+        open={newProjectOpen}
+        onOpenChange={setNewProjectOpen}
+        willOverwrite={data ? data.exists : false}
+        defaultValues={{
+          url: data?.url ?? '',
+          describe: data?.describe ?? '',
+        }}
+        onSubmit={handleNewProjectSubmit}
+      />
     </div>
   )
 }
