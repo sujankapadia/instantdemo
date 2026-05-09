@@ -92,7 +92,10 @@ export function PhaseRail({
   currentPhase,
   onRunPhase,
 }: PhaseRailProps) {
-  const isRunActive = runStatus === 'running' || runStatus === 'starting'
+  const isRunActive =
+    runStatus === 'running' ||
+    runStatus === 'starting' ||
+    runStatus === 'paused'
 
   return (
     <nav className="flex h-12 items-center gap-1 border-b border-border bg-background px-3">

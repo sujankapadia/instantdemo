@@ -158,6 +158,13 @@ async def run_query_on_client(
     try:
         text_chunks: list[str] = []
         result = None
+        # Whether any token deltas streamed during the current turn.
+        # We use this to decide whether AssistantMessage's TextBlocks
+        # need a fallback emit — if the agent returned text without
+        # streaming (typical for some error paths or non-streaming
+        # responses), the deltas never fired and the drawer would
+        # otherwise stay empty.
+        streamed_any_text = False
         await context.client.query(prompt, session_id=session_id)
         async for msg in context.client.receive_response():
             if isinstance(msg, StreamEvent):
@@ -170,6 +177,7 @@ async def run_query_on_client(
                     if delta.get("type") == "text_delta":
                         token = delta.get("text") or ""
                         if token:
+                            streamed_any_text = True
                             print(token, end="", flush=True)
                             if emit is not None:
                                 emit(
@@ -180,15 +188,32 @@ async def run_query_on_client(
                                     }
                                 )
             elif isinstance(msg, AssistantMessage):
-                # End-of-turn message. We've already streamed text via
-                # StreamEvent deltas; here we only collect the canonical
-                # text for the return value and emit tool-use events
-                # (tools are at the message level, not stream level).
+                # End-of-turn message. We collect the canonical text for
+                # the return value, emit tool-use events (tools come at
+                # the message level, not stream level), and — if no
+                # deltas streamed for this turn — fall back to printing
+                # / emitting the TextBlock text directly so the user
+                # sees something.
                 printed_newline = False
                 for block in msg.content:
                     if isinstance(block, TextBlock):
                         text_chunks.append(block.text)
-                        if not printed_newline:
+                        if not streamed_any_text:
+                            # No deltas fired — print + emit fallback
+                            # so CLI stdout and the GUI drawer aren't
+                            # silently empty (e.g., on a billing error
+                            # the API returns text without streaming).
+                            print(block.text, flush=True)
+                            printed_newline = True
+                            if emit is not None:
+                                emit(
+                                    {
+                                        "type": "text_chunk",
+                                        "session_id": session_id,
+                                        "text": block.text,
+                                    }
+                                )
+                        elif not printed_newline:
                             print(flush=True)
                             printed_newline = True
                     elif type(block).__name__ == "ToolUseBlock":
@@ -201,7 +226,32 @@ async def run_query_on_client(
                                     "tool_input": getattr(block, "input", {}),
                                 }
                             )
+
+                # Detect agent-side errors surfaced by the SDK on the
+                # AssistantMessage (billing_error, rate_limit, etc.).
+                # Any text content has already been emitted above, so
+                # the user sees the explanation; raising here marks
+                # the phase as errored rather than silently continuing
+                # with garbage content as a "successful" artifact.
+                msg_error = getattr(msg, "error", None)
+                if msg_error:
+                    detail = "\n".join(text_chunks).strip() or "(no message)"
+                    raise RuntimeError(f"Agent error ({msg_error}): {detail}")
+
+                # Reset for the next turn (multi-turn runs interleave
+                # tool use → tool result → another agent turn).
+                streamed_any_text = False
             elif isinstance(msg, ResultMessage):
+                if msg.is_error:
+                    detail = (
+                        getattr(msg, "result", None)
+                        or "\n".join(text_chunks).strip()
+                        or "(no message)"
+                    )
+                    subtype = getattr(msg, "subtype", "unknown")
+                    raise RuntimeError(
+                        f"Agent run errored (subtype={subtype}): {detail}"
+                    )
                 result = msg
                 break
         return "\n".join(text_chunks), result

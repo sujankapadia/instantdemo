@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   cancelRun,
+  continueRun,
   startRun,
   subscribeToRunStream,
   type RunEvent,
@@ -12,6 +13,7 @@ export type RunStatus =
   | 'idle'
   | 'starting'
   | 'running'
+  | 'paused'
   | 'complete'
   | 'canceled'
   | 'error'
@@ -34,6 +36,8 @@ type LogEntryInput =
       phase_name: string
       cost_usd: number
     }
+  | { kind: 'paused'; completed_phase: number; next_phase: number }
+  | { kind: 'resumed'; next_phase: number }
   | { kind: 'run_complete'; total_cost_usd: number }
   | { kind: 'run_canceled' }
   | { kind: 'error'; error: string }
@@ -44,12 +48,19 @@ export interface UseRunReturn {
   status: RunStatus
   runId: string | null
   currentPhase: number | null
+  /** When status === 'paused', the phase that just finished and
+   * triggered the pause. Null otherwise. */
+  pausedAfter: number | null
+  /** When status === 'paused', the phase about to run next
+   * once the user clicks Continue. Null otherwise. */
+  nextPhase: number | null
   phaseUpdates: Map<number, PhaseUpdate>
   log: LogEntry[]
   cumulativeCost: number
   error: string | null
   startRun: (req: RunRequest) => Promise<void>
   cancel: () => Promise<void>
+  continueRun: () => Promise<void>
 }
 
 interface UseRunOptions {
@@ -76,6 +87,8 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
   const [status, setStatus] = useState<RunStatus>('idle')
   const [runId, setRunId] = useState<string | null>(null)
   const [currentPhase, setCurrentPhase] = useState<number | null>(null)
+  const [pausedAfter, setPausedAfter] = useState<number | null>(null)
+  const [nextPhase, setNextPhase] = useState<number | null>(null)
   const [phaseUpdates, setPhaseUpdates] = useState<Map<number, PhaseUpdate>>(
     new Map(),
   )
@@ -173,9 +186,29 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
         appendLog({ kind: 'error', error: event.error })
         break
 
+      case 'paused':
+        setStatus('paused')
+        setPausedAfter(event.completed_phase)
+        setNextPhase(event.next_phase)
+        appendLog({
+          kind: 'paused',
+          completed_phase: event.completed_phase,
+          next_phase: event.next_phase,
+        })
+        break
+
+      case 'resumed':
+        setStatus('running')
+        setPausedAfter(null)
+        setNextPhase(null)
+        appendLog({ kind: 'resumed', next_phase: event.next_phase })
+        break
+
       case 'run_complete':
         setStatus('complete')
         setCurrentPhase(null)
+        setPausedAfter(null)
+        setNextPhase(null)
         appendLog({ kind: 'run_complete', total_cost_usd: event.total_cost_usd })
         closeSubscription()
         onCompleteRef.current?.()
@@ -196,6 +229,8 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
           return next
         })
         setCurrentPhase(null)
+        setPausedAfter(null)
+        setNextPhase(null)
         appendLog({ kind: 'run_canceled' })
         closeSubscription()
         onCompleteRef.current?.()
@@ -216,6 +251,8 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
           return next
         })
         setCurrentPhase(null)
+        setPausedAfter(null)
+        setNextPhase(null)
         appendLog({ kind: 'error', error: event.error })
         closeSubscription()
         onCompleteRef.current?.()
@@ -235,6 +272,8 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
       setPhaseUpdates(new Map())
       setCumulativeCost(0)
       setCurrentPhase(null)
+      setPausedAfter(null)
+      setNextPhase(null)
       setRunId(null)
       logIdRef.current = 0
 
@@ -268,12 +307,23 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
 
   const cancel = useCallback(async () => {
     const id = runIdRef.current
-    if (!id || status !== 'running') return
+    if (!id || (status !== 'running' && status !== 'paused')) return
     try {
       await cancelRun(id)
       // Status transitions via the run_canceled event from the stream.
     } catch (err) {
       console.error('Cancel failed:', err)
+    }
+  }, [status])
+
+  const continueRunImpl = useCallback(async () => {
+    const id = runIdRef.current
+    if (!id || status !== 'paused') return
+    try {
+      await continueRun(id)
+      // Status transitions via the resumed event from the stream.
+    } catch (err) {
+      console.error('Continue failed:', err)
     }
   }, [status])
 
@@ -288,12 +338,15 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
     status,
     runId,
     currentPhase,
+    pausedAfter,
+    nextPhase,
     phaseUpdates,
     log,
     cumulativeCost,
     error,
     startRun: startRunImpl,
     cancel,
+    continueRun: continueRunImpl,
   }
 }
 

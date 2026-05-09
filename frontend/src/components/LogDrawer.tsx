@@ -5,6 +5,8 @@ import {
   ChevronUp,
   CircleX,
   Loader2,
+  Pause,
+  Play,
   Terminal,
   Wrench,
 } from 'lucide-react'
@@ -90,6 +92,14 @@ function RunStatusPip({ status }: { status: RunStatus }) {
       </span>
     )
   }
+  if (status === 'paused') {
+    return (
+      <span className="ml-1 flex items-center gap-1 text-amber-300">
+        <Pause className="size-3" />
+        Paused
+      </span>
+    )
+  }
   if (status === 'complete') {
     return (
       <span className="ml-1 flex items-center gap-1 text-emerald-400">
@@ -159,6 +169,23 @@ function LogRow({ entry }: { entry: LogEntry }) {
           <span>
             Phase {entry.phase} ({entry.phase_name}) — {formatCostUsd(entry.cost_usd)}
           </span>
+        </div>
+      )
+    case 'paused':
+      return (
+        <div className="mt-2 flex items-center gap-2 border-t border-border pt-2 text-amber-300">
+          <Pause className="size-3" />
+          <span>
+            Paused after phase {entry.completed_phase} — waiting before phase{' '}
+            {entry.next_phase}
+          </span>
+        </div>
+      )
+    case 'resumed':
+      return (
+        <div className="flex items-center gap-2 text-sky-300">
+          <Play className="size-3" />
+          <span>Resumed — running phase {entry.next_phase}</span>
         </div>
       )
     case 'run_complete':

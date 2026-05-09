@@ -53,12 +53,19 @@ class RunRequest(BaseModel):
     "from phase 3 onward" is `[3, 4, 5]`. The other fields are
     project-level inputs the CLI's `instantdemo generate` would
     otherwise read from flags.
+
+    `pause_between_phases`: when true, the server pauses after every
+    phase EXCEPT the last in the request, emitting a `paused` SSE event
+    and waiting for POST /api/runs/{id}/continue. Useful for letting
+    the user review intermediate artifacts (especially the Phase 4
+    script) before committing to the next phase.
     """
 
     phases: list[int]
     url: str
     describe: str | None = None
     tts: str = "kokoro"
+    pause_between_phases: bool = False
 
 
 class RunInfo(BaseModel):
@@ -74,7 +81,7 @@ class RunStatus(BaseModel):
 
     run_id: str
     phases: list[int]
-    status: Literal["running", "complete", "canceled", "error"]
+    status: Literal["running", "paused", "complete", "canceled", "error"]
     current_phase: int | None = None
     started_at: str
     ended_at: str | None = None
@@ -95,12 +102,17 @@ class _Run:
         self.phases = list(phases)
         self.queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self.task: asyncio.Task[None] | None = None
-        self.status: Literal["running", "complete", "canceled", "error"] = "running"
+        self.status: Literal[
+            "running", "paused", "complete", "canceled", "error"
+        ] = "running"
         self.current_phase: int | None = None
         self.started_at = _now_iso()
         self.ended_at: str | None = None
         self.total_cost_usd: float = 0.0
         self.error: str | None = None
+        # Set by _execute between phases when pause_between_phases is on,
+        # cleared by the continue endpoint to unblock _execute.
+        self.continue_event: asyncio.Event | None = None
         # Sentinel pushed onto the queue when the run is done so
         # SSE consumers know to close the stream.
         self._done = asyncio.Event()
@@ -206,18 +218,36 @@ class RunManager:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="no such run, or run already finished",
             )
-        if run.status != "running":
+        if run.status not in ("running", "paused"):
             return
         # Tell the SDK first — interrupt() is near-instant per the spike.
-        if self._client is not None:
+        # Skip when paused (no agent activity to interrupt).
+        if run.status == "running" and self._client is not None:
             try:
                 await self._client.interrupt()
             except Exception:
                 pass
         # Then cancel the asyncio task. The execution coroutine catches
-        # CancelledError, marks status, and signals the queue.
+        # CancelledError, marks status, and signals the queue. When the
+        # task is awaiting continue_event, the cancel propagates into
+        # that wait and the existing CancelledError handler runs.
         if run.task is not None and not run.task.done():
             run.task.cancel()
+
+    def continue_run(self, run_id: str) -> None:
+        """Resume a paused run by signaling its continue_event."""
+        run = self.active
+        if run is None or run.run_id != run_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="no such run",
+            )
+        if run.status != "paused" or run.continue_event is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"run is not paused (status={run.status})",
+            )
+        run.continue_event.set()
 
     def get_status(self, run_id: str) -> RunStatus:
         run = self.active
@@ -322,6 +352,34 @@ class RunManager:
                         "num_turns": phase_data.get("num_turns"),
                     }
                 )
+
+                # Pause if the user asked for it AND there's another phase
+                # still to run. The last phase in the request never pauses
+                # — its completion ends the run.
+                is_last = phase_num == request.phases[-1]
+                if request.pause_between_phases and not is_last:
+                    next_idx = request.phases.index(phase_num) + 1
+                    next_phase = request.phases[next_idx]
+                    run.continue_event = asyncio.Event()
+                    run.status = "paused"
+                    run.queue.put_nowait(
+                        {
+                            "type": "paused",
+                            "completed_phase": phase_num,
+                            "next_phase": next_phase,
+                        }
+                    )
+                    try:
+                        await run.continue_event.wait()
+                    finally:
+                        run.continue_event = None
+                    run.status = "running"
+                    run.queue.put_nowait(
+                        {
+                            "type": "resumed",
+                            "next_phase": next_phase,
+                        }
+                    )
             run.status = "complete"
             run.queue.put_nowait(
                 {
@@ -424,4 +482,11 @@ async def stream_run(run_id: str, request: Request) -> EventSourceResponse:
 async def cancel_run(run_id: str, request: Request) -> dict[str, bool]:
     manager = _manager(request)
     await manager.cancel(run_id)
+    return {"ok": True}
+
+
+@router.post("/runs/{run_id}/continue")
+async def continue_run(run_id: str, request: Request) -> dict[str, bool]:
+    manager = _manager(request)
+    manager.continue_run(run_id)
     return {"ok": True}

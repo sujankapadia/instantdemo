@@ -23,9 +23,12 @@ export function Header({
   onCancel,
   onNewProject,
 }: HeaderProps) {
-  const isRunning = runStatus === 'running' || runStatus === 'starting'
+  const isActive =
+    runStatus === 'running' ||
+    runStatus === 'starting' ||
+    runStatus === 'paused'
   const showCost =
-    runStatus !== 'idle' && (cumulativeCost > 0 || isRunning)
+    runStatus !== 'idle' && (cumulativeCost > 0 || isActive)
 
   return (
     <header className="flex h-14 items-center justify-between border-b border-border bg-background px-4">
@@ -47,14 +50,14 @@ export function Header({
           <span
             className={cn(
               'rounded-md border border-border bg-secondary/40 px-2 py-1 font-mono text-xs',
-              isRunning ? 'text-foreground' : 'text-muted-foreground',
+              isActive ? 'text-foreground' : 'text-muted-foreground',
             )}
             aria-label="Cumulative run cost"
           >
             {formatCostUsd(cumulativeCost)}
           </span>
         ) : null}
-        {isRunning ? (
+        {isActive ? (
           <Button
             size="sm"
             variant="destructive"

@@ -6,6 +6,7 @@ export interface NewProjectInputs {
   url: string
   describe: string
   tts: 'kokoro'
+  pause_between_phases: boolean
 }
 
 interface NewProjectFormProps {
@@ -28,6 +29,9 @@ export function NewProjectForm({
 }: NewProjectFormProps) {
   const [url, setUrl] = useState(defaultValues?.url ?? '')
   const [describe, setDescribe] = useState(defaultValues?.describe ?? '')
+  const [pauseBetweenPhases, setPauseBetweenPhases] = useState(
+    defaultValues?.pause_between_phases ?? false,
+  )
   const [submitInFlight, setSubmitInFlight] = useState(false)
 
   const isWorking = submitting || submitInFlight
@@ -48,6 +52,7 @@ export function NewProjectForm({
       url: url.trim(),
       describe: describe.trim(),
       tts: 'kokoro',
+      pause_between_phases: pauseBetweenPhases,
     })
   }
 
@@ -102,6 +107,30 @@ export function NewProjectForm({
           Other providers (Google, ElevenLabs, Piper) require additional
           setup and aren't yet wired into this form.
         </p>
+      </div>
+
+      <div className="flex items-start gap-2">
+        <input
+          id="np-pause"
+          type="checkbox"
+          checked={pauseBetweenPhases}
+          onChange={(e) => setPauseBetweenPhases(e.target.checked)}
+          disabled={isWorking}
+          className="mt-0.5 size-4 cursor-pointer"
+        />
+        <div className="flex flex-col gap-0.5">
+          <label
+            htmlFor="np-pause"
+            className="cursor-pointer text-sm font-medium"
+          >
+            Pause between phases
+          </label>
+          <p className="text-xs text-muted-foreground">
+            Stops after each phase so you can review the artifact before
+            continuing. Useful for inspecting the script (Phase 4) before
+            committing to the render.
+          </p>
+        </div>
       </div>
 
       <div className="flex justify-end gap-2 pt-2">

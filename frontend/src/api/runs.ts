@@ -6,6 +6,7 @@ export interface RunRequest {
   url: string
   describe?: string | null
   tts?: string
+  pause_between_phases?: boolean
 }
 
 export interface RunInfo {
@@ -27,9 +28,16 @@ export type RunEvent =
       num_turns: number | null
     }
   | { type: 'phase_error'; phase: number; error: string }
+  | { type: 'paused'; completed_phase: number; next_phase: number }
+  | { type: 'resumed'; next_phase: number }
   | { type: 'run_complete'; total_cost_usd: number }
   | { type: 'run_canceled' }
   | { type: 'run_error'; error: string }
+
+export async function continueRun(runId: string): Promise<void> {
+  const res = await fetch(`/api/runs/${runId}/continue`, { method: 'POST' })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+}
 
 export async function startRun(req: RunRequest): Promise<RunInfo> {
   const res = await fetch('/api/runs', {
