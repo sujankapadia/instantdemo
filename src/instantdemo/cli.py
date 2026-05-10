@@ -27,6 +27,7 @@ that `instantdemo render --help` shows the renderer's own help text.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -40,6 +41,26 @@ from .phases import (
 
 
 TTS_CHOICES = ("kokoro", "google", "elevenlabs", "piper")
+
+
+def _warn_about_api_key() -> None:
+    """Print a warning if ANTHROPIC_API_KEY is set.
+
+    The claude-agent-sdk subprocesses inherit our env, and the `claude`
+    CLI prefers ANTHROPIC_API_KEY over its OAuth session. Users who
+    set the key globally for other tools (Cursor, Aider, etc.) will
+    silently bill against API credit instead of their Claude.ai
+    subscription, which contradicts the project's "free local
+    generation via your subscription" pitch. See issue #15.
+    """
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        print(
+            "WARNING: ANTHROPIC_API_KEY is set in your environment.\n"
+            "         Runs will bill against your API account, not your\n"
+            "         Claude.ai subscription. To use the subscription:\n"
+            "             unset ANTHROPIC_API_KEY",
+            file=sys.stderr,
+        )
 
 
 def _resolve_context(args: argparse.Namespace) -> Context:
@@ -264,6 +285,7 @@ async def _run_phases_with_client(
 def cmd_generate(args: argparse.Namespace) -> int:
     import asyncio
 
+    _warn_about_api_key()
     context = _resolve_context(args)
     _init_state(context)
     phase_numbers = list(range(args.from_phase, len(PHASES) + 1))
@@ -275,6 +297,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
 def cmd_phase(args: argparse.Namespace) -> int:
     import asyncio
 
+    _warn_about_api_key()
     context = _resolve_context(args)
     _init_state(context)
     asyncio.run(_run_phases_with_client(context, [args.number]))
@@ -282,8 +305,8 @@ def cmd_phase(args: argparse.Namespace) -> int:
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
+    _warn_about_api_key()
     try:
-        import os
         import threading
         import time
         import webbrowser
