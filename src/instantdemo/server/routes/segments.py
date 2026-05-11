@@ -179,6 +179,34 @@ async def re_render_audio_endpoint(
     )
 
 
+def _load_recorded_durations(
+    state_dir: Path, expected_len: int
+) -> list[float] | None:
+    """Read `recorded_clean_duration_s` per segment from an existing
+    segment-timing.json, if present and well-formed. Returns None if
+    the file is missing, malformed, length-mismatched, or doesn't
+    have the field on every segment (e.g. produced by an older
+    renderer that predates issue #19).
+    """
+    timing_path = state_dir / "segment-timing.json"
+    if not timing_path.exists():
+        return None
+    try:
+        data = json.loads(timing_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+    raw_segments = data.get("segments") or []
+    if len(raw_segments) != expected_len:
+        return None
+    out: list[float] = []
+    for s in raw_segments:
+        value = s.get("recorded_clean_duration_s")
+        if not isinstance(value, (int, float)):
+            return None
+        out.append(float(value))
+    return out
+
+
 def _do_re_render_audio(
     project: Path,
     segments: list[dict[str, Any]],
@@ -195,6 +223,12 @@ def _do_re_render_audio(
 
     state_dir = project / ".instantdemo"
     state_dir.mkdir(parents=True, exist_ok=True)
+
+    # Preserve recorded clean durations across audio-only re-renders.
+    # We're not re-recording, so the original video segment lengths
+    # haven't changed — but _write_segment_timing rebuilds the file
+    # from scratch, so we need to re-pass them. See issue #19.
+    recorded_durations = _load_recorded_durations(state_dir, len(segments))
 
     tmp_dir = Path(tempfile.mkdtemp(prefix="instantdemo-re-render-"))
     try:
@@ -219,7 +253,8 @@ def _do_re_render_audio(
         # content after the edit. Uses the same helper the renderer uses
         # so the format stays in sync.
         _write_segment_timing(
-            state_dir, segments, clip_durations, video_path.name
+            state_dir, segments, clip_durations, video_path.name,
+            recorded_durations_s=recorded_durations,
         )
 
         # Compute response fields.
