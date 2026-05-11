@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { VideoPlayer } from './VideoPlayer'
 import { SegmentsList, type EditingProps } from './SegmentsList'
@@ -25,6 +25,22 @@ export function RightPane({ runStatus }: RightPaneProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const [currentTimeS, setCurrentTimeS] = useState(0)
   const [videoVersion, setVideoVersion] = useState(() => Date.now())
+
+  // Refetch segments and bust the video cache when a run completes.
+  // useRun.onComplete only refetches /api/project; RightPane is a
+  // sibling consumer and needs its own trigger.
+  const prevRunStatusRef = useRef(runStatus)
+  useEffect(() => {
+    const prev = prevRunStatusRef.current
+    prevRunStatusRef.current = runStatus
+    const wasActive =
+      prev === 'running' || prev === 'starting' || prev === 'paused'
+    const isTerminal = runStatus === 'idle' || runStatus === 'error'
+    if (wasActive && isTerminal) {
+      segmentsState.refetch()
+      setVideoVersion(Date.now())
+    }
+  }, [runStatus, segmentsState])
 
   // Editing state — kept here so RightPane can coordinate with the
   // segments hook (refetch after re-render) and the video element
