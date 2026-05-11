@@ -45,6 +45,23 @@ router = APIRouter(prefix="/api", tags=["runs"])
 # ---------------------------------------------------------------------------
 
 
+class IntentBody(BaseModel):
+    """API mirror of `instantdemo.intent.Intent`.
+
+    Pydantic at the API boundary (validation, OpenAPI), converted to
+    the engine's dataclass before being passed to phase prompt
+    builders. See issue #39.
+    """
+
+    goal: str = ""
+    audience: str | None = None
+    tone: str | None = None
+    length: str | None = None
+    focus: list[str] = []
+    excludes: list[str] = []
+    addenda: list[str] = []
+
+
 class RunRequest(BaseModel):
     """Body of POST /api/runs.
 
@@ -59,6 +76,12 @@ class RunRequest(BaseModel):
     and waiting for POST /api/runs/{id}/continue. Useful for letting
     the user review intermediate artifacts (especially the Phase 4
     script) before committing to the next phase.
+
+    `intent`: structured intent for Phase 1 / Phase 2 (see #39). When
+    provided, the server persists it to `intent.json` before kicking
+    off the run. When omitted, the server loads the existing
+    `intent.json` (or synthesizes one from `describe`) so legacy
+    callers keep working unchanged.
     """
 
     phases: list[int]
@@ -71,6 +94,7 @@ class RunRequest(BaseModel):
     source: str | None = None
     tts: str = "kokoro"
     pause_between_phases: bool = False
+    intent: IntentBody | None = None
 
 
 class RunInfo(BaseModel):
@@ -226,6 +250,24 @@ class RunManager:
                 phases_dict[str(phase_num)] = {"status": "pending"}
             state_mod.update_inputs(s, url=request.url, describe=request.describe)
 
+            # If the request includes an intent body, persist it to
+            # intent.json so future runs (and CLI users) see the
+            # current intent. If omitted, leave any existing intent.json
+            # untouched — the legacy describe path still works via
+            # synthesize_from_describe at load time. See #39.
+            if request.intent is not None:
+                from instantdemo import intent as intent_mod
+                intent_obj = intent_mod.Intent(
+                    goal=request.intent.goal,
+                    audience=request.intent.audience,
+                    tone=request.intent.tone,
+                    length=request.intent.length,
+                    focus=list(request.intent.focus),
+                    excludes=list(request.intent.excludes),
+                    addenda=list(request.intent.addenda),
+                )
+                intent_mod.save(project, intent_obj)
+
             run = _Run(run_id=str(uuid.uuid4()), phases=request.phases)
             self.active = run
 
@@ -327,6 +369,8 @@ class RunManager:
     ) -> None:
         """Background task that runs the requested phases sequentially
         and pushes events onto run.queue."""
+        from instantdemo import intent as intent_mod
+
         state_dir = project / ".instantdemo"
         output = project / "demo.mp4"
         source_path = (
@@ -334,6 +378,10 @@ class RunManager:
             if request.source
             else project
         )
+        # Load intent from intent.json (saved by start_run when the
+        # request included one) or synthesize from describe for legacy
+        # callers. See #39.
+        intent_obj = intent_mod.load_or_synthesize(project, request.describe)
         context = Context(
             url=request.url,
             source=source_path,
@@ -343,6 +391,7 @@ class RunManager:
             output=output,
             tts=request.tts,
             no_edit=True,  # GUI checkpoints are out-of-band
+            intent=intent_obj,
             client=self._client,
             dispatcher=self._dispatcher,
             event_emitter=lambda evt: run.queue.put_nowait(evt),

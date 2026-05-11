@@ -65,12 +65,19 @@ def _warn_about_api_key() -> None:
 
 def _resolve_context(args: argparse.Namespace) -> Context:
     """Build a Context from parsed CLI args."""
+    from . import intent as intent_mod
+
     source = Path(args.source).resolve() if args.source else Path.cwd()
     state_dir = source / ".instantdemo"
     if args.output:
         output = Path(args.output).resolve()
     else:
         output = source / "demo.mp4"
+    # Load intent.json from project root if present, else synthesize
+    # from --describe. CLI users haven't typically interacted with
+    # intent yet (#39 is GUI-first), so synthesize-from-describe is
+    # the common path.
+    intent_obj = intent_mod.load_or_synthesize(source, args.describe)
     return Context(
         url=args.url,
         source=source,
@@ -82,6 +89,7 @@ def _resolve_context(args: argparse.Namespace) -> Context:
         output=output,
         tts=args.tts,
         no_edit=args.no_edit,
+        intent=intent_obj,
     )
 
 

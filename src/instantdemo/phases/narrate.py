@@ -5,15 +5,18 @@ a markdown narrative plan: 4-8 segments with draft narration and
 proposed actions, leading with the payoff. Pure reasoning over Phase 1
 output — no tools.
 
-Inputs come from three places, in priority order for each field:
-  - flow:         phase1.md answer block → context.describe → "(let agent pick)"
-  - tone:         phase2.md answer block (re-run) → default "casual"
-  - audience:     phase2.md answer block (re-run) → default "technical"
-  - terminology:  phase2.md answer block (re-run) → default ""
+Input resolution per field (highest priority wins):
+  - flow:         intent.goal → phase1.md answer block → context.describe → ""
+  - tone:         intent.tone → phase2.md answer block (legacy) → default "casual"
+  - audience:     intent.audience → phase2.md answer block (legacy) → default "technical"
+  - length:       intent.length → (none in legacy answer block) → "" (let agent pick)
+  - focus:        intent.focus
+  - excludes:     intent.excludes
+  - addenda:      intent.addenda
 
-The runner-prepended answer block at the top of phase2.md only
-takes effect on a re-run (`--from-phase 2` after editing the values).
-For the first run we use defaults.
+The phase2.md answer-block mechanism is retained for CLI users who
+prefer editing artifacts in $EDITOR. With #39 the GUI writes
+intent.json, which takes priority.
 """
 
 from __future__ import annotations
@@ -35,26 +38,60 @@ DEFAULT_AUDIENCE = "technical"
 
 def _resolve_inputs(
     context: Context, phase1_answers: dict[str, str], phase2_answers: dict[str, str]
-) -> dict[str, str]:
+) -> dict[str, object]:
+    intent = context.intent
     return {
-        "flow": (phase1_answers.get("flow") or context.describe or "").strip(),
-        "tone": (phase2_answers.get("tone") or DEFAULT_TONE).strip(),
-        "audience": (phase2_answers.get("audience") or DEFAULT_AUDIENCE).strip(),
+        "flow": (
+            intent.goal
+            or phase1_answers.get("flow", "")
+            or context.describe
+            or ""
+        ).strip(),
+        "tone": (
+            intent.tone
+            or phase2_answers.get("tone", "")
+            or DEFAULT_TONE
+        ).strip(),
+        "audience": (
+            intent.audience
+            or phase2_answers.get("audience", "")
+            or DEFAULT_AUDIENCE
+        ).strip(),
+        "length": (intent.length or "").strip(),
         "terminology": (phase2_answers.get("terminology") or "").strip(),
+        "focus": list(intent.focus),
+        "excludes": list(intent.excludes),
+        "addenda": list(intent.addenda),
     }
 
 
-def _build_prompt(phase1_text: str, inputs: dict[str, str]) -> str:
+def _build_prompt(phase1_text: str, inputs: dict[str, object]) -> str:
     template = prompts.load("phase2")
 
     lines: list[str] = []
-    if inputs["flow"]:
-        lines.append(f"The user wants to demo: {inputs['flow']}")
+    flow = inputs.get("flow", "")
+    if flow:
+        lines.append(f"The user wants to demo: {flow}")
         lines.append("")
     lines.append(f"Tone: {inputs['tone']}")
     lines.append(f"Audience: {inputs['audience']}")
-    if inputs["terminology"]:
-        lines.append(f"Terminology to use: {inputs['terminology']}")
+    length = inputs.get("length", "")
+    if length:
+        lines.append(f"Target length: {length}")
+    terminology = inputs.get("terminology", "")
+    if terminology:
+        lines.append(f"Terminology to use: {terminology}")
+    focus_items = inputs.get("focus") or []
+    if focus_items:
+        lines.append("Focus on: " + "; ".join(focus_items))  # type: ignore[arg-type]
+    excludes_items = inputs.get("excludes") or []
+    if excludes_items:
+        lines.append("Exclude: " + "; ".join(excludes_items))  # type: ignore[arg-type]
+    addenda_items = inputs.get("addenda") or []
+    if addenda_items:
+        lines.append("Additional guidance:")
+        for item in addenda_items:  # type: ignore[union-attr]
+            lines.append(f"- {item}")
     lines.append("")
     lines.append("---")
     lines.append("Codebase analysis (from Phase 1):")
@@ -67,7 +104,7 @@ def _build_prompt(phase1_text: str, inputs: dict[str, str]) -> str:
     return "\n".join(lines)
 
 
-def _build_artifact(narrative_text: str, inputs: dict[str, str]) -> str:
+def _build_artifact(narrative_text: str, inputs: dict[str, object]) -> str:
     return (
         "<!-- ANSWER THESE BEFORE CONTINUING -->\n"
         f"tone: {inputs['tone']}\n"

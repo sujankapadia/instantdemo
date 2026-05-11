@@ -21,9 +21,11 @@ real implementations land in subsequent commits (per CLI-DESIGN.md).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from ..intent import Intent
 
 if TYPE_CHECKING:
     from claude_agent_sdk import (
@@ -61,6 +63,12 @@ class Context:
     output: Path                # final MP4 path (used by phase 5)
     tts: str                    # TTS provider name (used by phase 5)
     no_edit: bool               # if True, skip $EDITOR checkpoints
+    # Structured intent for Phase 1 / Phase 2 — see issue #39.
+    # Defaults to an empty Intent so callers that don't yet pass one
+    # (e.g. older tests) keep working. CLI synthesizes from
+    # `describe`; GUI loads from intent.json or builds from form
+    # values. Phases 3/4/5 don't read intent.
+    intent: Intent = field(default_factory=Intent)
 
     # Long-lived ClaudeSDKClient injected by the CLI for the duration of
     # a generate/phase command. Phases call client.query() against this.

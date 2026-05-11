@@ -20,15 +20,33 @@ from . import (
 
 
 def _build_prompt(context: Context) -> str:
+    """Compose Phase 1's prompt from the structured intent plus the
+    static template. Falls back to `describe` for legacy callers
+    (Context with an empty Intent + a populated describe field)."""
     template = prompts.load("phase1")
-    if context.describe:
-        return f"The user wants to demo: {context.describe}\n\n{template}"
-    return template
+    intent = context.intent
+    goal = intent.goal or context.describe or ""
+
+    prefix_lines: list[str] = []
+    if goal:
+        prefix_lines.append(f"The user wants to demo: {goal}")
+    if intent.focus:
+        prefix_lines.append(
+            "Focus on: " + "; ".join(intent.focus)
+        )
+    if intent.excludes:
+        prefix_lines.append(
+            "Exclude: " + "; ".join(intent.excludes)
+        )
+
+    if not prefix_lines:
+        return template
+    return "\n".join(prefix_lines) + "\n\n" + template
 
 
 def _build_artifact(agent_text: str, context: Context) -> str:
     """Wrap the agent's prose with the answer block the user fills in."""
-    flow = context.describe or ""
+    flow = context.intent.goal or context.describe or ""
     return (
         "<!-- ANSWER THESE BEFORE CONTINUING -->\n"
         f"flow: {flow}\n"
