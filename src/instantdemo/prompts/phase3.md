@@ -1,22 +1,7 @@
 For each segment in the narrative above, find the implementation details
-needed to render the demo against the live app. Use both sources of
-truth:
-
-1. **The live app** — use `curl` (via `Bash`) or `WebFetch` to fetch the
-   actual rendered HTML for each route the demo visits. This is the
-   authoritative source for selectors and labels. The DOM you see in
-   `curl http://localhost:PORT/route` is what Playwright will see when
-   it renders.
-
-2. **The frontend source** (components, routes, layouts) — fills in
-   gaps when the rendered HTML is dynamic (data-testid attributes may
-   be in JSX but not visible in initial curl output) or when you need
-   to understand client-side routing.
-
-Always reconcile the two — the source might say a nav link reads
-"Active Sessions" but the rendered app might actually show "Active".
-Trust the live app for what the user will see. Source code is for
-context.
+needed to render the demo against the live app. Read the frontend source
+(components, routes, layouts) to identify stable selectors and the right
+wait conditions.
 
 **Selectors** (in order of preference):
 1. `data-testid` attributes — most stable
