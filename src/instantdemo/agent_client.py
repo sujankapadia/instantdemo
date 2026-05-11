@@ -38,7 +38,11 @@ from claude_agent_sdk import (
 PHASE_TOOLS: dict[str, frozenset[str]] = {
     "phase1": frozenset({"Read", "Glob", "Grep"}),
     "phase2": frozenset(),
-    "phase3": frozenset({"Read", "Glob", "Grep"}),
+    # Phase 3 (Gather/Inspect) needs to look at the live app's DOM to
+    # write accurate selectors — Bash for `curl`/probe scripts and the
+    # same browser tooling Phase 5 has. Without these the agent can
+    # only guess from codebase reading. See issue #28.
+    "phase3": frozenset({"Read", "Glob", "Grep", "Bash", "WebFetch"}),
     "phase4": frozenset({"Write"}),
     "phase5": frozenset({"Read", "Bash"}),
 }

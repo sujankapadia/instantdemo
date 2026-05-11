@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 export interface NewProjectInputs {
   url: string
   describe: string
+  source: string
   tts: 'kokoro'
   pause_between_phases: boolean
 }
@@ -29,6 +30,7 @@ export function NewProjectForm({
 }: NewProjectFormProps) {
   const [url, setUrl] = useState(defaultValues?.url ?? '')
   const [describe, setDescribe] = useState(defaultValues?.describe ?? '')
+  const [source, setSource] = useState(defaultValues?.source ?? '')
   const [pauseBetweenPhases, setPauseBetweenPhases] = useState(
     defaultValues?.pause_between_phases ?? false,
   )
@@ -51,6 +53,7 @@ export function NewProjectForm({
     onSubmit({
       url: url.trim(),
       describe: describe.trim(),
+      source: source.trim(),
       tts: 'kokoro',
       pause_between_phases: pauseBetweenPhases,
     })
@@ -76,6 +79,29 @@ export function NewProjectForm({
         <p className="text-xs text-muted-foreground">
           The live URL where your app is running. The agent will visit this
           to find selectors and validate the demo.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="np-source" className="text-sm font-medium">
+          Source directory{' '}
+          <span className="text-muted-foreground">(recommended)</span>
+        </label>
+        <input
+          id="np-source"
+          type="text"
+          value={source}
+          onChange={(e) => setSource(e.target.value)}
+          placeholder="/path/to/your/codebase"
+          disabled={isWorking}
+          spellCheck={false}
+          className="rounded-md border border-input bg-background px-3 py-2 font-mono text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+        />
+        <p className="text-xs text-muted-foreground">
+          Absolute path to your app's source code. The agent reads this in
+          Phase 1 to understand routes, components, and navigation. Leave
+          blank to skip — the agent will guess from the live app only,
+          which produces lower-quality results.
         </p>
       </div>
 

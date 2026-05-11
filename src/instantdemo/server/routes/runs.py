@@ -64,6 +64,11 @@ class RunRequest(BaseModel):
     phases: list[int]
     url: str
     describe: str | None = None
+    # Absolute path to the user's codebase. Phase 1 reads from here to
+    # understand routes, components, navigation. Falls back to the
+    # project directory when None — produces lower-quality results
+    # since the agent has no source to analyze.
+    source: str | None = None
     tts: str = "kokoro"
     pause_between_phases: bool = False
 
@@ -179,6 +184,17 @@ class RunManager:
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail=f"phase {phase_num} out of range (1..{len(PHASES)})",
+                )
+
+        if request.source:
+            source_path = Path(request.source).expanduser()
+            if not source_path.is_dir():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"source path is not a directory: "
+                        f"{source_path}"
+                    ),
                 )
 
         async with self._lock:
@@ -304,9 +320,14 @@ class RunManager:
         and pushes events onto run.queue."""
         state_dir = project / ".instantdemo"
         output = project / "demo.mp4"
+        source_path = (
+            Path(request.source).expanduser().resolve()
+            if request.source
+            else project
+        )
         context = Context(
             url=request.url,
-            source=project,
+            source=source_path,
             describe=request.describe,
             state_dir=state_dir,
             output=output,

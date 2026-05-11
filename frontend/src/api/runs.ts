@@ -5,6 +5,7 @@ export interface RunRequest {
   phases: number[]
   url: string
   describe?: string | null
+  source?: string | null
   tts?: string
   pause_between_phases?: boolean
 }

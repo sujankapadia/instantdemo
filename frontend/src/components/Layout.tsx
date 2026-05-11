@@ -70,6 +70,7 @@ export function Layout() {
     (values: {
       url: string
       describe: string
+      source: string
       tts: 'kokoro'
       pause_between_phases: boolean
     }) => {
@@ -77,6 +78,7 @@ export function Layout() {
         phases: [1, 2, 3, 4, 5],
         url: values.url,
         describe: values.describe || undefined,
+        source: values.source || undefined,
         tts: values.tts,
         pause_between_phases: values.pause_between_phases,
       })
@@ -93,6 +95,21 @@ export function Layout() {
       setSelected(run.pausedAfter)
     }
   }, [run.status, run.pausedAfter])
+
+  // When a phase errors, open the details pane and select that phase
+  // so the user lands on the diagnostic report (especially important
+  // for RENDER_BLOCKED in Phase 5, which contains the minimum-fix
+  // recommendation). See #29.
+  useEffect(() => {
+    if (run.status !== 'error') return
+    for (const [num, upd] of run.phaseUpdates) {
+      if (upd.status === 'error') {
+        setSelected(num)
+        setDetailsVisible(true)
+        break
+      }
+    }
+  }, [run.status, run.phaseUpdates])
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
@@ -125,6 +142,7 @@ export function Layout() {
                 phaseNumber={num}
                 phaseName={phaseName(num)}
                 error={upd.error ?? run.error ?? 'Unknown error'}
+                artifactShown={detailsVisible && selected === num}
               />
             )
           }
