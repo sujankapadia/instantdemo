@@ -1,18 +1,11 @@
 import { Pause, Play } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { PHASE_NAMES } from '@/lib/phases'
 
 interface PauseBannerProps {
   completedPhase: number | null
   nextPhase: number | null
   onContinue: () => void
-}
-
-const PHASE_NAMES: Record<number, string> = {
-  1: 'Analyze',
-  2: 'Narrate',
-  3: 'Gather',
-  4: 'Script',
-  5: 'Validate',
 }
 
 export function PauseBanner({

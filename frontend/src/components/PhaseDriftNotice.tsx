@@ -1,12 +1,8 @@
 import { Info } from 'lucide-react'
+import { PHASE_NAMES } from '@/lib/phases'
 
 interface PhaseDriftNoticeProps {
   phaseNumber: number
-}
-
-const PHASE_NAMES: Record<number, string> = {
-  2: 'Narrate',
-  3: 'Gather',
 }
 
 /**

@@ -17,10 +17,11 @@ import { PhaseFailureBanner } from './PhaseFailureBanner'
 import { RunInProgressBanner } from './RunInProgressBanner'
 import { useProject } from '@/hooks/useProject'
 import { useRun } from '@/hooks/useRun'
+import { PHASE_NAMES_ORDERED, phaseName } from '@/lib/phases'
 
 const LOADING_PHASES: PhaseInfo[] = PHASE_NUMBERS.map((num) => ({
   num,
-  name: ['Analyze', 'Narrate', 'Gather', 'Script', 'Validate'][num - 1] ?? '',
+  name: PHASE_NAMES_ORDERED[num - 1] ?? '',
   status: 'pending',
 }))
 
@@ -29,11 +30,13 @@ export function Layout() {
   const run = useRun({ onStart: refetch, onComplete: refetch })
   const [selected, setSelected] = useState<number>(1)
   const [newProjectOpen, setNewProjectOpen] = useState(false)
-  // Editor pane (phase artifacts / JSON) is hidden by default — those
-  // are developer-facing and text-heavy. The right pane (video +
-  // segments) is the primary end-user surface. Toggle in the header
-  // shows the editor; clicking a phase pill auto-opens it.
-  const [editorVisible, setEditorVisible] = useState(false)
+  // Developer-facing details (phase rail + editor pane with phase
+  // artifacts) are hidden by default — they're text-heavy and foreign
+  // to typical end users. The right pane (video + segments) is the
+  // primary surface. Toggle in the header reveals both; the phase
+  // rail also auto-shows during an active run so users can watch
+  // per-phase progress without finding the toggle.
+  const [detailsVisible, setDetailsVisible] = useState(false)
 
   const isLoading = state.status === 'loading'
   const isError = state.status === 'error'
@@ -101,8 +104,9 @@ export function Layout() {
         cumulativeCost={run.cumulativeCost}
         onCancel={() => void run.cancel()}
         onNewProject={() => setNewProjectOpen(true)}
-        editorVisible={editorVisible}
-        onToggleEditor={() => setEditorVisible((v) => !v)}
+        showNewProject={!empty}
+        editorVisible={detailsVisible}
+        onToggleEditor={() => setDetailsVisible((v) => !v)}
       />
       {isError ? (
         <ErrorBanner message={state.error} onRetry={refetch} />
@@ -119,11 +123,7 @@ export function Layout() {
             return (
               <PhaseFailureBanner
                 phaseNumber={num}
-                phaseName={
-                  ['Analyze', 'Narrate', 'Gather', 'Script', 'Validate'][
-                    num - 1
-                  ] ?? ''
-                }
+                phaseName={phaseName(num)}
                 error={upd.error ?? run.error ?? 'Unknown error'}
               />
             )
@@ -143,25 +143,38 @@ export function Layout() {
           onContinue={() => void run.continueRun()}
         />
       ) : null}
-      <PhaseRail
-        phases={phases}
-        selected={selected}
-        onSelect={(num) => {
-          setSelected(num)
-          // Auto-open the editor when the user explicitly clicks a
-          // phase pill — they want to see that phase's content.
-          if (!editorVisible) setEditorVisible(true)
-        }}
-        loading={isLoading}
-        runStatus={run.status}
-        currentPhase={run.currentPhase}
-        onRunPhase={empty ? undefined : handleRunPhase}
-      />
+      {(() => {
+        // Show the phase rail when the user opens details OR when a
+        // run is in flight (so they can watch per-phase progress
+        // without finding the toggle). Hide for idle end-user view.
+        const isRunActive =
+          run.status === 'running' ||
+          run.status === 'starting' ||
+          run.status === 'paused'
+        const showPhaseRail = detailsVisible || isRunActive
+        if (!showPhaseRail) return null
+        return (
+          <PhaseRail
+            phases={phases}
+            selected={selected}
+            onSelect={(num) => {
+              setSelected(num)
+              // Clicking a phase pill is an explicit "I want details"
+              // — open the editor pane so they can see the artifact.
+              if (!detailsVisible) setDetailsVisible(true)
+            }}
+            loading={isLoading}
+            runStatus={run.status}
+            currentPhase={run.currentPhase}
+            onRunPhase={empty ? undefined : handleRunPhase}
+          />
+        )
+      })()}
       {(() => {
         // Empty project? Always show the editor pane so the user sees
         // the onboarding message regardless of the toggle. Once they
         // start a project, the toggle controls visibility normally.
-        const showEditor = editorVisible || empty
+        const showEditor = detailsVisible || empty
         return (
           <main className="flex min-h-0 flex-1">
             {showEditor ? (
@@ -170,6 +183,7 @@ export function Layout() {
                   phase={phase}
                   empty={empty}
                   projectDir={projectDir}
+                  onNewProject={() => setNewProjectOpen(true)}
                 />
               </div>
             ) : null}

@@ -8,14 +8,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import type { PhaseUpdate, RunStatus } from '@/hooks/useRun'
-
-const PHASE_NAMES: Record<number, string> = {
-  1: 'Analyze',
-  2: 'Narrate',
-  3: 'Gather',
-  4: 'Script',
-  5: 'Validate',
-}
+import { PHASE_NAMES } from '@/lib/phases'
 
 export const PHASE_NUMBERS = [1, 2, 3, 4, 5] as const
 

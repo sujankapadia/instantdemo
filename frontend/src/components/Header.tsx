@@ -17,6 +17,9 @@ interface HeaderProps {
   cumulativeCost: number
   onCancel: () => void
   onNewProject: () => void
+  /** Hide the "New project" button when the empty-state CTA is the
+   *  primary entry point (no project yet). */
+  showNewProject?: boolean
   editorVisible: boolean
   onToggleEditor: () => void
 }
@@ -29,6 +32,7 @@ export function Header({
   cumulativeCost,
   onCancel,
   onNewProject,
+  showNewProject = true,
   editorVisible,
   onToggleEditor,
 }: HeaderProps) {
@@ -76,7 +80,7 @@ export function Header({
             <Square className="size-3" />
             Stop
           </Button>
-        ) : (
+        ) : showNewProject ? (
           <Button
             size="sm"
             variant="secondary"
@@ -86,7 +90,7 @@ export function Header({
             <Plus className="size-3" />
             New project
           </Button>
-        )}
+        ) : null}
         <Tooltip>
           <TooltipTrigger asChild>
             <Button

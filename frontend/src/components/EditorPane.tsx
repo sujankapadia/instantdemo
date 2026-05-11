@@ -1,4 +1,4 @@
-import { Loader2 } from 'lucide-react'
+import { Loader2, Sparkles } from 'lucide-react'
 import CodeMirror from '@uiw/react-codemirror'
 import { json as jsonLang } from '@codemirror/lang-json'
 import { oneDark } from '@codemirror/theme-one-dark'
@@ -6,6 +6,7 @@ import type { PhaseInfo } from './PhaseRail'
 import { MarkdownView } from './markdown/MarkdownView'
 import { PhaseDriftNotice } from './PhaseDriftNotice'
 import { ValidationView } from './ValidationView'
+import { Button } from '@/components/ui/button'
 import { useArtifact } from '@/hooks/useArtifact'
 import type { PhaseNumber } from '@/api/project'
 
@@ -13,39 +14,50 @@ interface EditorPaneProps {
   phase: PhaseInfo
   empty?: boolean
   projectDir?: string
+  onNewProject?: () => void
 }
 
-export function EditorPane({ phase, empty, projectDir }: EditorPaneProps) {
+export function EditorPane({ phase, empty, projectDir, onNewProject }: EditorPaneProps) {
   if (empty) {
-    return <EmptyProjectPane projectDir={projectDir} />
+    return (
+      <EmptyProjectPane projectDir={projectDir} onNewProject={onNewProject} />
+    )
   }
   return <ArtifactView phase={phase} />
 }
 
-function EmptyProjectPane({ projectDir }: { projectDir?: string }) {
+function EmptyProjectPane({
+  projectDir,
+  onNewProject,
+}: {
+  projectDir?: string
+  onNewProject?: () => void
+}) {
   return (
     <section className="flex h-full min-h-0 flex-col border-r border-border">
-      <div className="flex h-9 shrink-0 items-center border-b border-border bg-muted/30 px-4">
-        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          No project here yet
-        </span>
-      </div>
       <div className="flex flex-1 items-center justify-center p-8 text-center">
-        <div className="max-w-md space-y-2">
-          <p className="text-sm text-foreground">
-            No InstantDemo project found in this directory.
-          </p>
-          {projectDir ? (
-            <p className="font-mono text-xs text-muted-foreground">{projectDir}</p>
-          ) : null}
+        <div className="max-w-md space-y-5">
+          <h2 className="text-2xl font-semibold tracking-tight text-foreground">
+            Let's make a demo
+          </h2>
           <p className="text-sm text-muted-foreground">
-            Click <strong>New project</strong> in the header to generate a
-            demo from the GUI, or run{' '}
-            <code className="rounded bg-muted px-1 py-0.5 text-xs">
-              instantdemo generate
-            </code>{' '}
-            from a terminal.
+            Point InstantDemo at your running app and describe what to
+            show. We'll write a script, narrate it, and render a
+            video.
           </p>
+          {onNewProject ? (
+            <div className="flex justify-center">
+              <Button size="lg" onClick={onNewProject}>
+                <Sparkles className="size-4" />
+                Get started
+              </Button>
+            </div>
+          ) : null}
+          {projectDir ? (
+            <p className="font-mono text-xs text-muted-foreground/70">
+              {projectDir}
+            </p>
+          ) : null}
         </div>
       </div>
     </section>

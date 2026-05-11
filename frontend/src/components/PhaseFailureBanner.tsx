@@ -1,17 +1,10 @@
 import { CircleX } from 'lucide-react'
+import { PHASE_NAMES } from '@/lib/phases'
 
 interface PhaseFailureBannerProps {
   phaseNumber: number
   phaseName: string
   error: string
-}
-
-const PHASE_NAMES: Record<number, string> = {
-  1: 'Analyze',
-  2: 'Narrate',
-  3: 'Gather',
-  4: 'Script',
-  5: 'Validate',
 }
 
 export function PhaseFailureBanner({
