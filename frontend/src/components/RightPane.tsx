@@ -208,10 +208,21 @@ export function RightPane({ runStatus }: RightPaneProps) {
   return (
     <aside className="flex h-full min-h-0 flex-col">
       {opMessage ? (
-        <div className="flex shrink-0 items-center gap-2 border-b border-sky-500/30 bg-sky-500/10 px-4 py-2 text-xs text-sky-100">
-          <Loader2 className="size-3.5 shrink-0 animate-spin text-sky-300" />
-          <span>{opMessage}</span>
-        </div>
+        <>
+          <div className="flex shrink-0 items-center gap-2 border-b border-sky-500/30 bg-sky-500/10 px-4 py-2 text-xs text-sky-100">
+            <Loader2 className="size-3.5 shrink-0 animate-spin text-sky-300" />
+            <span>{opMessage}</span>
+          </div>
+          {/* Full-viewport click-blocker. Transparent — relies on the
+              banner above (z-50) for the visible signal. Catches all
+              pointer events under z-40 so the user can't trigger
+              concurrent ops or navigate away while a delete or
+              re-render is in flight. */}
+          <div
+            className="fixed inset-0 z-40 cursor-wait"
+            aria-hidden="true"
+          />
+        </>
       ) : null}
       <ResizablePanelGroup orientation="vertical">
         <ResizablePanel defaultSize={55} minSize={20}>
