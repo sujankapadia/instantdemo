@@ -324,7 +324,12 @@ function SegmentRow({
         <span className="truncate">{narration}</span>
       </span>
       {editing ? (
-        <div className="flex items-center gap-1">
+        <div
+          className="flex items-center gap-1"
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
+        >
           {isStale ? (
             <RowIconButton
               icon={
