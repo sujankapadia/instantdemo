@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Loader2, Pencil, RotateCcw } from 'lucide-react'
+import { AlertTriangle, Loader2, Pencil, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import type { Segment } from '@/api/project'
@@ -277,7 +277,26 @@ function SegmentRow({
       >
         {segment.action}
       </span>
-      <span className="truncate text-foreground/90">{narration}</span>
+      <span className="flex min-w-0 items-center gap-1.5 text-foreground/90">
+        {segment.audio_overflows ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <AlertTriangle
+                className="size-3.5 shrink-0 text-amber-400"
+                aria-label="Audio overflow"
+              />
+            </TooltipTrigger>
+            <TooltipContent side="left" className="max-w-xs">
+              <p className="text-xs leading-relaxed">
+                The narration audio is longer than the video frames
+                recorded for this segment. Playback will be cut off
+                mid-sentence. Re-record the demo (Phase 5) to fix.
+              </p>
+            </TooltipContent>
+          </Tooltip>
+        ) : null}
+        <span className="truncate">{narration}</span>
+      </span>
       {editing ? (
         <div className="flex items-center gap-1">
           {isStale ? (

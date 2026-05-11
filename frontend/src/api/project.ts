@@ -63,6 +63,8 @@ export interface Segment {
   start_s: number | null
   end_s: number | null
   audio_duration_s: number | null
+  recorded_clean_duration_s: number | null
+  audio_overflows: boolean | null
   [key: string]: unknown
 }
 

@@ -262,12 +262,15 @@ def _do_re_render_audio(
         edited_segment = segments[segment_index]
         pause_s = (edited_segment.get("pause_after_ms") or 0) / 1000
         slot_s = max(new_audio_duration_s, pause_s)
-        # Approximate "overflow" for the response: if the new audio is
-        # longer than the segment's pause_after_ms slot, the slot grew
-        # because of audio length, and downstream alignment may drift.
-        # Real overflow detection (vs. original recording duration)
-        # comes in M3 polish.
-        overflow = new_audio_duration_s > pause_s and pause_s > 0
+        # Overflow: new audio is longer than the recorded clean window
+        # for this segment. ffmpeg's `-shortest` will truncate the audio
+        # at mux time, so playback cuts off mid-sentence. The caller
+        # should surface this to the user. Falls back to false when we
+        # don't have recorded durations (older renders before #19).
+        if recorded_durations is not None:
+            overflow = new_audio_duration_s > recorded_durations[segment_index]
+        else:
+            overflow = False
 
         return ReRenderResult(
             ok=True,
