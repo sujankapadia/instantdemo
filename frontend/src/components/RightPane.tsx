@@ -9,6 +9,7 @@ import {
 import { useSegments } from '@/hooks/useSegments'
 import type { Segment } from '@/api/project'
 import {
+  deleteSegment,
   patchSegmentNarration,
   reRenderSegmentAudio,
 } from '@/api/segments'
@@ -34,6 +35,7 @@ export function RightPane({ runStatus }: RightPaneProps) {
   const [rerenderingIndex, setRerenderingIndex] = useState<number | null>(
     null,
   )
+  const [deletingIndex, setDeletingIndex] = useState<number | null>(null)
   const [errorByIndex, setErrorByIndex] = useState<Record<number, string>>(
     {},
   )
@@ -138,15 +140,59 @@ export function RightPane({ runStatus }: RightPaneProps) {
     [rerenderingIndex, segmentsState],
   )
 
+  const handleDelete = useCallback(
+    async (index: number) => {
+      if (deletingIndex !== null) return
+      setDeletingIndex(index)
+      setErrorByIndex((prev) => {
+        if (!(index in prev)) return prev
+        const next = { ...prev }
+        delete next[index]
+        return next
+      })
+      try {
+        await deleteSegment(index)
+        // The deleted segment's index disappears; any stale index >= the
+        // deleted one shifts down by one. Rebuild stale set to reflect.
+        setStaleIndices((prev) => {
+          const next = new Set<number>()
+          for (const i of prev) {
+            if (i < index) next.add(i)
+            else if (i > index) next.add(i - 1)
+            // i === index drops out
+          }
+          return next
+        })
+        setEditingIndex(null)
+        setVideoVersion(Date.now())
+        segmentsState.refetch()
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        setErrorByIndex((prev) => ({ ...prev, [index]: msg }))
+      } finally {
+        setDeletingIndex(null)
+      }
+    },
+    [deletingIndex, segmentsState],
+  )
+
+  const segmentCount =
+    segmentsState.state.status === 'success'
+      ? segmentsState.state.data.segments.length
+      : 0
+
   const editing: EditingProps = {
     editingIndex,
     staleIndices,
     rerenderingIndex,
+    deletingIndex,
     errorByIndex,
+    totalSegments: segmentCount,
     onBeginEdit: handleBeginEdit,
     onSaveEdit: handleSaveEdit,
     onCancelEdit: handleCancelEdit,
     onRerender: handleRerender,
+    onDelete: handleDelete,
   }
 
   const listState = mapSegmentsListState(segmentsState.state)

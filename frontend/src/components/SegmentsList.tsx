@@ -1,8 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertTriangle, Loader2, Pencil, RotateCcw } from 'lucide-react'
+import { AlertTriangle, Loader2, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import type { Segment } from '@/api/project'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import {
   Tooltip,
   TooltipContent,
@@ -34,12 +44,17 @@ export interface EditingProps {
   staleIndices: Set<number>
   /** Index whose audio is currently being re-rendered. */
   rerenderingIndex: number | null
-  /** Per-segment error messages (PATCH or re-render failures). */
+  /** Index currently being deleted (cut + re-mux in progress). */
+  deletingIndex: number | null
+  /** Per-segment error messages (PATCH / re-render / delete failures). */
   errorByIndex: Record<number, string>
+  /** Total segment count — used to disable delete when only one is left. */
+  totalSegments: number
   onBeginEdit: (index: number) => void
   onSaveEdit: (index: number, narration: string) => Promise<void>
   onCancelEdit: () => void
   onRerender: (index: number) => Promise<void>
+  onDelete: (index: number) => Promise<void>
 }
 
 export function SegmentsList({
@@ -202,10 +217,14 @@ function SegmentRow({
   const isBeingEdited = editing?.editingIndex === segment.index
   const isStale = editing?.staleIndices.has(segment.index) ?? false
   const isRerendering = editing?.rerenderingIndex === segment.index
+  const isDeleting = editing?.deletingIndex === segment.index
+  const anyDeleting =
+    editing?.deletingIndex !== null && editing?.deletingIndex !== undefined
   const error = editing?.errorByIndex[segment.index]
   const editingDisabled =
     isRunActive ||
     isRerendering ||
+    anyDeleting ||
     (editing?.editingIndex !== null &&
       editing?.editingIndex !== undefined &&
       editing.editingIndex !== segment.index)
@@ -213,9 +232,16 @@ function SegmentRow({
     ? 'Wait for the current run to finish'
     : isRerendering
       ? 'Re-rendering audio…'
-      : editing?.editingIndex !== null && editing?.editingIndex !== undefined
-        ? 'Finish editing the current segment first'
-        : ''
+      : anyDeleting
+        ? 'Deleting a segment…'
+        : editing?.editingIndex !== null && editing?.editingIndex !== undefined
+          ? 'Finish editing the current segment first'
+          : ''
+  const onlySegment = (editing?.totalSegments ?? 0) <= 1
+  const deleteDisabled = editingDisabled || isBeingEdited || onlySegment
+  const deleteDisabledReason = onlySegment
+    ? "Can't delete the only segment"
+    : editingDisabledReason
 
   // Use a div + role=button rather than a real <button>: when the row
   // is non-seekable (no timing data) we want click-to-seek disabled,
@@ -323,6 +349,14 @@ function SegmentRow({
             disabled={editingDisabled || isBeingEdited}
             disabledReason={editingDisabledReason}
           />
+          <DeleteSegmentButton
+            segmentIndex={segment.index}
+            isDeleting={isDeleting}
+            disabled={deleteDisabled}
+            disabledReason={deleteDisabledReason}
+            narrationPreview={narration}
+            onConfirm={() => void editing.onDelete(segment.index)}
+          />
         </div>
       ) : null}
     </div>
@@ -355,6 +389,70 @@ function SegmentRow({
     </div>
   )
 }
+
+function DeleteSegmentButton({
+  segmentIndex,
+  isDeleting,
+  disabled,
+  disabledReason,
+  narrationPreview,
+  onConfirm,
+}: {
+  segmentIndex: number
+  isDeleting: boolean
+  disabled: boolean
+  disabledReason?: string
+  narrationPreview: string
+  onConfirm: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const segmentLabel = String(segmentIndex + 1).padStart(2, '0')
+
+  return (
+    <>
+      <RowIconButton
+        icon={
+          isDeleting ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : (
+            <Trash2 className="size-3.5" />
+          )
+        }
+        label="Delete segment"
+        onClick={() => setOpen(true)}
+        disabled={disabled || isDeleting}
+        disabledReason={disabledReason}
+        accentClass="text-muted-foreground/60 hover:text-destructive"
+      />
+      <AlertDialog open={open} onOpenChange={setOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete segment {segmentLabel}?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <span className="block italic">"{narrationPreview}"</span>
+              <span className="block">
+                The frames for this segment will be cut out of the video
+                and audio regenerated for the remaining segments. This
+                takes around 30 seconds and can't be undone without
+                re-recording the demo (Phase 5).
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={onConfirm}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete segment
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  )
+}
+
 
 function RowIconButton({
   icon,

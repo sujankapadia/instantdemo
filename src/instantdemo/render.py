@@ -444,6 +444,52 @@ def _build_combined_audio(
     return combined_audio
 
 
+def cut_segment_from_video(
+    existing_video: Path,
+    cut_start_s: float,
+    cut_end_s: float,
+    output_path: Path,
+) -> None:
+    """Re-encode an mp4 with the frame range [cut_start_s, cut_end_s] removed.
+
+    Uses ffmpeg's `trim` + `concat` filter graph in a single invocation so
+    the cut is frame-accurate (vs. `-c:v copy -ss` which only cuts at
+    keyframes and can glitch by hundreds of ms).
+
+    Strips audio — callers are expected to mux fresh audio over the
+    output via `remux_audio_only` since the original audio also gets cut
+    and no longer aligns with anything.
+
+    Trade-off: re-encoding makes a delete-segment operation roughly as
+    expensive as a Phase 5 render on the trimmed length. For typical
+    1–2 minute demos this is ~10–30s, which is acceptable for a
+    once-per-demo surgical action. Caller should run this off the event
+    loop. See issue #13.
+    """
+    filter_graph = (
+        f"[0:v]trim=start=0:end={cut_start_s},setpts=PTS-STARTPTS[v0];"
+        f"[0:v]trim=start={cut_end_s},setpts=PTS-STARTPTS[v1];"
+        f"[v0][v1]concat=n=2:v=1:a=0[outv]"
+    )
+    result = subprocess.run(  # nosec B607
+        [
+            "ffmpeg", "-y",
+            "-i", str(existing_video),
+            "-filter_complex", filter_graph,
+            "-map", "[outv]",
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-pix_fmt", "yuv420p",
+            "-an",
+            str(output_path),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg cut failed: {result.stderr}")
+
+
 def remux_audio_only(
     existing_video: Path,
     audio_clips: list[Path],
