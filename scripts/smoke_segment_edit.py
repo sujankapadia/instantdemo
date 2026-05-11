@@ -202,11 +202,15 @@ async def run_smoke() -> int:
                     errors.append(
                         f"new_audio_duration_ms was non-positive: {result}"
                     )
-                # The seeded recorded duration on segment 0 is 0.5s while
-                # Kokoro produces ~3s — overflow should be true.
-                if not result.get("overflow"):
+                # Post-#37: when recorded_durations are present, the
+                # re-render extends each overflowing segment's video
+                # (tpad) so audio plays in full without bleed. So
+                # overflow now means "we couldn't extend" — should
+                # be false here since durations are seeded.
+                if result.get("overflow"):
                     errors.append(
-                        f"re-render result.overflow expected true, got "
+                        f"re-render result.overflow expected false (per-segment "
+                        f"extension should have handled it), got "
                         f"{result.get('overflow')!r}"
                     )
 

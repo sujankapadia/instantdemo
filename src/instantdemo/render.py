@@ -497,32 +497,57 @@ def remux_audio_only(
     segments: list[dict],
     output_path: Path,
     tmp_dir: Path,
+    recorded_durations_s: list[float] | None = None,
 ) -> None:
     """Replace the audio track of an existing demo.mp4 with newly-built
-    audio, copying the video stream untouched (no re-encoding).
+    audio. Picks one of three strategies based on how the new audio
+    compares to the existing per-segment video:
 
-    Used by the GUI's per-segment audio re-render path: the user edited
-    a segment's narration; we regenerate audio for every segment, splice
-    them with silence padding, and mux against the unchanged video.
+    1. **No overflow anywhere** → fastest path: `-c:v copy`, just swap
+       the audio track.
+    2. **Per-segment overflow** (some segment's new audio is longer
+       than its recorded clean video) → rebuild the video by trimming
+       each segment from `existing_video`, extending overflowing ones
+       with `tpad` (frozen last frame), concatenating, then muxing.
+       Requires `recorded_durations_s`. See issue #37.
+    3. **Global tail overflow** (total audio > total video, but we
+       don't have per-segment durations to know where) → tpad the
+       last frame of the whole video. Same one-shot pad we used
+       before per-segment was an option.
 
-    Limitation (v1): if total new audio length differs significantly
-    from the video, ffmpeg's `-shortest` truncates whichever stream
-    runs out first. Minor narration edits stay within the original
-    slot and are fine. Big lengthening edits get the tail of the new
-    audio cut off — the GUI should detect overflow at submit time and
-    warn (or fall back to a full re-render) rather than rely on this
-    silently truncating.
+    `recorded_durations_s` is the per-segment clean video durations
+    persisted by #19. When provided, we can detect and fix overflow
+    surgically; otherwise we fall back to the global tail pad.
     """
     combined_audio = _build_combined_audio(
         audio_clips, clip_durations, segments, tmp_dir
     )
 
-    # If the new combined audio runs longer than the existing video,
-    # `-shortest` would silently truncate the audio at the tail. Detect
-    # the overrun and pad the video with a frozen last frame via tpad
-    # so every word of narration plays. Costs a re-encode pass; only
-    # taken when actually needed (narration edits that grew past the
-    # original slot). See issue #13's tail-truncation report.
+    # Compute per-segment slot durations (matches _build_combined_audio's
+    # logic: each segment occupies max(audio, pause) of the timeline).
+    slot_durations_s = [
+        max(clip_durations[i], (segments[i].get("pause_after_ms") or 0) / 1000)
+        for i in range(len(segments))
+    ]
+
+    # If we have per-segment recorded durations, we can do surgical
+    # per-segment extension. Detect overflow per segment.
+    if recorded_durations_s is not None and len(recorded_durations_s) == len(segments):
+        per_seg_overflow = [
+            slot_durations_s[i] - recorded_durations_s[i]
+            for i in range(len(segments))
+        ]
+        if any(p > 0.05 for p in per_seg_overflow):
+            _remux_with_per_segment_extension(
+                existing_video=existing_video,
+                combined_audio=combined_audio,
+                recorded_durations_s=recorded_durations_s,
+                slot_durations_s=slot_durations_s,
+                output_path=output_path,
+            )
+            return
+        # All segments fit — use cheap copy path below.
+
     audio_duration = get_audio_duration(combined_audio)
     video_duration = get_audio_duration(existing_video)
     pad_seconds = audio_duration - video_duration
@@ -571,6 +596,79 @@ def remux_audio_only(
         )
     if result.returncode != 0:
         raise RuntimeError(f"ffmpeg remux failed: {result.stderr}")
+
+
+def _remux_with_per_segment_extension(
+    existing_video: Path,
+    combined_audio: Path,
+    recorded_durations_s: list[float],
+    slot_durations_s: list[float],
+    output_path: Path,
+) -> None:
+    """Rebuild the video with per-segment trim + tpad-extend + concat,
+    then mux the new audio. Used when at least one segment's audio
+    grew past its recorded video frames. See issue #37."""
+    # Cut points: segment N's clean window in existing_video occupies
+    # [sum(recorded[0..N-1]), sum(recorded[0..N])]. Each segment is
+    # then padded so its output duration matches its audio slot.
+    cursor = 0.0
+    trim_clauses: list[str] = []
+    pad_clauses: list[str] = []
+    concat_inputs: list[str] = []
+    for i, (rec, slot) in enumerate(zip(recorded_durations_s, slot_durations_s)):
+        start = cursor
+        end = cursor + rec
+        cursor = end
+        # Trim segment i from the source video and reset its timestamps.
+        trim_clauses.append(
+            f"[0:v]trim=start={start:.3f}:end={end:.3f},"
+            f"setpts=PTS-STARTPTS[s{i}t]"
+        )
+        # If this segment overflows, freeze the last frame for the
+        # missing duration. Otherwise pass through unchanged.
+        pad = max(0.0, slot - rec)
+        if pad > 0.05:
+            pad_clauses.append(
+                f"[s{i}t]tpad=stop_mode=clone:stop_duration={pad:.3f}[s{i}]"
+            )
+        else:
+            pad_clauses.append(f"[s{i}t]null[s{i}]")
+        concat_inputs.append(f"[s{i}]")
+
+    filter_graph = (
+        ";".join(trim_clauses)
+        + ";"
+        + ";".join(pad_clauses)
+        + ";"
+        + "".join(concat_inputs)
+        + f"concat=n={len(recorded_durations_s)}:v=1:a=0[outv]"
+    )
+
+    total_pad = sum(max(0.0, s - r) for r, s in zip(recorded_durations_s, slot_durations_s))
+    print(
+        f"  Per-segment overflow detected ({total_pad:.2f}s total); "
+        f"rebuilding video with extended segments (re-encoding)…"
+    )
+    result = subprocess.run(  # nosec B607
+        [
+            "ffmpeg", "-y",
+            "-i", str(existing_video),
+            "-i", str(combined_audio),
+            "-filter_complex", filter_graph,
+            "-map", "[outv]",
+            "-map", "1:a",
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            str(output_path),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg per-segment remux failed: {result.stderr}")
 
 
 def _ensure_wav(clip: Path, index: int, tmp_dir: Path) -> Path:

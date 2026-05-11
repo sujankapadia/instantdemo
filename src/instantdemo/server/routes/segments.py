@@ -312,7 +312,9 @@ def _do_delete_segment(
         )
         clip_durations = [get_audio_duration(c) for c in clips]
 
-        # Step 3: mux new audio over the trimmed video.
+        # Step 3: mux new audio over the trimmed video. Pass through
+        # the remaining recorded durations so per-segment overflow
+        # extension can fire if needed (#37).
         output_tmp = tmp_dir / "demo.mp4"
         remux_audio_only(
             existing_video=trimmed_video,
@@ -321,6 +323,7 @@ def _do_delete_segment(
             segments=remaining_segments,
             output_path=output_tmp,
             tmp_dir=tmp_dir,
+            recorded_durations_s=remaining_durations,
         )
         shutil.move(str(output_tmp), str(video_path))
 
@@ -412,6 +415,9 @@ def _do_re_render_audio(
         clip_durations = [get_audio_duration(c) for c in clips]
 
         # Atomic write: render to tmp file then move into place.
+        # Pass recorded durations so per-segment overflow triggers
+        # the rebuild-with-extension path instead of producing a
+        # video where audio bleeds into the next segment (#37).
         output_tmp = tmp_dir / "demo.mp4"
         remux_audio_only(
             existing_video=video_path,
@@ -420,6 +426,7 @@ def _do_re_render_audio(
             segments=segments,
             output_path=output_tmp,
             tmp_dir=tmp_dir,
+            recorded_durations_s=recorded_durations,
         )
         shutil.move(str(output_tmp), str(video_path))
 
@@ -436,13 +443,14 @@ def _do_re_render_audio(
         edited_segment = segments[segment_index]
         pause_s = (edited_segment.get("pause_after_ms") or 0) / 1000
         slot_s = max(new_audio_duration_s, pause_s)
-        # Overflow: new audio is longer than the recorded clean window
-        # for this segment. ffmpeg's `-shortest` will truncate the audio
-        # at mux time, so playback cuts off mid-sentence. The caller
-        # should surface this to the user. Falls back to false when we
-        # don't have recorded durations (older renders before #19).
-        if recorded_durations is not None:
-            overflow = new_audio_duration_s > recorded_durations[segment_index]
+        # Overflow now reflects "we couldn't extend the video to fit
+        # the audio" — which only happens when recorded durations are
+        # missing (older renders before #19). When durations are
+        # available, remux_audio_only does per-segment tpad extension
+        # and the result has no audible bleed, so we report
+        # overflow=false. See issue #37.
+        if recorded_durations is None:
+            overflow = new_audio_duration_s > (slot_s if slot_s > 0 else 0)
         else:
             overflow = False
 
