@@ -94,6 +94,13 @@ class Segment(BaseModel):
     start_s: float | None = None
     end_s: float | None = None
     audio_duration_s: float | None = None
+    # Actual clean-window video frames captured for this segment (#19).
+    # Null when timing is absent or was produced before #19.
+    recorded_clean_duration_s: float | None = None
+    # True when the segment's audio is longer than its recorded video
+    # frames — ffmpeg's `-shortest` will truncate the audio at mux time.
+    # Null when we can't tell (either field missing).
+    audio_overflows: bool | None = None
 
 
 class SegmentsResponse(BaseModel):
@@ -240,7 +247,15 @@ def get_segments() -> SegmentsResponse:
         if t is not None:
             merged["start_s"] = t.get("start_s")
             merged["end_s"] = t.get("end_s")
-            merged["audio_duration_s"] = t.get("audio_duration_s")
+            audio_s = t.get("audio_duration_s")
+            merged["audio_duration_s"] = audio_s
+            recorded_s = t.get("recorded_clean_duration_s")
+            if isinstance(recorded_s, (int, float)):
+                merged["recorded_clean_duration_s"] = float(recorded_s)
+                if isinstance(audio_s, (int, float)):
+                    merged["audio_overflows"] = (
+                        float(audio_s) > float(recorded_s)
+                    )
         segments.append(Segment(**merged))
 
     return SegmentsResponse(

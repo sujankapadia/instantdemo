@@ -91,8 +91,12 @@ async def run_smoke() -> int:
         (tmp_root / "demo-script.json").read_text()
     )
     n_segments = len(fixture_script["segments"])
+    # Use deliberately small recorded durations so all segments overflow
+    # after re-render (Kokoro narrations run ~3s per segment, well past
+    # 0.5s). Lets us assert the overflow detection wired through #19
+    # surfaces correctly.
     seeded_durations = [
-        round(2.0 + 0.1 * i, 3) for i in range(n_segments)
+        round(0.5 + 0.05 * i, 3) for i in range(n_segments)
     ]
     (tmp_root / ".instantdemo").mkdir(parents=True, exist_ok=True)
     (tmp_root / ".instantdemo" / "segment-timing.json").write_text(
@@ -197,6 +201,28 @@ async def run_smoke() -> int:
                 if (result.get("new_audio_duration_ms") or 0) <= 0:
                     errors.append(
                         f"new_audio_duration_ms was non-positive: {result}"
+                    )
+                # The seeded recorded duration on segment 0 is 0.5s while
+                # Kokoro produces ~3s — overflow should be true.
+                if not result.get("overflow"):
+                    errors.append(
+                        f"re-render result.overflow expected true, got "
+                        f"{result.get('overflow')!r}"
+                    )
+
+            # GET /api/project/segments should now surface audio_overflows
+            # on the edited segment (server-side join of audio vs recorded
+            # durations).
+            r = await client.get("/api/project/segments")
+            if r.status_code == 200:
+                payload = r.json()
+                seg0 = (payload.get("segments") or [None])[0]
+                if seg0 is None:
+                    errors.append("segments[0] missing in second fetch")
+                elif not seg0.get("audio_overflows"):
+                    errors.append(
+                        f"segments[0].audio_overflows expected true, got "
+                        f"{seg0.get('audio_overflows')!r}"
                     )
 
             new_video_mtime = (tmp_root / "demo.mp4").stat().st_mtime
