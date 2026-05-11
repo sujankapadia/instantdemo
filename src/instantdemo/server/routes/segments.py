@@ -65,6 +65,14 @@ class ReRenderResult(BaseModel):
     overflow: bool
 
 
+class DeleteSegmentResult(BaseModel):
+    """Returned from DELETE /api/segments/{i}."""
+
+    ok: bool
+    remaining_segments: int
+    new_total_duration_s: float
+
+
 def _project_dir() -> Path:
     """Same resolution rule as the other route modules."""
     override = os.environ.get("INSTANTDEMO_PROJECT_DIR")
@@ -177,6 +185,172 @@ async def re_render_audio_endpoint(
         segment_index,
         video_path,
     )
+
+
+@router.delete(
+    "/segments/{segment_index}",
+    response_model=DeleteSegmentResult,
+)
+async def delete_segment_endpoint(
+    request: Request,
+    segment_index: int = PathParam(..., ge=0),
+) -> DeleteSegmentResult:
+    """Remove a segment from the demo: cut its frames out of demo.mp4
+    (frame-accurate re-encode), regenerate audio for the remaining
+    segments, and rewrite demo-script.json + segment-timing.json.
+
+    Requires `recorded_clean_duration_s` to be present on every segment
+    in segment-timing.json (i.e. the render predates #19). Refuses with
+    409 if a run is active and 400 if the segment is the last one or
+    recorded durations are missing.
+
+    Cost: roughly the same as the audio re-render plus ~10–30s of
+    video re-encode for a 1–2 min demo. Caller should expect a long
+    wait spinner. Issue #13.
+    """
+    project = _project_dir()
+    script_path, script = _load_script(project)
+    segments = script.get("segments") or []
+    _resolve_segment(script, segment_index)
+
+    if len(segments) <= 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="cannot delete the only segment in the script",
+        )
+
+    video_path = project / "demo.mp4"
+    if not video_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="demo.mp4 not found; render the demo first",
+        )
+
+    manager = getattr(request.app.state, "run_manager", None)
+    if manager is not None and manager.active is not None:
+        if manager.active.status in ("running", "starting", "paused"):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="a run is in progress; wait for it to finish or cancel it",
+            )
+
+    state_dir = project / ".instantdemo"
+    recorded_durations = _load_recorded_durations(state_dir, len(segments))
+    if recorded_durations is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "segment-timing.json is missing per-segment recorded "
+                "durations (predates issue #19); re-run Phase 5 once to "
+                "produce them before deleting segments"
+            ),
+        )
+
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None,
+        _do_delete_segment,
+        project,
+        script_path,
+        script,
+        segments,
+        segment_index,
+        video_path,
+        recorded_durations,
+    )
+
+
+def _do_delete_segment(
+    project: Path,
+    script_path: Path,
+    script: dict[str, Any],
+    segments: list[dict[str, Any]],
+    segment_index: int,
+    video_path: Path,
+    recorded_durations: list[float],
+) -> DeleteSegmentResult:
+    """Sync worker for DELETE /api/segments/{i}."""
+    from instantdemo.render import (
+        _write_segment_timing,
+        cut_segment_from_video,
+        generate_audio_kokoro,
+        get_audio_duration,
+        remux_audio_only,
+    )
+
+    # Compute the frame range in demo.mp4. Segments sit back-to-back in
+    # demo.mp4 after the loading-frame trim, so segment N's range is
+    # [sum(durations[0..N-1]), sum(durations[0..N])].
+    cut_start_s = sum(recorded_durations[:segment_index])
+    cut_end_s = cut_start_s + recorded_durations[segment_index]
+
+    remaining_segments = (
+        segments[:segment_index] + segments[segment_index + 1 :]
+    )
+    remaining_durations = (
+        recorded_durations[:segment_index]
+        + recorded_durations[segment_index + 1 :]
+    )
+
+    state_dir = project / ".instantdemo"
+    state_dir.mkdir(parents=True, exist_ok=True)
+
+    tmp_dir = Path(tempfile.mkdtemp(prefix="instantdemo-delete-"))
+    try:
+        # Step 1: cut frames out of demo.mp4 (video only, re-encoded).
+        trimmed_video = tmp_dir / "trimmed_video.mp4"
+        cut_segment_from_video(
+            existing_video=video_path,
+            cut_start_s=cut_start_s,
+            cut_end_s=cut_end_s,
+            output_path=trimmed_video,
+        )
+
+        # Step 2: regenerate audio for the remaining segments.
+        clips = generate_audio_kokoro(
+            remaining_segments, tmp_dir, "af_heart", 1.0
+        )
+        clip_durations = [get_audio_duration(c) for c in clips]
+
+        # Step 3: mux new audio over the trimmed video.
+        output_tmp = tmp_dir / "demo.mp4"
+        remux_audio_only(
+            existing_video=trimmed_video,
+            audio_clips=clips,
+            clip_durations=clip_durations,
+            segments=remaining_segments,
+            output_path=output_tmp,
+            tmp_dir=tmp_dir,
+        )
+        shutil.move(str(output_tmp), str(video_path))
+
+        # Step 4: rewrite demo-script.json with the segment removed.
+        script["segments"] = remaining_segments
+        script_path.write_text(json.dumps(script, indent=2) + "\n")
+
+        # Step 5: rewrite segment-timing.json so click-to-seek lands on
+        # the right content and remaining recorded durations are
+        # preserved for future deletes / overflow detection.
+        _write_segment_timing(
+            state_dir,
+            remaining_segments,
+            clip_durations,
+            video_path.name,
+            recorded_durations_s=remaining_durations,
+        )
+
+        new_total_s = sum(
+            max(clip_durations[i], (remaining_segments[i].get("pause_after_ms") or 0) / 1000)
+            for i in range(len(remaining_segments))
+        )
+
+        return DeleteSegmentResult(
+            ok=True,
+            remaining_segments=len(remaining_segments),
+            new_total_duration_s=round(new_total_s, 3),
+        )
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def _load_recorded_durations(

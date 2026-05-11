@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
+import { Loader2 } from 'lucide-react'
 import { VideoPlayer } from './VideoPlayer'
 import { SegmentsList, type EditingProps } from './SegmentsList'
 import {
@@ -9,6 +10,7 @@ import {
 import { useSegments } from '@/hooks/useSegments'
 import type { Segment } from '@/api/project'
 import {
+  deleteSegment,
   patchSegmentNarration,
   reRenderSegmentAudio,
 } from '@/api/segments'
@@ -34,6 +36,7 @@ export function RightPane({ runStatus }: RightPaneProps) {
   const [rerenderingIndex, setRerenderingIndex] = useState<number | null>(
     null,
   )
+  const [deletingIndex, setDeletingIndex] = useState<number | null>(null)
   const [errorByIndex, setErrorByIndex] = useState<Record<number, string>>(
     {},
   )
@@ -138,21 +141,78 @@ export function RightPane({ runStatus }: RightPaneProps) {
     [rerenderingIndex, segmentsState],
   )
 
+  const handleDelete = useCallback(
+    async (index: number) => {
+      if (deletingIndex !== null) return
+      setDeletingIndex(index)
+      setErrorByIndex((prev) => {
+        if (!(index in prev)) return prev
+        const next = { ...prev }
+        delete next[index]
+        return next
+      })
+      try {
+        await deleteSegment(index)
+        // The deleted segment's index disappears; any stale index >= the
+        // deleted one shifts down by one. Rebuild stale set to reflect.
+        setStaleIndices((prev) => {
+          const next = new Set<number>()
+          for (const i of prev) {
+            if (i < index) next.add(i)
+            else if (i > index) next.add(i - 1)
+            // i === index drops out
+          }
+          return next
+        })
+        setEditingIndex(null)
+        setVideoVersion(Date.now())
+        segmentsState.refetch()
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        setErrorByIndex((prev) => ({ ...prev, [index]: msg }))
+      } finally {
+        setDeletingIndex(null)
+      }
+    },
+    [deletingIndex, segmentsState],
+  )
+
+  const segmentCount =
+    segmentsState.state.status === 'success'
+      ? segmentsState.state.data.segments.length
+      : 0
+
   const editing: EditingProps = {
     editingIndex,
     staleIndices,
     rerenderingIndex,
+    deletingIndex,
     errorByIndex,
+    totalSegments: segmentCount,
     onBeginEdit: handleBeginEdit,
     onSaveEdit: handleSaveEdit,
     onCancelEdit: handleCancelEdit,
     onRerender: handleRerender,
+    onDelete: handleDelete,
   }
 
   const listState = mapSegmentsListState(segmentsState.state)
 
+  const opMessage =
+    deletingIndex !== null
+      ? `Deleting segment ${String(deletingIndex + 1).padStart(2, '0')} — re-encoding video and regenerating audio (~20–30s)…`
+      : rerenderingIndex !== null
+        ? `Re-rendering audio for segment ${String(rerenderingIndex + 1).padStart(2, '0')} (~20s)…`
+        : null
+
   return (
     <aside className="flex h-full min-h-0 flex-col">
+      {opMessage ? (
+        <div className="flex shrink-0 items-center gap-2 border-b border-sky-500/30 bg-sky-500/10 px-4 py-2 text-xs text-sky-100">
+          <Loader2 className="size-3.5 shrink-0 animate-spin text-sky-300" />
+          <span>{opMessage}</span>
+        </div>
+      ) : null}
       <ResizablePanelGroup orientation="vertical">
         <ResizablePanel defaultSize={55} minSize={20}>
           <div className="h-full border-b border-border bg-muted/10 p-4">

@@ -231,6 +231,37 @@ async def run_smoke() -> int:
                     "demo.mp4 mtime did not advance — video was not rewritten"
                 )
 
+            # DELETE the last segment and verify the script + timing shrink.
+            initial_count = len(fixture_script["segments"])
+            target_index = initial_count - 1
+            print(f"[smoke] Deleting segment {target_index} (frame-accurate cut)…")
+            t1 = time.monotonic()
+            r = await client.delete(f"/api/segments/{target_index}")
+            delete_elapsed = time.monotonic() - t1
+            if r.status_code != 200:
+                errors.append(
+                    f"DELETE /api/segments/{target_index} returned "
+                    f"{r.status_code}: {r.text}"
+                )
+            else:
+                result = r.json()
+                if result.get("remaining_segments") != initial_count - 1:
+                    errors.append(
+                        f"delete remaining_segments expected "
+                        f"{initial_count - 1}, got "
+                        f"{result.get('remaining_segments')}"
+                    )
+
+            post_delete_script = json.loads(
+                (tmp_root / "demo-script.json").read_text()
+            )
+            if len(post_delete_script["segments"]) != initial_count - 1:
+                errors.append(
+                    f"demo-script.json segment count expected "
+                    f"{initial_count - 1}, got "
+                    f"{len(post_delete_script['segments'])}"
+                )
+
             timing_path = tmp_root / ".instantdemo" / "segment-timing.json"
             if not timing_path.exists():
                 errors.append(
@@ -261,8 +292,8 @@ async def run_smoke() -> int:
                 return 1
 
             print(
-                f"[smoke] PASS  — segment edit + audio re-render "
-                f"({elapsed:.1f}s)"
+                f"[smoke] PASS  — edit ({elapsed:.1f}s) + delete "
+                f"({delete_elapsed:.1f}s)"
             )
             return 0
     finally:

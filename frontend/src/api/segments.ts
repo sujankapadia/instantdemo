@@ -13,6 +13,12 @@ export interface ReRenderResult {
   overflow: boolean
 }
 
+export interface DeleteSegmentResult {
+  ok: boolean
+  remaining_segments: number
+  new_total_duration_s: number
+}
+
 export async function patchSegmentNarration(
   index: number,
   narration: string,
@@ -52,4 +58,21 @@ export async function reRenderSegmentAudio(
     throw new Error(msg)
   }
   return (await res.json()) as ReRenderResult
+}
+
+export async function deleteSegment(
+  index: number,
+): Promise<DeleteSegmentResult> {
+  const res = await fetch(`/api/segments/${index}`, { method: 'DELETE' })
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`
+    try {
+      const body = (await res.json()) as { detail?: string }
+      if (body.detail) msg = body.detail
+    } catch {
+      // body wasn't JSON; fall through with HTTP code
+    }
+    throw new Error(msg)
+  }
+  return (await res.json()) as DeleteSegmentResult
 }
