@@ -22,6 +22,7 @@ probe.
 
 from __future__ import annotations
 
+import asyncio
 import re
 
 from .. import prompts
@@ -123,5 +124,12 @@ async def run(context: Context) -> None:
             f"See {artifact} for the full report."
         )
 
-    # RENDER_OK — proceed.
-    _invoke_renderer(context)
+    # RENDER_OK — proceed. The renderer uses `sync_playwright()`,
+    # which refuses to start a browser from inside a running asyncio
+    # loop (the GUI's case under uvicorn). Offload to the default
+    # executor so the sync call runs in a worker thread without an
+    # active loop. The CLI path also passes through here, where the
+    # current loop is the one driving `asyncio.run(...)` — same
+    # offload pattern is safe there too. See issue #33.
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _invoke_renderer, context)
