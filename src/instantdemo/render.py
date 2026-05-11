@@ -517,23 +517,58 @@ def remux_audio_only(
         audio_clips, clip_durations, segments, tmp_dir
     )
 
-    print("  Re-muxing existing video with new audio (no re-encode)...")
-    result = subprocess.run(  # nosec B607
-        [
-            "ffmpeg", "-y",
-            "-i", str(existing_video),
-            "-i", str(combined_audio),
-            "-map", "0:v",
-            "-map", "1:a",
-            "-c:v", "copy",
-            "-c:a", "aac",
-            "-b:a", "192k",
-            "-shortest",
-            str(output_path),
-        ],
-        capture_output=True,
-        text=True,
-    )
+    # If the new combined audio runs longer than the existing video,
+    # `-shortest` would silently truncate the audio at the tail. Detect
+    # the overrun and pad the video with a frozen last frame via tpad
+    # so every word of narration plays. Costs a re-encode pass; only
+    # taken when actually needed (narration edits that grew past the
+    # original slot). See issue #13's tail-truncation report.
+    audio_duration = get_audio_duration(combined_audio)
+    video_duration = get_audio_duration(existing_video)
+    pad_seconds = audio_duration - video_duration
+
+    if pad_seconds > 0.05:
+        print(
+            f"  Audio longer than video by {pad_seconds:.2f}s; "
+            f"freezing last frame to match (re-encoding)…"
+        )
+        result = subprocess.run(  # nosec B607
+            [
+                "ffmpeg", "-y",
+                "-i", str(existing_video),
+                "-i", str(combined_audio),
+                "-filter_complex",
+                f"[0:v]tpad=stop_mode=clone:stop_duration={pad_seconds:.3f}[vpad]",
+                "-map", "[vpad]",
+                "-map", "1:a",
+                "-c:v", "libx264",
+                "-preset", "fast",
+                "-pix_fmt", "yuv420p",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                str(output_path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+    else:
+        print("  Re-muxing existing video with new audio (no re-encode)…")
+        result = subprocess.run(  # nosec B607
+            [
+                "ffmpeg", "-y",
+                "-i", str(existing_video),
+                "-i", str(combined_audio),
+                "-map", "0:v",
+                "-map", "1:a",
+                "-c:v", "copy",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                "-shortest",
+                str(output_path),
+            ],
+            capture_output=True,
+            text=True,
+        )
     if result.returncode != 0:
         raise RuntimeError(f"ffmpeg remux failed: {result.stderr}")
 
