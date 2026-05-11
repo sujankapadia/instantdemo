@@ -39,7 +39,10 @@ PHASE_TOOLS: dict[str, frozenset[str]] = {
     "phase1": frozenset({"Read", "Glob", "Grep"}),
     "phase2": frozenset(),
     "phase3": frozenset({"Read", "Glob", "Grep"}),
-    "phase4": frozenset({"Write"}),
+    # Read is needed because the Write tool refuses to overwrite an
+    # existing file without a prior Read in the same session (re-runs
+    # or follow-up edits would otherwise deadlock). See issue #32.
+    "phase4": frozenset({"Read", "Write"}),
     "phase5": frozenset({"Read", "Bash"}),
 }
 
