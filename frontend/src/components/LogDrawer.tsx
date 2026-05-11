@@ -13,6 +13,7 @@ import {
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible'
 import { cn } from '@/lib/utils'
 import { formatCostUsd } from '@/lib/format'
+import { phaseName } from '@/lib/phases'
 import type { LogEntry, RunStatus } from '@/hooks/useRun'
 
 interface LogDrawerProps {
@@ -145,7 +146,7 @@ function LogRow({ entry }: { entry: LogEntry }) {
           <span className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
             Phase {entry.phase}
           </span>
-          <span className="font-semibold">{entry.phase_name}</span>
+          <span className="font-semibold">{phaseName(entry.phase)}</span>
         </div>
       )
     case 'text':
@@ -160,6 +161,11 @@ function LogRow({ entry }: { entry: LogEntry }) {
           <Wrench className="size-3" />
           <span className="text-[11px] uppercase tracking-wide">tool</span>
           <span className="font-medium text-foreground">{entry.tool}</span>
+          {entry.arg ? (
+            <span className="truncate font-mono text-xs text-muted-foreground/80">
+              {entry.arg}
+            </span>
+          ) : null}
         </div>
       )
     case 'phase_complete':
@@ -167,7 +173,7 @@ function LogRow({ entry }: { entry: LogEntry }) {
         <div className="flex items-center gap-2 text-emerald-300">
           <CheckCircle2 className="size-3" />
           <span>
-            Phase {entry.phase} ({entry.phase_name}) — {formatCostUsd(entry.cost_usd)}
+            Phase {entry.phase} ({phaseName(entry.phase)}) — {formatCostUsd(entry.cost_usd)}
           </span>
         </div>
       )

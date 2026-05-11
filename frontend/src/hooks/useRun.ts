@@ -29,7 +29,14 @@ export interface PhaseUpdate {
 type LogEntryInput =
   | { kind: 'phase_started'; phase: number; phase_name: string; ts: string }
   | { kind: 'text'; phase: number | null; text: string }
-  | { kind: 'tool_use'; phase: number | null; tool: string }
+  | {
+      kind: 'tool_use'
+      phase: number | null
+      tool: string
+      /** First relevant argument (file path, Bash command, search
+       *  pattern, URL) for display alongside the tool name. */
+      arg: string | null
+    }
   | {
       kind: 'phase_complete'
       phase: number
@@ -153,6 +160,7 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
           kind: 'tool_use',
           phase: phaseFromSessionId(event.session_id),
           tool: event.tool,
+          arg: summarizeToolInput(event.tool, event.tool_input),
         })
         break
 
@@ -354,4 +362,55 @@ function phaseFromSessionId(sessionId: string): number | null {
   const match = /^phase(\d+)$/.exec(sessionId)
   if (!match || !match[1]) return null
   return parseInt(match[1], 10)
+}
+
+/**
+ * Extract the most informative argument from a tool_use input dict
+ * for display alongside the tool name in the drawer log. Returns null
+ * when the tool is unknown or the expected field is missing — the row
+ * falls back to just the tool name.
+ */
+function summarizeToolInput(tool: string, input: unknown): string | null {
+  if (input === null || typeof input !== 'object') return null
+  const o = input as Record<string, unknown>
+  const pick = (key: string): string | null => {
+    const v = o[key]
+    return typeof v === 'string' && v.length > 0 ? v : null
+  }
+  let raw: string | null = null
+  switch (tool) {
+    case 'Bash':
+      raw = pick('command')
+      break
+    case 'Read':
+    case 'Write':
+    case 'Edit':
+    case 'NotebookEdit':
+      raw = pick('file_path')
+      break
+    case 'Glob':
+    case 'Grep':
+      raw = pick('pattern')
+      break
+    case 'WebFetch':
+    case 'WebSearch':
+      raw = pick('url') ?? pick('query')
+      break
+    case 'TodoWrite': {
+      const todos = o.todos
+      if (Array.isArray(todos) && todos.length > 0) {
+        const first = todos[0]
+        if (first && typeof first === 'object') {
+          const content = (first as Record<string, unknown>).content
+          if (typeof content === 'string') raw = content
+        }
+      }
+      break
+    }
+    default:
+      raw = null
+  }
+  if (raw === null) return null
+  const flat = raw.replace(/\s+/g, ' ').trim()
+  return flat.length > 80 ? flat.slice(0, 77) + '…' : flat
 }
