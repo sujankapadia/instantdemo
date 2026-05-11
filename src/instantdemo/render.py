@@ -346,6 +346,7 @@ def _write_segment_timing(
     segments: list[dict],
     audio_durations_s: list[float],
     output_filename: str,
+    recorded_durations_s: list[float] | None = None,
 ) -> None:
     """Write per-segment playback timing to <state_dir>/segment-timing.json.
 
@@ -353,6 +354,14 @@ def _write_segment_timing(
     duration is max(audio_duration, pause_after_ms / 1000), starts at the
     cumulative end of prior segments. Used by the GUI to map segments
     onto positions in the rendered video for click-to-seek.
+
+    When `recorded_durations_s` is provided (clean-window lengths from
+    `record_browser_video`), each segment also gets
+    `recorded_clean_duration_s` — the actual length of visible frames
+    captured for that segment in the source recording. This is what
+    post-render operations (delete-segment, pace tweak, overflow
+    detection) need to make frame-accurate cuts into demo.mp4 without
+    re-recording. See issue #19.
     """
     cursor = 0.0
     out_segments = []
@@ -360,14 +369,17 @@ def _write_segment_timing(
         audio_s = audio_durations_s[i]
         pause_s = (seg.get("pause_after_ms") or 0) / 1000
         seg_s = max(audio_s, pause_s)
-        out_segments.append(
-            {
-                "index": i,
-                "start_s": round(cursor, 3),
-                "end_s": round(cursor + seg_s, 3),
-                "audio_duration_s": round(audio_s, 3),
-            }
-        )
+        entry = {
+            "index": i,
+            "start_s": round(cursor, 3),
+            "end_s": round(cursor + seg_s, 3),
+            "audio_duration_s": round(audio_s, 3),
+        }
+        if recorded_durations_s is not None:
+            entry["recorded_clean_duration_s"] = round(
+                recorded_durations_s[i], 3
+            )
+        out_segments.append(entry)
         cursor += seg_s
 
     state_dir.mkdir(parents=True, exist_ok=True)
@@ -963,8 +975,10 @@ def main(argv=None):
         if args.state_dir
         else script_path.parent / ".instantdemo"
     )
+    recorded_durations = [end - start for (start, end) in timestamps]
     _write_segment_timing(
-        state_dir, segments, clip_durations, output_path.name
+        state_dir, segments, clip_durations, output_path.name,
+        recorded_durations_s=recorded_durations,
     )
     print(f"  Timing: {state_dir / 'segment-timing.json'}")
 

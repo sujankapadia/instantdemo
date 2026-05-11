@@ -83,6 +83,39 @@ async def run_smoke() -> int:
 
     original_video_mtime = (tmp_root / "demo.mp4").stat().st_mtime
 
+    # Seed segment-timing.json with synthetic recorded_clean_duration_s
+    # values to verify the audio re-render preserves them (#19). The
+    # rendered fixture predates #19, so the file doesn't carry these
+    # fields naturally; we inject them here to exercise the round-trip.
+    fixture_script = json.loads(
+        (tmp_root / "demo-script.json").read_text()
+    )
+    n_segments = len(fixture_script["segments"])
+    seeded_durations = [
+        round(2.0 + 0.1 * i, 3) for i in range(n_segments)
+    ]
+    (tmp_root / ".instantdemo").mkdir(parents=True, exist_ok=True)
+    (tmp_root / ".instantdemo" / "segment-timing.json").write_text(
+        json.dumps(
+            {
+                "video": "demo.mp4",
+                "total_duration_s": sum(seeded_durations),
+                "segments": [
+                    {
+                        "index": i,
+                        "start_s": 0.0,
+                        "end_s": seeded_durations[i],
+                        "audio_duration_s": seeded_durations[i],
+                        "recorded_clean_duration_s": seeded_durations[i],
+                    }
+                    for i in range(n_segments)
+                ],
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+
     port = find_free_port()
     base_url = f"http://127.0.0.1:{port}"
     print(f"[smoke] Project: {tmp_root}")
@@ -179,8 +212,21 @@ async def run_smoke() -> int:
                 )
             else:
                 timing = json.loads(timing_path.read_text())
-                if not (timing.get("segments") or []):
+                timing_segs = timing.get("segments") or []
+                if not timing_segs:
                     errors.append("segment-timing.json had no segments")
+                else:
+                    # Verify recorded_clean_duration_s survived the re-render
+                    # (issue #19 preservation contract).
+                    for i, seg in enumerate(timing_segs):
+                        actual = seg.get("recorded_clean_duration_s")
+                        expected = seeded_durations[i]
+                        if actual != expected:
+                            errors.append(
+                                f"segment {i} recorded_clean_duration_s "
+                                f"expected {expected}, got {actual!r}"
+                            )
+                            break
 
             if errors:
                 print("[smoke] FAIL:", file=sys.stderr)
