@@ -74,6 +74,9 @@ def _resolve_context(args: argparse.Namespace) -> Context:
     return Context(
         url=args.url,
         source=source,
+        # CLI convention: project and source are the same directory.
+        # The GUI passes separate paths via runs.py.
+        project=source,
         describe=args.describe,
         state_dir=state_dir,
         output=output,

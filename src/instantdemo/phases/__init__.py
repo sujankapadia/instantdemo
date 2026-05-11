@@ -49,9 +49,15 @@ class Context:
     """
 
     url: str
-    source: Path                # codebase root (the user's project)
+    # Codebase root the agent reads from for Phase 1 / Phase 3.
+    source: Path
+    # Demo project directory — where state_dir, demo-script.json, and
+    # demo.mp4 live. May differ from `source` when the demo project is
+    # decoupled from the codebase (typical for the GUI). The CLI passes
+    # `project == source` since its convention is to colocate them.
+    project: Path
     describe: str | None        # optional — like the skill's $ARGUMENTS
-    state_dir: Path             # source / ".instantdemo"
+    state_dir: Path             # project / ".instantdemo"
     output: Path                # final MP4 path (used by phase 5)
     tts: str                    # TTS provider name (used by phase 5)
     no_edit: bool               # if True, skip $EDITOR checkpoints
@@ -77,8 +83,14 @@ class Context:
 
     @property
     def script_path(self) -> Path:
-        """Path to the user-facing demo-script.json (Phase 4 output)."""
-        return self.source / "demo-script.json"
+        """Path to the user-facing demo-script.json (Phase 4 output).
+
+        Always resolves from `project`, never `source`. Pre-#30 this
+        used `source` and was fine because CLI ran with
+        `source == project`. After the GUI's #27 added a separate
+        source field, the script would have spilled into the user's
+        codebase. See issue #30."""
+        return self.project / "demo-script.json"
 
     def phase_artifact(self, phase_number: int) -> Path:
         """Resolve the per-phase artifact path within the state dir."""

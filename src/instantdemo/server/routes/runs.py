@@ -204,7 +204,16 @@ class RunManager:
                     detail="another run is already in progress",
                 )
             project = _project_dir()
-            await self._ensure_client(str(project))
+            # Set the agent's cwd to source (the codebase) so that
+            # Read/Glob/Grep with relative paths resolve against the
+            # user's code. Falls back to project dir when no source
+            # is given. See issue #31.
+            agent_cwd = (
+                Path(request.source).expanduser().resolve()
+                if request.source
+                else project
+            )
+            await self._ensure_client(str(agent_cwd))
 
             # Reset state for phases in this run. Phases not in the
             # request keep their existing entries (so a targeted re-run
@@ -328,6 +337,7 @@ class RunManager:
         context = Context(
             url=request.url,
             source=source_path,
+            project=project,
             describe=request.describe,
             state_dir=state_dir,
             output=output,
