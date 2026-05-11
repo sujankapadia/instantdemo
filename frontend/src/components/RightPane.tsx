@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
+import { Loader2 } from 'lucide-react'
 import { VideoPlayer } from './VideoPlayer'
 import { SegmentsList, type EditingProps } from './SegmentsList'
 import {
@@ -197,8 +198,21 @@ export function RightPane({ runStatus }: RightPaneProps) {
 
   const listState = mapSegmentsListState(segmentsState.state)
 
+  const opMessage =
+    deletingIndex !== null
+      ? `Deleting segment ${String(deletingIndex + 1).padStart(2, '0')} — re-encoding video and regenerating audio (~20–30s)…`
+      : rerenderingIndex !== null
+        ? `Re-rendering audio for segment ${String(rerenderingIndex + 1).padStart(2, '0')} (~20s)…`
+        : null
+
   return (
     <aside className="flex h-full min-h-0 flex-col">
+      {opMessage ? (
+        <div className="flex shrink-0 items-center gap-2 border-b border-sky-500/30 bg-sky-500/10 px-4 py-2 text-xs text-sky-100">
+          <Loader2 className="size-3.5 shrink-0 animate-spin text-sky-300" />
+          <span>{opMessage}</span>
+        </div>
+      ) : null}
       <ResizablePanelGroup orientation="vertical">
         <ResizablePanel defaultSize={55} minSize={20}>
           <div className="h-full border-b border-border bg-muted/10 p-4">
