@@ -29,7 +29,17 @@ const LOADING_PHASES: PhaseInfo[] = PHASE_NUMBERS.map((num) => ({
 
 export function Layout() {
   const { state, refetch } = useProject()
-  const run = useRun({ onStart: refetch, onComplete: refetch })
+  // Bumped each time a run terminates — RightPane watches this to know
+  // when to refresh segments + video. Cleaner than RightPane trying to
+  // detect the transition itself.
+  const [runCompleteToken, setRunCompleteToken] = useState(0)
+  const run = useRun({
+    onStart: refetch,
+    onComplete: () => {
+      refetch()
+      setRunCompleteToken((t) => t + 1)
+    },
+  })
   const [selected, setSelected] = useState<number>(1)
   const [newProjectOpen, setNewProjectOpen] = useState(false)
   // Developer-facing details (phase rail + editor pane with phase
@@ -206,7 +216,10 @@ export function Layout() {
               </div>
             ) : null}
             <div className={showEditor ? 'flex-[2] min-w-0' : 'flex-1 min-w-0'}>
-              <RightPane runStatus={run.status} />
+              <RightPane
+                runStatus={run.status}
+                runCompleteToken={runCompleteToken}
+              />
             </div>
           </main>
         )

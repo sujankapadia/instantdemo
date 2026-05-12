@@ -18,29 +18,29 @@ import type { RunStatus } from '@/hooks/useRun'
 
 interface RightPaneProps {
   runStatus: RunStatus
+  /** Incremented by Layout each time a run finishes (via useRun.onComplete).
+   *  RightPane reacts to the token bump by refetching segments and busting
+   *  the video cache — one-way signal, no transition heuristics. */
+  runCompleteToken: number
 }
 
-export function RightPane({ runStatus }: RightPaneProps) {
+export function RightPane({ runStatus, runCompleteToken }: RightPaneProps) {
   const segmentsState = useSegments()
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const [currentTimeS, setCurrentTimeS] = useState(0)
   const [videoVersion, setVideoVersion] = useState(() => Date.now())
 
-  // Refetch segments and bust the video cache when a run completes.
-  // useRun.onComplete only refetches /api/project; RightPane is a
-  // sibling consumer and needs its own trigger.
-  const prevRunStatusRef = useRef(runStatus)
+  // Refetch segments + bust the video cache when a run completes.
+  // useSegments already fetches on mount; this handles every subsequent
+  // run. Skipped on initial render (token starts at 0) to avoid the
+  // duplicate fetch. refetch is useCallback'd inside useSegments so
+  // its identity is stable; including it in deps is safe.
+  const segmentsRefetch = segmentsState.refetch
   useEffect(() => {
-    const prev = prevRunStatusRef.current
-    prevRunStatusRef.current = runStatus
-    const wasActive =
-      prev === 'running' || prev === 'starting' || prev === 'paused'
-    const isTerminal = runStatus === 'idle' || runStatus === 'error'
-    if (wasActive && isTerminal) {
-      segmentsState.refetch()
-      setVideoVersion(Date.now())
-    }
-  }, [runStatus, segmentsState])
+    if (runCompleteToken === 0) return
+    segmentsRefetch()
+    setVideoVersion(Date.now())
+  }, [runCompleteToken, segmentsRefetch])
 
   // Editing state — kept here so RightPane can coordinate with the
   // segments hook (refetch after re-render) and the video element
