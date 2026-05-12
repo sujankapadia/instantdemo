@@ -145,9 +145,18 @@ export function Layout() {
       {(() => {
         // Phase-specific failure banner takes precedence over the
         // generic run-error banner when we know which phase broke.
+        // Suppress the banner for Phase 4 when the structured triage
+        // panel is going to render below — the panel is a better,
+        // humanized surface for the same error. See issue #48.
         if (run.status !== 'error') return null
+        const phase4Triage =
+          data?.phases?.['4']?.explore_overall === 'BLOCKED'
         for (const [num, upd] of run.phaseUpdates) {
           if (upd.status === 'error') {
+            if (num === 4 && phase4Triage) {
+              // Triage panel handles it — don't double-stack.
+              return null
+            }
             return (
               <PhaseFailureBanner
                 phaseNumber={num}
