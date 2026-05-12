@@ -3,13 +3,49 @@ needed to render the demo against the live app. Read the frontend source
 (components, routes, layouts) to identify stable selectors and the right
 wait conditions.
 
-**Selectors** (in order of preference):
-1. `data-testid` attributes — most stable
-2. `aria-label` or `role` attributes — semantic and stable
-3. Semantic HTML (`button[type='submit']`, `a[href*='/dashboard']`) — usually stable
-4. Avoid: generated class names (`.css-1a2b3c`, `.MuiButton-root`)
+**Selectors — find them in the source, don't infer them.**
 
-When the same element can be matched several ways, prefer the most stable.
+A file or component named `conversation-viewer.tsx` does NOT mean
+the rendered element has `data-testid="conversation-viewer"`.
+Component names are conventions; the rendered attribute values
+are the contract Playwright sees. Always grep the source for the
+actual attribute literals before committing to a selector.
+
+Search strategies, in priority order. For each segment, try them
+top-down and pick the first that yields a concrete, stable match:
+
+1. **Test IDs** — grep for `data-testid="..."`. Don't assume
+   the project uses `data-testid`; also check `data-test=`,
+   `data-cy=`, `data-qa=`. Skim a few files; whichever
+   convention shows up most is the one to use. If the project
+   uses no test IDs at all, skip this category.
+
+2. **ARIA / semantic attributes** — grep for `aria-label=`,
+   `role=`, and accessible names. Stable across UI redesigns.
+
+3. **Text content** — grep for the user-visible labels mentioned
+   in the narrative. Useful for nav links, buttons, headings.
+   Match with `:has-text("...")` or `[href="..."]` as appropriate.
+
+4. **URLs and hrefs** — grep for `href="/..."` literals. Best for
+   nav links where the destination route is more stable than the
+   label text.
+
+5. **Last resort: structural CSS** — descendant combinators on
+   semantic tags (`main h1`, `nav a:first-child`). Avoid generated
+   class names (`.css-1a2b3c`, `.MuiButton-root`) — they change
+   on every build.
+
+For each segment, also note one or two **fallback selectors** you
+believe could work — Phase 5's validation may discover the
+primary fails on the live app, and fallbacks give the recovery
+path more options.
+
+When the same element can be matched several ways, prefer the
+most stable AND grep-verified one. If you can't find evidence in
+the source for any of these strategies, say so explicitly in the
+segment's Notes — Phase 5 will then probe the live app to fill
+the gap.
 
 **Wait conditions**:
 - For `goto` / `navigate`, what indicates the page is ready? An element
