@@ -511,24 +511,9 @@ async def _run_one_phase(phase_num: int, context: Context) -> None:
     and with phase-result recording inlined. Imported lazily so the
     server's import path doesn't pull in every phase module on
     server start."""
-    name = phase_name_from_number(phase_num)
-    if name == "analyze":
-        from instantdemo.phases import analyze
-        runner = analyze.run
-    elif name == "narrate":
-        from instantdemo.phases import narrate
-        runner = narrate.run
-    elif name == "gather":
-        from instantdemo.phases import gather
-        runner = gather.run
-    elif name == "script":
-        from instantdemo.phases import script
-        runner = script.run
-    elif name == "validate":
-        from instantdemo.phases import validate
-        runner = validate.run
-    else:
-        raise AssertionError(f"unreachable: phase {name}")
+    from instantdemo.phases import get_phase_runner
+
+    runner = get_phase_runner(phase_num)
     with state_mod.phase_run(context.state_dir, phase_num):
         await runner(context)
 

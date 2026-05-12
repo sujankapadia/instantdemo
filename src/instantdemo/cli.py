@@ -223,28 +223,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _import_phase_runner(number: int):
-    """Lazy-import the phase module's run() so a missing optional dep
-    doesn't blow up the whole CLI at startup."""
-    name = phase_name_from_number(number)
-    if name == "analyze":
-        from .phases import analyze
-        return analyze.run
-    if name == "narrate":
-        from .phases import narrate
-        return narrate.run
-    if name == "gather":
-        from .phases import gather
-        return gather.run
-    if name == "explore":
-        from .phases import explore
-        return explore.run
-    if name == "script":
-        from .phases import script
-        return script.run
-    if name == "render":
-        from .phases import render
-        return render.run
-    raise AssertionError(f"unreachable: phase {name}")  # pragma: no cover
+    """Thin alias for `phases.get_phase_runner` so callers below keep
+    their original name. The actual dispatch lives in phases/__init__.py
+    as the single source of truth — see that module if you're adding
+    a new phase."""
+    from .phases import get_phase_runner
+    return get_phase_runner(number)
 
 
 # Phase 6 invokes the renderer; there's nothing to review afterwards.

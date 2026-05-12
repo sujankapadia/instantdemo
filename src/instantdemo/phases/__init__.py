@@ -122,6 +122,38 @@ def phase_name_from_number(number: int) -> str:
     return PHASES[number - 1]
 
 
+def get_phase_runner(number: int):
+    """Lazy-import the phase module for `number` and return its async
+    `run(context)` function. Single source of truth — both the CLI
+    (`cli.py`) and the GUI (`server/routes/runs.py`) dispatch through
+    here so adding a phase touches one place.
+
+    The lazy import keeps the server's startup path light and avoids
+    pulling in optional dependencies (e.g. Playwright for render)
+    until they're actually needed.
+    """
+    name = phase_name_from_number(number)
+    if name == "analyze":
+        from . import analyze
+        return analyze.run
+    if name == "narrate":
+        from . import narrate
+        return narrate.run
+    if name == "gather":
+        from . import gather
+        return gather.run
+    if name == "explore":
+        from . import explore
+        return explore.run
+    if name == "script":
+        from . import script
+        return script.run
+    if name == "render":
+        from . import render
+        return render.run
+    raise AssertionError(f"unreachable: phase {name}")  # pragma: no cover
+
+
 async def run_query(prompt: str, options: "ClaudeAgentOptions") -> tuple[str, Any]:
     """Run a one-shot `query()` against the Agent SDK and stream agent
     text to stdout.
