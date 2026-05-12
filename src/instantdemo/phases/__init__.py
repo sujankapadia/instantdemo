@@ -279,16 +279,39 @@ async def run_query_on_client(
         context.dispatcher.current_phase = ""
 
 
-def record_phase_result(state_dir: Path, phase_number: int, result: "ResultMessage") -> None:
+def record_phase_result(
+    context: "Context", phase_number: int, result: "ResultMessage"
+) -> None:
     """Capture metrics from a query() ResultMessage.
 
     Writes to two places:
       - state.json (current state — overwrites prior phase entry on re-run)
       - metrics.jsonl (append-only history — one row per phase per run)
+
+    `cost_usd` is recorded as the DELTA for this run, not the cumulative
+    total. The SDK's `ResultMessage.total_cost_usd` is cumulative for
+    the session_id within the long-lived client, so re-running the
+    same phase would otherwise inflate the recorded cost. We subtract
+    the previously-seen total (tracked per session_id in the
+    dispatcher) to get the per-run cost. See issue #45.
     """
+    state_dir = context.state_dir
+    dispatcher = context.dispatcher
+    current_total = result.total_cost_usd or 0.0
+    session_id = result.session_id or ""
+    if dispatcher is not None and session_id:
+        prev_total = dispatcher.session_cost_totals.get(session_id, 0.0)
+        delta = max(0.0, current_total - prev_total)
+        dispatcher.session_cost_totals[session_id] = current_total
+    else:
+        # No dispatcher available (CLI in some edge cases or tests) —
+        # fall back to the SDK total. Loses delta semantics but doesn't
+        # crash; resulting cost may be inflated on re-runs.
+        delta = current_total
+
     usage = result.usage or {}
     fields = {
-        "cost_usd": result.total_cost_usd,
+        "cost_usd": delta,
         "duration_ms": result.duration_ms,
         "duration_api_ms": result.duration_api_ms,
         "num_turns": result.num_turns,

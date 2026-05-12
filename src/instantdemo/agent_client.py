@@ -68,6 +68,13 @@ class PhaseDispatcher:
 
     def __init__(self) -> None:
         self.current_phase: str = ""
+        # Running totals per session_id. The SDK's
+        # ResultMessage.total_cost_usd is cumulative for the session_id,
+        # so we track the previous total here and let
+        # record_phase_result compute the per-run delta. Resets when
+        # the dispatcher is recreated (i.e. when the SDK client is
+        # rebuilt for a new server session). See issue #45.
+        self.session_cost_totals: dict[str, float] = {}
 
     async def hook(
         self,

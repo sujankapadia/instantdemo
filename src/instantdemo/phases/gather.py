@@ -73,5 +73,5 @@ async def run(context: Context) -> None:
         )
 
     artifact.write_text(detailed_text + "\n")
-    record_phase_result(context.state_dir, 3, result)
+    record_phase_result(context, 3, result)
     print(summarize_run(3, artifact, result))

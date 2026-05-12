@@ -97,6 +97,6 @@ async def run(context: Context) -> None:
                     f"Phase 4 segment {i} is missing the {required!r} field."
                 )
 
-    record_phase_result(context.state_dir, 4, result)
+    record_phase_result(context, 4, result)
     print(summarize_run(4, artifact, result))
     print(f"  ({len(script['segments'])} segments)")

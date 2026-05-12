@@ -114,7 +114,7 @@ async def run(context: Context) -> None:
         )
 
     artifact.write_text(report_text + "\n")
-    record_phase_result(context.state_dir, 5, result)
+    record_phase_result(context, 5, result)
     print(summarize_run(5, artifact, result))
 
     directive, reason = _parse_directive(report_text)

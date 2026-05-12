@@ -80,5 +80,5 @@ async def run(context: Context) -> None:
         )
 
     artifact.write_text(_build_artifact(agent_text, context))
-    record_phase_result(context.state_dir, 1, result)
+    record_phase_result(context, 1, result)
     print(summarize_run(1, artifact, result))
