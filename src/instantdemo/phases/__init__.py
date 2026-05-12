@@ -1,22 +1,19 @@
 """Phase runners for the InstantDemo workflow.
 
-The five phases mirror the source skill's structure (SKILL.md):
+The six phases (GUI-facing names in parentheses):
 
-    1. analyze   — Understand the product
-    2. narrate   — Plan the narrative
-    3. gather    — Gather technical details (selectors, waits, pacing)
-    4. script    — Produce the demo-script.json
-    5. validate  — Validate the script and invoke the renderer
+    1. analyze   (Understand) — Read source, understand the product
+    2. narrate   (Plan)       — Write the narrative
+    3. gather    (Inspect)    — Source-based selector hypothesis
+    4. explore   (Explore)    — Probe live app to verify selectors
+    5. script    (Build)      — Emit demo-script.json
+    6. render    (Render)     — Drift check + invoke the renderer
 
 Each phase is implemented as a module with a `run(context)` function that
 reads any prior-phase artifacts from the state directory, does its work,
-and writes a single artifact back to the state directory. Phase 4 writes
+and writes a single artifact back to the state directory. Phase 5 writes
 the user-facing demo-script.json instead of a state-dir artifact, and
-Phase 5 invokes the renderer (no artifact of its own).
-
-Today every phase is stubbed — it writes a placeholder file so the
-end-to-end CLI flow is testable before any AI calls are wired in. The
-real implementations land in subsequent commits (per CLI-DESIGN.md).
+Phase 6 invokes the renderer (with a thin drift-check report alongside).
 """
 
 from __future__ import annotations
@@ -37,7 +34,7 @@ if TYPE_CHECKING:
 from .. import metrics as _metrics
 from .. import state
 
-PHASES = ("analyze", "narrate", "gather", "script", "validate")
+PHASES = ("analyze", "narrate", "gather", "explore", "script", "render")
 """Phase names in execution order, indexed by 1-based phase number."""
 
 PHASE_NUMBERS = {name: i + 1 for i, name in enumerate(PHASES)}
@@ -101,8 +98,12 @@ class Context:
         return self.project / "demo-script.json"
 
     def phase_artifact(self, phase_number: int) -> Path:
-        """Resolve the per-phase artifact path within the state dir."""
-        if phase_number == 4:
+        """Resolve the per-phase artifact path within the state dir.
+
+        Phase 5 (Build) outputs demo-script.json in the project root —
+        every other phase writes a markdown report in the state dir.
+        """
+        if phase_number == 5:
             return self.script_path
         return self.state_dir / f"phase{phase_number}.md"
 

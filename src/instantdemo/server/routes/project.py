@@ -24,7 +24,7 @@ router = APIRouter(prefix="/api", tags=["project"])
 
 
 PhaseStatus = Literal["pending", "in_progress", "completed", "error", "canceled"]
-PhaseNumber = Literal[1, 2, 3, 4, 5]
+PhaseNumber = Literal[1, 2, 3, 4, 5, 6]
 ArtifactFormat = Literal["markdown", "json"]
 
 
@@ -134,10 +134,10 @@ def _project_dir() -> Path:
 def _artifact_path(project_dir: Path, phase: int) -> tuple[Path, ArtifactFormat]:
     """Return the artifact file path and its format for a phase number.
 
-    Phase 4's output is JSON at the project root (`demo-script.json`).
-    Phases 1, 2, 3, 5 are markdown inside `.instantdemo/`.
+    Phase 5's output is JSON at the project root (`demo-script.json`).
+    Phases 1, 2, 3, 4, 6 are markdown inside `.instantdemo/`.
     """
-    if phase == 4:
+    if phase == 5:
         return project_dir / "demo-script.json", "json"
     return project_dir / ".instantdemo" / f"phase{phase}.md", "markdown"
 
@@ -187,7 +187,7 @@ def get_project() -> ProjectState:
 
 @router.get("/project/artifacts/{phase}", response_model=ArtifactResponse)
 def get_artifact(
-    phase: int = PathParam(..., ge=1, le=5),
+    phase: int = PathParam(..., ge=1, le=6),
 ) -> ArtifactResponse:
     pdir = _project_dir()
     path, fmt = _artifact_path(pdir, phase)

@@ -1,75 +1,126 @@
-Validate the demo script against the live app and decide whether
-rendering should proceed.
+Translate the technical plan above into a `demo-script.json` file that
+the renderer can consume. Use the schema below.
 
-You have read access to the script and Bash access for `curl` and
-`python` (for a Playwright probe).
+## Top-level structure
 
-Run these checks:
+```json
+{
+  "title": "Demo Title",
+  "resolution": { "width": 1280, "height": 720 },
+  "segments": [
+    /* one object per segment */
+  ]
+}
+```
 
-1. **URL reachability** — for each segment with action `goto` or
-   `navigate`, `curl` the URL and check the HTTP status. 200/300 are
-   fine; 400+ is a problem.
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `title` | string | No | Display name (informational). Pull from the narrative title. |
+| `resolution` | object | Yes | Always `{ "width": 1280, "height": 720 }` unless told otherwise. |
+| `segments` | array | Yes | Ordered list of segment objects. |
 
-2. **Selector existence** — for each segment whose action requires a
-   selector (`click`, `hover`, `fill`, `check`, `select_option`, etc.),
-   verify the selector becomes available on the relevant page. Use a
-   Playwright probe via `python -c` (or write a temp script and run it).
+## Common segment fields (every segment)
 
-   **Use `page.wait_for_selector(selector, timeout=10000)`, not
-   `page.query_selector(selector)`.** The renderer itself uses
-   `wait_for_selector` with a timeout — your probe should mirror that
-   behavior. SPA pages routinely populate their DOM via SSE / fetch /
-   lazy loading after the initial route mount; a `query_selector`
-   returning `None` doesn't mean the selector is missing, just that it
-   isn't there *yet*. A `wait_for_selector` that times out after 10s
-   is what genuine missing means.
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `narration` | string | Yes | TTS text. Use `""` for silent segments. |
+| `action` | string | Yes | Playwright `page` method name (see below). |
+| `pause_after_ms` | number | No | Minimum dwell time. Final duration = `max(audio_duration, pause_after_ms)`. |
 
-   Walk through the script in order so each page is visited via the
-   same navigation path the renderer will use (otherwise SPA-only
-   selectors won't be reachable).
+## Per-action fields
 
-3. **`wait_for` selectors** — if a segment has a `wait_for` field, also
-   verify that selector resolves (again, with `wait_for_selector`, not
-   `query_selector`) on the destination page.
+| Action | Required | Optional | Notes |
+|---|---|---|---|
+| `goto` (alias `navigate`) | `url` | `wait_for` | `wait_for` is a CSS selector or array of CSS selectors (see Fallbacks below). Use for SSE/SPA pages instead of `networkidle`. |
+| `click` | `selector` | — | `selector` may be a string OR array (fallbacks tried in order). |
+| `fill` | `selector`, `value` | — | Sets input text. `selector` accepts fallback array. |
+| `hover` | `selector` | — | `selector` accepts fallback array. |
+| `scroll` | `pixels` | — | Scrolls the page viewport (`window.scrollBy(0, pixels)`). For in-container scroll, use `evaluate`. |
+| `evaluate` | `expression` | — | Runs arbitrary JavaScript. Useful for in-container scrolls. |
+| `wait` | — | — | No browser action; narration plays over the static frame. |
+| Other (`select_option`, `press`, `check`, ...) | varies | varies | Any Playwright `page` method works; extra fields pass through as kwargs. |
 
-   **Fallback arrays.** Both `selector` and `wait_for` may be either a
-   single string OR an array of fallback selectors (the renderer tries
-   them in order). When probing an array, try each candidate; the
-   segment **passes** as long as at least one resolves. Note which
-   candidate matched and whether it was the primary. Only emit a
-   FAIL for the segment when **all** candidates miss.
+## Worked example (small)
 
-Probe scripts should be small and conservative:
-   - 15-second timeout per page load
-   - Don't try every segment exhaustively if the same page is visited
-     repeatedly — group by page
-   - Don't run the actual narration / TTS / video recording here; only
-     `query_selector` checks
+```json
+{
+  "title": "Active Sessions Demo",
+  "resolution": { "width": 1280, "height": 720 },
+  "segments": [
+    {
+      "narration": "Claude Code Analytics gives you a live view of running sessions.",
+      "action": "goto",
+      "url": "http://localhost:8000/active",
+      "wait_for": "a[href*='/sessions/']",
+      "pause_after_ms": 1000
+    },
+    {
+      "narration": "Each card shows the project, duration, and recent messages.",
+      "action": "wait",
+      "pause_after_ms": 2000
+    },
+    {
+      "narration": "Click any card to open the conversation viewer.",
+      "action": "click",
+      "selector": "a[href*='/sessions/']",
+      "pause_after_ms": 1500
+    }
+  ]
+}
+```
 
-## Output format
+## JSON quoting gotcha for `evaluate`
 
-Write a concise markdown report with one row per segment showing PASS,
-WARN, or FAIL plus a one-line note. Group by page where it makes the
-report cleaner.
+The `expression` value lives inside a JSON string, so its inner quotes
+have to play nicely:
 
-End the report with **exactly one** of these directive lines on its own
-line, no extra text on that line:
+- Prefer unquoted attribute selectors: `[data-testid=conversation-scroll]`
+- Or escape double quotes: `[data-testid=\"conversation-scroll\"]`
+- Avoid single quotes around attribute values — they work in JavaScript
+  but produce noisy nested-quoting in JSON.
 
-    RENDER_OK
-    RENDER_BLOCKED: <one-sentence reason>
+## Fallback selectors
 
-Pick `RENDER_BLOCKED` only when the issues are bad enough that a render
-is guaranteed to fail or produce a broken video. Examples:
+Phase 3 often lists fallback selectors in segment Notes (e.g.
+`Fallbacks: a[href="/active"], main a:first-child`). Carry them
+forward into the JSON.
 
-- A `goto` URL is unreachable (the user's app isn't running)
-- The very first selector in the flow doesn't exist (renderer will
-  abort on the first action)
-- The render dependencies clearly aren't installed
+- **`selector`** (click / fill / hover / press / check / etc.):
+  emit as a JSON array when fallbacks exist, primary first.
+- **`wait_for`** (goto / navigate): same — JSON array when
+  fallbacks exist.
+- When no fallbacks are listed, keep emitting a single string.
+  Both forms are valid and the renderer normalizes them.
 
-Use `RENDER_OK` if there are missing-but-non-critical selectors (e.g.
-the bookmark-creation flow can't find a target message because the
-page is empty — the demo will still produce a video, just an
-unimpressive one). Note the warnings; don't block.
+Example with fallbacks:
 
-**Do not run the renderer yourself.** The CLI handles that after
-reading your directive.
+```json
+{
+  "narration": "Open the active sessions page.",
+  "action": "click",
+  "selector": ["a[href=\"/active\"]", "nav a:has-text(\"Active\")", "[data-testid=\"nav-active\"]"],
+  "pause_after_ms": 1000
+}
+```
+
+The renderer tries each selector in order with a per-candidate
+timeout (total budget ~10s for actions, ~15s for `wait_for`).
+First match wins.
+
+## Translation rules
+
+- **One JSON segment per technical-plan segment.** If the plan expands a
+  step into sub-steps (e.g. "9a / 9b / 9c / 9d" for a multi-step dialog),
+  flatten them into consecutive JSON segments. Re-number is fine — the
+  renderer doesn't care about segment numbers, only order.
+- **Field name mapping**: the plan uses Title-Case headings (`Selector`,
+  `wait_for`, `Pixels`, `Expression`, `pause_after_ms`). The JSON uses
+  lowercase: `selector`, `wait_for`, `pixels`, `expression`, `pause_after_ms`.
+- **Skip irrelevant fields**: only include fields that apply to the
+  segment's action (don't add `selector` to a `wait` segment, etc.).
+- **Notes from the plan stay out of the JSON.** Those are for human
+  reviewers, not the renderer.
+- **Narration**: copy verbatim from the plan. If the plan says "(silent)",
+  use an empty string `""`.
+
+Use the Write tool to write the JSON to the path the user specified.

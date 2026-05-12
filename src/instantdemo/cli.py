@@ -138,7 +138,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Subcommands:\n"
-            "  generate  Run all 5 phases end-to-end (analyze → render)\n"
+            "  generate  Run all 6 phases end-to-end (analyze → render)\n"
             "  phase N   Run a single phase by number (1..5)\n"
             "  render    Render an MP4 from a demo-script.json\n"
             "  serve     Start the GUI server (requires `instantdemo[gui]`)\n"
@@ -158,7 +158,7 @@ def build_parser() -> argparse.ArgumentParser:
     generate = subparsers.add_parser(
         "generate",
         help="Run the full 5-phase workflow end-to-end",
-        description="Run all 5 phases end-to-end with optional $EDITOR checkpoints.",
+        description="Run all 6 phases end-to-end with optional $EDITOR checkpoints.",
     )
     _add_common_flags(generate)
     generate.add_argument(
@@ -235,19 +235,22 @@ def _import_phase_runner(number: int):
     if name == "gather":
         from .phases import gather
         return gather.run
+    if name == "explore":
+        from .phases import explore
+        return explore.run
     if name == "script":
         from .phases import script
         return script.run
-    if name == "validate":
-        from .phases import validate
-        return validate.run
+    if name == "render":
+        from .phases import render
+        return render.run
     raise AssertionError(f"unreachable: phase {name}")  # pragma: no cover
 
 
-# Phase 5 invokes the renderer; there's nothing to review afterwards.
-# The pre-render review (when real Phase 5 lands) happens inside the
-# phase itself, between validation and the render call.
-PHASES_WITH_REVIEW = (1, 2, 3, 4)
+# Phase 6 invokes the renderer; there's nothing to review afterwards.
+# Every other phase gets an $EDITOR checkpoint between agent run and
+# the next phase, so users can adjust before committing downstream.
+PHASES_WITH_REVIEW = (1, 2, 3, 4, 5)
 
 
 async def _run_phase(number: int, context: Context) -> None:

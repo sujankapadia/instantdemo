@@ -1,126 +1,94 @@
-Translate the technical plan above into a `demo-script.json` file that
-the renderer can consume. Use the schema below.
+Verify the Phase 3 hypothesis against the live application.
 
-## Top-level structure
+Phase 3 produced a per-segment plan with selectors derived from
+source code. Your job is to confirm each selector actually resolves
+on the running app, and to apply Phase 3's listed fallbacks when
+the primary fails. You are NOT redoing source analysis — Phase 3's
+plan is the starting point. Your contribution is the live-verification
+layer.
 
-```json
-{
-  "title": "Demo Title",
-  "resolution": { "width": 1280, "height": 720 },
-  "segments": [
-    /* one object per segment */
-  ]
-}
+You have `Read` (to consult Phase 3's plan and, sparingly, source
+for context) and `Bash` (to write a Playwright probe via heredoc
+and run it). You do NOT have Write — Phase 5 (Build) emits the JSON.
+
+### Inputs
+
+- The Phase 3 plan is at the path noted above. Read it first.
+- The app is running at the URL noted above.
+
+### Workflow
+
+1. **Group segments by page**. A flow that visits 2 routes with 5
+   click targets is 2 page loads, not 7. Plan one probe per page.
+
+2. **Probe each page once**. Write a small Python script using
+   `sync_playwright`, run it via `bash`. The probe should:
+   - Navigate to the page (same nav path the renderer will use —
+     `goto` for the first page, then click links for SPA hops)
+   - For each segment that lives on this page, call
+     `page.wait_for_selector(selector, timeout=10000)`
+   - Print PASS/FAIL plus the resolved selector for each
+
+   Use `wait_for_selector`, never `query_selector`. SPA pages
+   populate the DOM via SSE / fetch / lazy loading after route
+   mount; a synchronous `query_selector` returning None doesn't
+   mean missing, just "not yet". A 10s `wait_for_selector` timeout
+   is what genuine missing looks like.
+
+3. **Narrative alignment — not just selector validity.** A selector
+   that resolves to *some* element isn't enough — the element has
+   to match what the narrative is asking for. For each segment,
+   ask: does the element this selector resolves to actually have
+   the properties or content the narrative describes?
+
+   When the narrative specifies content properties — an item with
+   a specific label or state, a row matching some condition, a
+   card containing particular content — verify the resolved
+   element exhibits those properties on the live app. If it
+   doesn't, refine the selector by combining the structural
+   target with a content predicate (Playwright's `:has(...)` and
+   `:has-text("...")` are the typical tools), or report the
+   mismatch with a plain-English recommendation. Don't fabricate
+   predicates the source doesn't support.
+
+4. **When the primary fails**, try the fallbacks Phase 3 listed
+   in the segment's Notes line. If one of them resolves, swap it
+   in as the new primary in your output. If they all fail, mark
+   the segment FAIL and recommend in plain English what would
+   fix it (e.g. "no card with the described content visible —
+   seed data may be missing").
+
+5. **Probe scripts are throwaway**. Keep them small. Group by
+   page. Don't probe the same page twice.
+
+### Output
+
+Reply with a markdown report mirroring the Phase 3 segment
+structure, with each segment showing the **verified** primary
+selector and a one-line note on the probe result. (Your response
+text is the report — the runner saves it to `phase4.md`. Don't
+call any Write tool; you don't have one.)
+
+```
+### Segment N — [title]
+- **Action:** <unchanged>
+- **Narration:** "[unchanged]"
+- **URL:** <unchanged for goto>
+- **Selector:** <verified selector — may be the original or a
+  Phase 3 fallback that was swapped in>
+- **wait_for:** <verified>
+- **pause_after_ms:** <unchanged>
+- **Verified:** PASS | FAIL — <one-line probe observation>
+- **Notes:** <retained from Phase 3; add live-data observations
+  here if relevant>
 ```
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `title` | string | No | Display name (informational). Pull from the narrative title. |
-| `resolution` | object | Yes | Always `{ "width": 1280, "height": 720 }` unless told otherwise. |
-| `segments` | array | Yes | Ordered list of segment objects. |
+End the report with a one-line summary:
 
-## Common segment fields (every segment)
+    EXPLORE_OK — N segments verified
+    EXPLORE_PARTIAL — N PASS, M FAIL; Phase 5 will see flagged segments
+    EXPLORE_BLOCKED — <one-sentence reason>
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `narration` | string | Yes | TTS text. Use `""` for silent segments. |
-| `action` | string | Yes | Playwright `page` method name (see below). |
-| `pause_after_ms` | number | No | Minimum dwell time. Final duration = `max(audio_duration, pause_after_ms)`. |
-
-## Per-action fields
-
-| Action | Required | Optional | Notes |
-|---|---|---|---|
-| `goto` (alias `navigate`) | `url` | `wait_for` | `wait_for` is a CSS selector or array of CSS selectors (see Fallbacks below). Use for SSE/SPA pages instead of `networkidle`. |
-| `click` | `selector` | — | `selector` may be a string OR array (fallbacks tried in order). |
-| `fill` | `selector`, `value` | — | Sets input text. `selector` accepts fallback array. |
-| `hover` | `selector` | — | `selector` accepts fallback array. |
-| `scroll` | `pixels` | — | Scrolls the page viewport (`window.scrollBy(0, pixels)`). For in-container scroll, use `evaluate`. |
-| `evaluate` | `expression` | — | Runs arbitrary JavaScript. Useful for in-container scrolls. |
-| `wait` | — | — | No browser action; narration plays over the static frame. |
-| Other (`select_option`, `press`, `check`, ...) | varies | varies | Any Playwright `page` method works; extra fields pass through as kwargs. |
-
-## Worked example (small)
-
-```json
-{
-  "title": "Active Sessions Demo",
-  "resolution": { "width": 1280, "height": 720 },
-  "segments": [
-    {
-      "narration": "Claude Code Analytics gives you a live view of running sessions.",
-      "action": "goto",
-      "url": "http://localhost:8000/active",
-      "wait_for": "a[href*='/sessions/']",
-      "pause_after_ms": 1000
-    },
-    {
-      "narration": "Each card shows the project, duration, and recent messages.",
-      "action": "wait",
-      "pause_after_ms": 2000
-    },
-    {
-      "narration": "Click any card to open the conversation viewer.",
-      "action": "click",
-      "selector": "a[href*='/sessions/']",
-      "pause_after_ms": 1500
-    }
-  ]
-}
-```
-
-## JSON quoting gotcha for `evaluate`
-
-The `expression` value lives inside a JSON string, so its inner quotes
-have to play nicely:
-
-- Prefer unquoted attribute selectors: `[data-testid=conversation-scroll]`
-- Or escape double quotes: `[data-testid=\"conversation-scroll\"]`
-- Avoid single quotes around attribute values — they work in JavaScript
-  but produce noisy nested-quoting in JSON.
-
-## Fallback selectors
-
-Phase 3 often lists fallback selectors in segment Notes (e.g.
-`Fallbacks: a[href="/active"], main a:first-child`). Carry them
-forward into the JSON.
-
-- **`selector`** (click / fill / hover / press / check / etc.):
-  emit as a JSON array when fallbacks exist, primary first.
-- **`wait_for`** (goto / navigate): same — JSON array when
-  fallbacks exist.
-- When no fallbacks are listed, keep emitting a single string.
-  Both forms are valid and the renderer normalizes them.
-
-Example with fallbacks:
-
-```json
-{
-  "narration": "Open the active sessions page.",
-  "action": "click",
-  "selector": ["a[href=\"/active\"]", "nav a:has-text(\"Active\")", "[data-testid=\"nav-active\"]"],
-  "pause_after_ms": 1000
-}
-```
-
-The renderer tries each selector in order with a per-candidate
-timeout (total budget ~10s for actions, ~15s for `wait_for`).
-First match wins.
-
-## Translation rules
-
-- **One JSON segment per technical-plan segment.** If the plan expands a
-  step into sub-steps (e.g. "9a / 9b / 9c / 9d" for a multi-step dialog),
-  flatten them into consecutive JSON segments. Re-number is fine — the
-  renderer doesn't care about segment numbers, only order.
-- **Field name mapping**: the plan uses Title-Case headings (`Selector`,
-  `wait_for`, `Pixels`, `Expression`, `pause_after_ms`). The JSON uses
-  lowercase: `selector`, `wait_for`, `pixels`, `expression`, `pause_after_ms`.
-- **Skip irrelevant fields**: only include fields that apply to the
-  segment's action (don't add `selector` to a `wait` segment, etc.).
-- **Notes from the plan stay out of the JSON.** Those are for human
-  reviewers, not the renderer.
-- **Narration**: copy verbatim from the plan. If the plan says "(silent)",
-  use an empty string `""`.
-
-Use the Write tool to write the JSON to the path the user specified.
+`EXPLORE_BLOCKED` is for catastrophic problems (app is down, every
+selector misses). Otherwise, prefer `EXPLORE_PARTIAL` and let Phase
+5 carry forward what's verified — the user iterates via Regenerate.

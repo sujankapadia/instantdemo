@@ -39,11 +39,15 @@ PHASE_TOOLS: dict[str, frozenset[str]] = {
     "phase1": frozenset({"Read", "Glob", "Grep"}),
     "phase2": frozenset(),
     "phase3": frozenset({"Read", "Glob", "Grep"}),
+    # Phase 4 (Explore) probes the live app via Bash + Playwright,
+    # reading Phase 3's hypothesis to verify selectors against reality.
+    # No Write — the agent's response text is saved by the runner.
+    "phase4": frozenset({"Read", "Bash"}),
     # Read is needed because the Write tool refuses to overwrite an
     # existing file without a prior Read in the same session (re-runs
     # or follow-up edits would otherwise deadlock). See issue #32.
-    "phase4": frozenset({"Read", "Write"}),
-    "phase5": frozenset({"Read", "Bash"}),
+    "phase5": frozenset({"Read", "Write"}),
+    "phase6": frozenset({"Read", "Bash"}),
 }
 
 

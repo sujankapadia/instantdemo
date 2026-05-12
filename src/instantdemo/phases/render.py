@@ -1,23 +1,28 @@
-"""Phase 5 — Validate the script against the live app, then render.
+"""Phase 6 — Drift check the script against the live app, then render.
 
 Two halves:
 
-1. **AI validation**. The agent reads demo-script.json, curls each
-   `goto` URL, and runs a Playwright probe to confirm selectors
-   resolve. It writes a markdown report to `.instantdemo/phase5.md`
-   ending with one of:
+1. **AI drift check**. The agent reads demo-script.json, curls each
+   distinct `goto` URL, and runs a small Playwright smoke check that
+   the first interactive step resolves. It writes a markdown report
+   to `.instantdemo/phase6.md` ending with one of:
 
        RENDER_OK
        RENDER_BLOCKED: <reason>
+
+   Selector verification already happened upstream in Phase 4
+   (Explore). The drift check exists to catch the case where the
+   app's state changed between Explore and Render (restart, data
+   wipe, manual script edit, etc.).
 
 2. **Render**. If the directive is `RENDER_OK`, the runner invokes
    the bundled renderer (`instantdemo.render.main`) directly in-process
    to produce the final MP4. `RENDER_BLOCKED` aborts before render.
 
-Tools for validation: `Read` (for demo-script.json) and Bash with
-`curl` and `python` (for the Playwright probe). The agent doesn't get
-Write — it can use `python -c` or `python <<EOF` heredocs for the
-probe.
+Tools for the drift check: `Read` (for demo-script.json) and Bash
+with `curl` and `python` (for the Playwright smoke probe). The agent
+doesn't get Write — it can use `python -c` or `python <<EOF` heredocs
+for the probe.
 """
 
 from __future__ import annotations
@@ -43,7 +48,7 @@ DIRECTIVE_RE = re.compile(
 
 
 def _build_prompt(context: Context) -> str:
-    template = prompts.load("phase5")
+    template = prompts.load("phase6")
     return (
         f"The app is running at: {context.url}\n"
         f"The demo script is at: {context.script_path}\n"
@@ -62,24 +67,24 @@ def _parse_directive(report: str) -> tuple[str, str | None]:
     matches = list(DIRECTIVE_RE.finditer(report))
     if not matches:
         raise RuntimeError(
-            "Phase 5 finished but the validation report has no "
-            "RENDER_OK / RENDER_BLOCKED directive. The agent didn't "
-            "follow the prompt — re-running Phase 5 will likely help."
+            "Phase 6 finished but the report has no RENDER_OK / "
+            "RENDER_BLOCKED directive. The agent didn't follow the "
+            "prompt — re-running Phase 6 will likely help."
         )
     last = matches[-1]
     return last.group("directive"), last.group("reason")
 
 
-async def _run_validation(context: Context) -> tuple[str, "object | None"]:
-    """Run the agent validation pass. Returns (report_text, ResultMessage)."""
+async def _run_drift_check(context: Context) -> tuple[str, "object | None"]:
+    """Run the agent drift check. Returns (report_text, ResultMessage)."""
     if context.client is None:
         raise RuntimeError(
-            "Phase 5: no agent client provided in context. The CLI is "
+            "Phase 6: no agent client provided in context. The CLI is "
             "responsible for creating and passing through a ClaudeSDKClient."
         )
     prompt = _build_prompt(context)
     return await run_query_on_client(
-        context, prompt, session_id=session_id_for_phase(5)
+        context, prompt, session_id=session_id_for_phase(6)
     )
 
 
@@ -92,7 +97,7 @@ def _invoke_renderer(context: Context) -> None:
         "-o",
         str(context.output),
     ]
-    print(f"\n[Phase 5] Validation passed — running renderer:")
+    print(f"\n[Phase 6] Drift check passed — running renderer:")
     print(f"           instantdemo render {' '.join(argv)}\n")
     render_main(argv)
 
@@ -100,27 +105,27 @@ def _invoke_renderer(context: Context) -> None:
 async def run(context: Context) -> None:
     if not context.script_path.exists():
         raise RuntimeError(
-            f"Demo script missing at {context.script_path}. Run phase 4 first."
+            f"Demo script missing at {context.script_path}. Run phase 5 first."
         )
 
-    artifact = context.phase_artifact(5)
+    artifact = context.phase_artifact(6)
     artifact.parent.mkdir(parents=True, exist_ok=True)
 
-    report_text, result = await _run_validation(context)
+    report_text, result = await _run_drift_check(context)
 
     if result is None:
         raise RuntimeError(
-            "Phase 5: the Claude Agent SDK did not return a ResultMessage."
+            "Phase 6: the Claude Agent SDK did not return a ResultMessage."
         )
 
     artifact.write_text(report_text + "\n")
-    record_phase_result(context, 5, result)
-    print(summarize_run(5, artifact, result))
+    record_phase_result(context, 6, result)
+    print(summarize_run(6, artifact, result))
 
     directive, reason = _parse_directive(report_text)
     if directive == "RENDER_BLOCKED":
         raise RuntimeError(
-            f"Phase 5 blocked the render. Reason: {reason or '(none given)'}\n"
+            f"Phase 6 blocked the render. Reason: {reason or '(none given)'}\n"
             f"See {artifact} for the full report."
         )
 
