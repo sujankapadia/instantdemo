@@ -12,6 +12,8 @@ import { RightPane } from './RightPane'
 import { LogDrawer } from './LogDrawer'
 import { ErrorBanner } from './ErrorBanner'
 import { NewProjectModal } from './NewProjectModal'
+import type { NewProjectInputs } from './NewProjectForm'
+import { emptyIntent } from '@/api/runs'
 import { PauseBanner } from './PauseBanner'
 import { PhaseFailureBanner } from './PhaseFailureBanner'
 import { RunInProgressBanner } from './RunInProgressBanner'
@@ -67,18 +69,16 @@ export function Layout() {
   )
 
   const handleNewProjectSubmit = useCallback(
-    (values: {
-      url: string
-      describe: string
-      source: string
-      tts: 'kokoro'
-      pause_between_phases: boolean
-    }) => {
+    (values: NewProjectInputs) => {
       void run.startRun({
         phases: [1, 2, 3, 4, 5],
         url: values.url,
-        describe: values.describe || undefined,
+        // Goal doubles as the legacy describe field so backend
+        // synthesize-from-describe fallback keeps working when
+        // older Pydantic models / tests look for describe.
+        describe: values.intent.goal || undefined,
         source: values.source || undefined,
+        intent: values.intent,
         tts: values.tts,
         pause_between_phases: values.pause_between_phases,
       })
@@ -218,7 +218,15 @@ export function Layout() {
         willOverwrite={data ? data.exists : false}
         defaultValues={{
           url: data?.url ?? '',
-          describe: data?.describe ?? '',
+          // Seed the intent's goal from the existing describe so a
+          // user re-opening "New project" against an existing one
+          // sees the original prompt as a starting point. Full intent
+          // editing (loading intent.json into the form) lands once
+          // the read-intent-from-disk endpoint is in place.
+          intent: {
+            ...emptyIntent(),
+            goal: data?.describe ?? '',
+          },
         }}
         onSubmit={handleNewProjectSubmit}
       />

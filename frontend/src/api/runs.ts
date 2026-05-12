@@ -1,6 +1,30 @@
 // Mirrors Pydantic models in src/instantdemo/server/routes/runs.py.
 // Hand-maintained for now.
 
+// Mirrors instantdemo.server.routes.runs.IntentBody (which mirrors
+// the engine's instantdemo.intent.Intent dataclass). See issue #39.
+export interface Intent {
+  goal: string
+  audience: string | null
+  tone: string | null
+  length: string | null
+  focus: string[]
+  excludes: string[]
+  addenda: string[]
+}
+
+export function emptyIntent(): Intent {
+  return {
+    goal: '',
+    audience: null,
+    tone: null,
+    length: null,
+    focus: [],
+    excludes: [],
+    addenda: [],
+  }
+}
+
 export interface RunRequest {
   phases: number[]
   url: string
@@ -8,6 +32,7 @@ export interface RunRequest {
   source?: string | null
   tts?: string
   pause_between_phases?: boolean
+  intent?: Intent | null
 }
 
 export interface RunInfo {

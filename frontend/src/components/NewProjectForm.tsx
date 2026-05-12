@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { Loader2, Play } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { IntentEditor } from './IntentEditor'
+import { emptyIntent, type Intent } from '@/api/runs'
 
 export interface NewProjectInputs {
   url: string
-  describe: string
   source: string
+  intent: Intent
   tts: 'kokoro'
   pause_between_phases: boolean
 }
@@ -29,8 +31,10 @@ export function NewProjectForm({
   confirmOverwrite,
 }: NewProjectFormProps) {
   const [url, setUrl] = useState(defaultValues?.url ?? '')
-  const [describe, setDescribe] = useState(defaultValues?.describe ?? '')
   const [source, setSource] = useState(defaultValues?.source ?? '')
+  const [intent, setIntent] = useState<Intent>(
+    () => defaultValues?.intent ?? emptyIntent(),
+  )
   const [pauseBetweenPhases, setPauseBetweenPhases] = useState(
     defaultValues?.pause_between_phases ?? false,
   )
@@ -52,8 +56,11 @@ export function NewProjectForm({
 
     onSubmit({
       url: url.trim(),
-      describe: describe.trim(),
       source: source.trim(),
+      intent: {
+        ...intent,
+        goal: intent.goal.trim(),
+      },
       tts: 'kokoro',
       pause_between_phases: pauseBetweenPhases,
     })
@@ -105,24 +112,11 @@ export function NewProjectForm({
         </p>
       </div>
 
-      <div className="flex flex-col gap-1.5">
-        <label htmlFor="np-describe" className="text-sm font-medium">
-          What to demo <span className="text-muted-foreground">(optional)</span>
-        </label>
-        <textarea
-          id="np-describe"
-          rows={3}
-          value={describe}
-          onChange={(e) => setDescribe(e.target.value)}
-          placeholder="Show the bookmarks page and how a user can save a message from a session…"
-          disabled={isWorking}
-          className="rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 resize-y"
-        />
-        <p className="text-xs text-muted-foreground">
-          Free-form description of the flow you want demoed. Leave blank to
-          let the agent pick.
-        </p>
-      </div>
+      <IntentEditor
+        value={intent}
+        onChange={setIntent}
+        disabled={isWorking}
+      />
 
       <div className="flex flex-col gap-1.5">
         <label className="text-sm font-medium">TTS provider</label>
