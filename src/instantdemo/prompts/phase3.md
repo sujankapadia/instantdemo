@@ -8,44 +8,62 @@ wait conditions.
 A file or component named `conversation-viewer.tsx` does NOT mean
 the rendered element has `data-testid="conversation-viewer"`.
 Component names are conventions; the rendered attribute values
-are the contract Playwright sees. Always grep the source for the
-actual attribute literals before committing to a selector.
+are the contract Playwright sees.
 
-Search strategies, in priority order. For each segment, try them
-top-down and pick the first that yields a concrete, stable match:
+### Step 1: project-level convention survey (do ONCE, upfront)
 
-1. **Test IDs** — grep for `data-testid="..."`. Don't assume
-   the project uses `data-testid`; also check `data-test=`,
-   `data-cy=`, `data-qa=`. Skim a few files; whichever
-   convention shows up most is the one to use. If the project
-   uses no test IDs at all, skip this category.
+Before working through individual segments, run a small set of
+broad greps to learn what this project uses. You're looking for
+patterns, not exhaustive lists:
 
-2. **ARIA / semantic attributes** — grep for `aria-label=`,
-   `role=`, and accessible names. Stable across UI redesigns.
+- Test ID convention: `rg "data-testid=" -c` and same for
+  `data-test=`, `data-cy=`, `data-qa=`. Whichever has the most
+  hits is the project's convention. If all are zero, the
+  project doesn't use test IDs.
+- Whether ARIA labels / role attributes are widely used (one
+  count grep each is enough).
 
-3. **Text content** — grep for the user-visible labels mentioned
-   in the narrative. Useful for nav links, buttons, headings.
-   Match with `:has-text("...")` or `[href="..."]` as appropriate.
+Record the result as a one-line note at the top of your output,
+e.g.:
 
-4. **URLs and hrefs** — grep for `href="/..."` literals. Best for
-   nav links where the destination route is more stable than the
-   label text.
+> Selector conventions in this project: `data-testid` (47 hits),
+> ARIA labels used sparingly, route-based href links throughout.
 
-5. **Last resort: structural CSS** — descendant combinators on
-   semantic tags (`main h1`, `nav a:first-child`). Avoid generated
-   class names (`.css-1a2b3c`, `.MuiButton-root`) — they change
-   on every build.
+**Do not repeat these broad scans per segment.** Once you know
+the convention, use it directly.
 
-For each segment, also note one or two **fallback selectors** you
-believe could work — Phase 5's validation may discover the
-primary fails on the live app, and fallbacks give the recovery
-path more options.
+### Step 2: per-segment selector lookup (efficient)
 
-When the same element can be matched several ways, prefer the
-most stable AND grep-verified one. If you can't find evidence in
-the source for any of these strategies, say so explicitly in the
-segment's Notes — Phase 5 will then probe the live app to fill
-the gap.
+For each segment, use the conventions established above.
+Prefer this order, but **stop as soon as you have a stable,
+grep-verified match** — don't try every strategy:
+
+1. **The project's test-ID convention** — if it exists, grep
+   for the specific attribute literal in the component file
+   most likely to render this segment's target. One focused
+   grep, not a project-wide scan.
+2. **Hrefs / URLs / text content** — `href="/..."` literals,
+   `:has-text("Active Sessions")`. Stable for nav links and
+   labeled buttons.
+3. **ARIA / semantic attributes** — `aria-label=`, `role=`,
+   accessible names.
+4. **Structural CSS** as a last resort — `main h1`,
+   `nav a:first-child`. Avoid generated class names
+   (`.css-1a2b3c`, `.MuiButton-root`) — they change on every
+   build.
+
+If you can't find evidence in the source for any strategy
+after a focused look, say so in one line of Notes — Phase 5
+will probe the live app to fill the gap.
+
+For each segment, include **one or two fallback selectors** you
+believe could work. These don't need exhaustive verification —
+they're hints for Phase 5's recovery path. Single-line notes
+are enough.
+
+**Be efficient.** A useful Phase 3 produces correct selectors
+in a few grep-and-read passes per segment, not a full codebase
+scan each time.
 
 **Wait conditions**:
 - For `goto` / `navigate`, what indicates the page is ready? An element
