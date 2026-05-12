@@ -1,4 +1,4 @@
-import { forwardRef, useState } from 'react'
+import { forwardRef, useEffect, useState } from 'react'
 import { Film } from 'lucide-react'
 
 interface VideoPlayerProps {
@@ -15,6 +15,14 @@ interface VideoPlayerProps {
 export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
   function VideoPlayer({ src, onTimeUpdate }, ref) {
     const [errored, setErrored] = useState(false)
+
+    // Reset the error state when `src` changes — otherwise once the
+    // <video> hits onError, the placeholder is shown forever and a
+    // new src (e.g. after Phase 5 finally renders) has nothing to
+    // react to because the <video> element is unmounted.
+    useEffect(() => {
+      setErrored(false)
+    }, [src])
 
     if (errored) {
       return (
