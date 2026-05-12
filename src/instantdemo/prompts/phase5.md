@@ -32,6 +32,13 @@ Run these checks:
    verify that selector resolves (again, with `wait_for_selector`, not
    `query_selector`) on the destination page.
 
+   **Fallback arrays.** Both `selector` and `wait_for` may be either a
+   single string OR an array of fallback selectors (the renderer tries
+   them in order). When probing an array, try each candidate; the
+   segment **passes** as long as at least one resolves. Note which
+   candidate matched and whether it was the primary. Only emit a
+   FAIL for the segment when **all** candidates miss.
+
 Probe scripts should be small and conservative:
    - 15-second timeout per page load
    - Don't try every segment exhaustively if the same page is visited

@@ -687,26 +687,72 @@ def _ensure_wav(clip: Path, index: int, tmp_dir: Path) -> Path:
 # Action dispatch
 # ---------------------------------------------------------------------------
 
+def _selector_candidates(value) -> list[str]:
+    """Normalize a selector field into a list of candidates. Accepts:
+    - a single string (returns [that string])
+    - a list of strings (filters out empties)
+    - None / empty (returns [])
+
+    See issue #47 — Phase 3 lists fallbacks; Phase 4 emits them as a
+    list; renderer iterates here.
+    """
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [s for s in value if isinstance(s, str) and s]
+    if isinstance(value, str) and value:
+        return [value]
+    return []
+
+
+def _wait_first_match(page, selectors: list[str], *, total_timeout_ms: int = 10000) -> str:
+    """Try each selector in order; return the first that resolves. The
+    total_timeout_ms is divided across candidates (with a 2s minimum
+    per candidate) so a 3-fallback case can't stall for 30s.
+
+    Raises the last selector's error if none resolve.
+    """
+    if not selectors:
+        raise RuntimeError("no selector candidates")
+    per = max(2000, total_timeout_ms // len(selectors))
+    last_err: Exception | None = None
+    for sel in selectors:
+        try:
+            page.wait_for_selector(sel, timeout=per)
+            return sel
+        except Exception as e:
+            last_err = e
+    if last_err is not None:
+        raise last_err
+    raise RuntimeError("unreachable")
+
+
+def _action_click(page, seg: dict) -> None:
+    matched = _wait_first_match(page, _selector_candidates(seg["selector"]))
+    _glide_to(page, matched)
+    page.click(matched)
+
+
+def _action_fill(page, seg: dict) -> None:
+    matched = _wait_first_match(page, _selector_candidates(seg["selector"]))
+    _glide_to(page, matched)
+    page.fill(matched, seg["value"])
+
+
+def _action_hover(page, seg: dict) -> None:
+    matched = _wait_first_match(page, _selector_candidates(seg["selector"]))
+    _glide_to(page, matched)
+    page.hover(matched)
+
+
 # Known actions with explicit argument mapping. Actions not listed here
 # fall back to getattr(page, action) with segment fields as kwargs.
 _ACTION_FIELD_MAP = {
     "navigate": lambda page, seg: _action_navigate(page, seg),
     "goto": lambda page, seg: _action_navigate(page, seg),
-    "click": lambda page, seg: (
-        page.wait_for_selector(seg["selector"], timeout=10000),
-        _glide_to(page, seg["selector"]),
-        page.click(seg["selector"]),
-    ),
-    "fill": lambda page, seg: (
-        page.wait_for_selector(seg["selector"], timeout=10000),
-        _glide_to(page, seg["selector"]),
-        page.fill(seg["selector"], seg["value"]),
-    ),
-    "hover": lambda page, seg: (
-        page.wait_for_selector(seg["selector"], timeout=10000),
-        _glide_to(page, seg["selector"]),
-        page.hover(seg["selector"]),
-    ),
+    "click": _action_click,
+    "fill": _action_fill,
+    "hover": _action_hover,
     "scroll": lambda page, seg: _action_scroll(page, seg),
     "wait": lambda _page, _seg: None,
     "select_option": lambda page, seg: page.select_option(
@@ -767,11 +813,15 @@ def _glide_to(page, selector: str, steps: int = 24) -> None:
 
 
 def _action_navigate(page, seg: dict) -> None:
-    """Handle navigate/goto action with optional wait_for selector."""
+    """Handle navigate/goto action with optional wait_for selector(s).
+
+    `wait_for` may be a string or a list of fallback selectors. The
+    first that resolves wins. See issue #47.
+    """
     page.goto(seg["url"], wait_until="domcontentloaded")
-    wait_selector = seg.get("wait_for")
-    if wait_selector:
-        page.wait_for_selector(wait_selector, timeout=15000)
+    wait_candidates = _selector_candidates(seg.get("wait_for"))
+    if wait_candidates:
+        _wait_first_match(page, wait_candidates, total_timeout_ms=15000)
     else:
         page.wait_for_load_state("load")
         time.sleep(1)

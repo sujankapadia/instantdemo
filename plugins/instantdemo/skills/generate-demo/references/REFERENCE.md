@@ -42,7 +42,7 @@ Actions are **open-ended** — any valid Playwright `page` method works. Common 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `url` | string | Yes | The URL to navigate to |
-| `wait_for` | string | No | CSS selector to wait for after navigation (15s timeout). Use this instead of `networkidle` for pages with SSE/websockets. |
+| `wait_for` | string OR string[] | No | CSS selector (or array of fallback selectors) to wait for after navigation (15s total budget). Use this instead of `networkidle` for pages with SSE/websockets. When passing an array, the renderer tries each in order; first match wins. |
 
 ```json
 {
@@ -60,7 +60,7 @@ Actions are **open-ended** — any valid Playwright `page` method works. Common 
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `selector` | string | Yes | Playwright selector for the element to click (10s timeout) |
+| `selector` | string OR string[] | Yes | Playwright selector for the element to click (10s total budget). Array form lists fallback selectors; the renderer tries each in order. |
 
 ```json
 {
@@ -75,7 +75,7 @@ Actions are **open-ended** — any valid Playwright `page` method works. Common 
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `selector` | string | Yes | Playwright selector for the input element |
+| `selector` | string OR string[] | Yes | Playwright selector (or fallback array) for the input element. |
 | `value` | string | Yes | Text to type |
 
 ```json
@@ -92,7 +92,7 @@ Actions are **open-ended** — any valid Playwright `page` method works. Common 
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `selector` | string | Yes | Playwright selector for the element |
+| `selector` | string OR string[] | Yes | Playwright selector (or fallback array) for the element. |
 
 ```json
 {

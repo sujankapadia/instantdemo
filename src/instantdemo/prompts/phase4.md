@@ -31,10 +31,10 @@ the renderer can consume. Use the schema below.
 
 | Action | Required | Optional | Notes |
 |---|---|---|---|
-| `goto` (alias `navigate`) | `url` | `wait_for` | `wait_for` is a CSS selector; use it for SSE/SPA pages instead of `networkidle`. |
-| `click` | `selector` | — | First match wins (10s timeout). |
-| `fill` | `selector`, `value` | — | Sets input text. |
-| `hover` | `selector` | — | — |
+| `goto` (alias `navigate`) | `url` | `wait_for` | `wait_for` is a CSS selector or array of CSS selectors (see Fallbacks below). Use for SSE/SPA pages instead of `networkidle`. |
+| `click` | `selector` | — | `selector` may be a string OR array (fallbacks tried in order). |
+| `fill` | `selector`, `value` | — | Sets input text. `selector` accepts fallback array. |
+| `hover` | `selector` | — | `selector` accepts fallback array. |
 | `scroll` | `pixels` | — | Scrolls the page viewport (`window.scrollBy(0, pixels)`). For in-container scroll, use `evaluate`. |
 | `evaluate` | `expression` | — | Runs arbitrary JavaScript. Useful for in-container scrolls. |
 | `wait` | — | — | No browser action; narration plays over the static frame. |
@@ -78,6 +78,34 @@ have to play nicely:
 - Or escape double quotes: `[data-testid=\"conversation-scroll\"]`
 - Avoid single quotes around attribute values — they work in JavaScript
   but produce noisy nested-quoting in JSON.
+
+## Fallback selectors
+
+Phase 3 often lists fallback selectors in segment Notes (e.g.
+`Fallbacks: a[href="/active"], main a:first-child`). Carry them
+forward into the JSON.
+
+- **`selector`** (click / fill / hover / press / check / etc.):
+  emit as a JSON array when fallbacks exist, primary first.
+- **`wait_for`** (goto / navigate): same — JSON array when
+  fallbacks exist.
+- When no fallbacks are listed, keep emitting a single string.
+  Both forms are valid and the renderer normalizes them.
+
+Example with fallbacks:
+
+```json
+{
+  "narration": "Open the active sessions page.",
+  "action": "click",
+  "selector": ["a[href=\"/active\"]", "nav a:has-text(\"Active\")", "[data-testid=\"nav-active\"]"],
+  "pause_after_ms": 1000
+}
+```
+
+The renderer tries each selector in order with a per-candidate
+timeout (total budget ~10s for actions, ~15s for `wait_for`).
+First match wins.
 
 ## Translation rules
 
