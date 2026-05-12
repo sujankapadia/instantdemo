@@ -74,6 +74,12 @@ function FailureItem({ finding }: { finding: ExploreSegmentFinding }) {
     finding.status === 'FAIL_SELECTOR'
       ? 'Selector miss'
       : 'Content mismatch'
+  // Primary text: the agent's user-facing suggestion (plain-language,
+  // describes both what's wrong and what to do). Fall back to `reason`
+  // only if no suggestion was emitted — `reason` is diagnostic and
+  // technical, so we'd rather show nothing than dev-talk to an end
+  // user. Technical detail lives in phase4.md (View full report).
+  const primaryText = finding.suggestion?.trim() || finding.reason?.trim() || ''
   return (
     <li className="rounded-md border border-amber-500/20 bg-background/60 px-3 py-2">
       <div className="flex items-baseline gap-2">
@@ -82,14 +88,8 @@ function FailureItem({ finding }: { finding: ExploreSegmentFinding }) {
         </span>
         <span className="text-xs text-muted-foreground">{label}</span>
       </div>
-      {finding.reason ? (
-        <p className="mt-1 text-sm text-foreground/90">{finding.reason}</p>
-      ) : null}
-      {finding.suggestion ? (
-        <p className="mt-1 text-xs text-muted-foreground">
-          <span className="font-medium">Suggested fix:</span>{' '}
-          {finding.suggestion}
-        </p>
+      {primaryText ? (
+        <p className="mt-1 text-sm text-foreground/90">{primaryText}</p>
       ) : null}
     </li>
   )
