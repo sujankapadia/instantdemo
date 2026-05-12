@@ -16,6 +16,7 @@ import type { NewProjectInputs } from './NewProjectForm'
 import { emptyIntent } from '@/api/runs'
 import { PauseBanner } from './PauseBanner'
 import { PhaseFailureBanner } from './PhaseFailureBanner'
+import { Phase4TriagePanel } from './Phase4TriagePanel'
 import { RunInProgressBanner } from './RunInProgressBanner'
 import { useProject } from '@/hooks/useProject'
 import { useRun } from '@/hooks/useRun'
@@ -171,6 +172,26 @@ export function Layout() {
           onContinue={() => void run.continueRun()}
         />
       ) : null}
+      {(() => {
+        // Phase 4 triage panel — only when Phase 4 produced blocking
+        // findings (FAIL_SELECTOR or FAIL_NARRATIVE on any segment).
+        // See issue #48.
+        const phase4 = data?.phases?.['4']
+        const findings = phase4?.explore_findings
+        if (!findings || phase4?.explore_overall !== 'BLOCKED') {
+          return null
+        }
+        return (
+          <Phase4TriagePanel
+            findings={findings}
+            onRegenerate={() => setNewProjectOpen(true)}
+            onViewReport={() => {
+              setSelected(4)
+              setDetailsVisible(true)
+            }}
+          />
+        )
+      })()}
       {(() => {
         // Show the phase rail when the user opens details OR when a
         // run is in flight (so they can watch per-phase progress

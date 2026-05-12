@@ -8,6 +8,34 @@ export type PhaseStatus =
   | 'error'
   | 'canceled'
 
+export type ExploreSegmentStatus =
+  | 'PASS'
+  | 'FAIL_SELECTOR'
+  | 'FAIL_NARRATIVE'
+  | 'WARN'
+
+export interface ExploreSegmentFinding {
+  index: number
+  status: ExploreSegmentStatus
+  reason?: string
+  suggestion?: string
+  selector_swapped?: boolean
+  from?: string
+  to?: string
+}
+
+export interface ExploreFindings {
+  summary?: {
+    total?: number
+    pass?: number
+    fail_selector?: number
+    fail_narrative?: number
+    warn?: number
+    overall?: 'OK' | 'BLOCKED'
+  }
+  segments?: ExploreSegmentFinding[]
+}
+
 export interface PhaseState {
   status?: PhaseStatus
   started_at?: string
@@ -15,6 +43,10 @@ export interface PhaseState {
   cost_usd?: number
   duration_ms?: number
   num_turns?: number
+  // Phase 4 (Explore) only. Structured findings from the agent's JSON
+  // block, written to state.json by the runner. See issue #48.
+  explore_findings?: ExploreFindings
+  explore_overall?: 'OK' | 'BLOCKED'
 }
 
 export interface ProjectState {

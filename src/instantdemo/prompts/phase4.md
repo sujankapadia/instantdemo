@@ -63,11 +63,70 @@ and run it). You do NOT have Write — Phase 5 (Build) emits the JSON.
 
 ### Output
 
-Reply with a markdown report mirroring the Phase 3 segment
-structure, with each segment showing the **verified** primary
-selector and a one-line note on the probe result. (Your response
-text is the report — the runner saves it to `phase4.md`. Don't
-call any Write tool; you don't have one.)
+Your response is the full Phase 4 report — the runner saves it
+to `phase4.md`. You don't have a Write tool; the response text
+IS the artifact.
+
+**The response has two parts, in order:**
+
+#### Part 1 — Structured findings (machine-readable)
+
+Begin your response with a fenced JSON code block. The runner
+parses this to decide whether the pipeline continues:
+
+```json
+{
+  "summary": {
+    "total": <total segment count>,
+    "pass": <count of PASS segments>,
+    "fail_selector": <count of FAIL_SELECTOR segments>,
+    "fail_narrative": <count of FAIL_NARRATIVE segments>,
+    "warn": <count of WARN segments>,
+    "overall": "OK" | "BLOCKED"
+  },
+  "segments": [
+    {
+      "index": <segment number, 1-based>,
+      "status": "PASS" | "FAIL_SELECTOR" | "FAIL_NARRATIVE" | "WARN",
+      "reason": "<one-line description of what you observed>",
+      "suggestion": "<for FAIL_*: what would fix it; omit for PASS/WARN>",
+      "selector_swapped": <true if you replaced Phase 3's primary; omit if not>,
+      "from": "<Phase 3's original primary; only when selector_swapped>",
+      "to": "<your replacement; only when selector_swapped>"
+    }
+  ]
+}
+```
+
+**Status rules:**
+
+- `PASS`: the selector resolves on the live app **and** the
+  element it resolves to matches what the narrative is
+  describing.
+- `FAIL_SELECTOR`: the selector doesn't resolve on the live app
+  (10s `wait_for_selector` timeout). All Phase 3 fallbacks have
+  also been tried.
+- `FAIL_NARRATIVE`: the selector resolves to *some* element, but
+  the element doesn't match the narrative — e.g., the narrative
+  says "the session with tool calls" but the resolved card has
+  no tool calls; or the narrative references a section that
+  isn't on the page right now (data not seeded).
+- `WARN`: works but flagged — e.g., very slow to resolve, edge
+  case the user might want to know about. Doesn't block.
+
+**Overall rules:**
+
+- `BLOCKED` if `fail_selector + fail_narrative >= 1`.
+- `OK` otherwise (all PASS / WARN).
+
+There is no PARTIAL outcome. The pipeline either has all the
+information it needs to produce a real demo, or it doesn't and
+the user needs to address the failures before continuing.
+
+#### Part 2 — Human-readable per-segment report
+
+After the JSON block, write the per-segment markdown report
+in this format:
 
 ```
 ### Segment N — [title]
@@ -78,17 +137,13 @@ call any Write tool; you don't have one.)
   Phase 3 fallback that was swapped in>
 - **wait_for:** <verified>
 - **pause_after_ms:** <unchanged>
-- **Verified:** PASS | FAIL — <one-line probe observation>
+- **Verified:** PASS | FAIL_SELECTOR | FAIL_NARRATIVE | WARN —
+  <one-line probe observation>
 - **Notes:** <retained from Phase 3; add live-data observations
-  here if relevant>
+  here if relevant. For FAIL_*: include the user-facing suggestion
+  here as well — what they should do to address it.>
 ```
 
-End the report with a one-line summary:
-
-    EXPLORE_OK — N segments verified
-    EXPLORE_PARTIAL — N PASS, M FAIL; Phase 5 will see flagged segments
-    EXPLORE_BLOCKED — <one-sentence reason>
-
-`EXPLORE_BLOCKED` is for catastrophic problems (app is down, every
-selector misses). Otherwise, prefer `EXPLORE_PARTIAL` and let Phase
-5 carry forward what's verified — the user iterates via Regenerate.
+The two parts MUST agree — the per-segment statuses in the JSON
+must match the `Verified:` lines in the markdown. The JSON is
+the machine contract; the markdown is the human view.

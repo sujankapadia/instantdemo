@@ -31,12 +31,20 @@ ArtifactFormat = Literal["markdown", "json"]
 class PhaseState(BaseModel):
     """Per-phase state, as recorded in state.json."""
 
+    model_config = ConfigDict(extra="allow")
+
     status: PhaseStatus | None = None
     started_at: str | None = None
     completed_at: str | None = None
     cost_usd: float | None = None
     duration_ms: int | None = None
     num_turns: int | None = None
+    # Phase 4 (Explore) records structured findings here when the
+    # agent emits a JSON block. Used by the frontend's triage panel
+    # to surface per-segment failures with suggested fixes. See
+    # issue #48.
+    explore_findings: dict[str, Any] | None = None
+    explore_overall: str | None = None  # "OK" or "BLOCKED"
 
 
 class ProjectState(BaseModel):
