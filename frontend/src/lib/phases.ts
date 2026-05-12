@@ -8,7 +8,7 @@ export const PHASE_NAMES: Record<number, string> = {
   2: 'Plan',
   3: 'Inspect',
   4: 'Build',
-  5: 'Verify',
+  5: 'Render',
 }
 
 export const PHASE_NAMES_ORDERED = [
