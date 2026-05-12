@@ -50,6 +50,10 @@ export function Layout() {
   // rail also auto-shows during an active run so users can watch
   // per-phase progress without finding the toggle.
   const [detailsVisible, setDetailsVisible] = useState(false)
+  // Log drawer's open state is hoisted to Layout so the Esc hotkey can
+  // close it alongside details. LogDrawer keeps its auto-open-on-run
+  // behavior internally via the same setter.
+  const [logOpen, setLogOpen] = useState(false)
 
   const isLoading = state.status === 'loading'
   const isError = state.status === 'error'
@@ -121,6 +125,33 @@ export function Layout() {
       }
     }
   }, [run.status, run.phaseUpdates])
+
+  // Esc → "clean view": collapse phase rail + editor + agent log
+  // drawer in one keystroke. Skip when an input is focused (the user
+  // is probably trying to cancel an edit, e.g. the inline segment
+  // editor) and when a modal is open (Dialog/AlertDialog handle Esc
+  // for themselves to close themselves).
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      const target = e.target as HTMLElement | null
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable)
+      ) {
+        return
+      }
+      if (document.querySelector('[role="dialog"][data-state="open"]')) {
+        return
+      }
+      setDetailsVisible(false)
+      setLogOpen(false)
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
@@ -254,7 +285,12 @@ export function Layout() {
           </main>
         )
       })()}
-      <LogDrawer log={run.log} status={run.status} />
+      <LogDrawer
+        log={run.log}
+        status={run.status}
+        open={logOpen}
+        onOpenChange={setLogOpen}
+      />
       <NewProjectModal
         open={newProjectOpen}
         onOpenChange={setNewProjectOpen}

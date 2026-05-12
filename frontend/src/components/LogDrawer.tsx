@@ -19,10 +19,27 @@ import type { LogEntry, RunStatus } from '@/hooks/useRun'
 interface LogDrawerProps {
   log: LogEntry[]
   status: RunStatus
+  /** Optional controlled open state. When provided, the drawer
+   *  becomes fully controlled by the parent (used for Esc → close
+   *  everything). When omitted, the drawer manages its own state. */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }
 
-export function LogDrawer({ log, status }: LogDrawerProps) {
-  const [open, setOpen] = useState(false)
+export function LogDrawer({
+  log,
+  status,
+  open: controlledOpen,
+  onOpenChange,
+}: LogDrawerProps) {
+  const [internalOpen, setInternalOpen] = useState(false)
+  const open = controlledOpen ?? internalOpen
+  const setOpen = (next: boolean | ((prev: boolean) => boolean)) => {
+    const resolved =
+      typeof next === 'function' ? (next as (p: boolean) => boolean)(open) : next
+    if (onOpenChange) onOpenChange(resolved)
+    if (controlledOpen === undefined) setInternalOpen(resolved)
+  }
   const wasRunningRef = useRef(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -34,6 +51,9 @@ export function LogDrawer({ log, status }: LogDrawerProps) {
       setOpen(true)
     }
     wasRunningRef.current = isRunning
+    // setOpen identity intentionally not in deps — it captures the
+    // latest controlled value via closure each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status])
 
   // Auto-scroll to the bottom as new entries arrive.
