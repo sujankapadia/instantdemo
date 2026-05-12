@@ -81,7 +81,7 @@ export function Layout() {
   const handleNewProjectSubmit = useCallback(
     (values: NewProjectInputs) => {
       void run.startRun({
-        phases: [1, 2, 3, 4, 5],
+        phases: [1, 2, 3, 4, 5, 6],
         url: values.url,
         // Goal doubles as the legacy describe field so backend
         // synthesize-from-describe fallback keeps working when
@@ -108,7 +108,7 @@ export function Layout() {
 
   // When a phase errors, open the details pane and select that phase
   // so the user lands on the diagnostic report (especially important
-  // for RENDER_BLOCKED in Phase 5, which contains the minimum-fix
+  // for RENDER_BLOCKED in Phase 6, which contains the minimum-fix
   // recommendation). See #29.
   useEffect(() => {
     if (run.status !== 'error') return

@@ -7,8 +7,9 @@ export const PHASE_NAMES: Record<number, string> = {
   1: 'Understand',
   2: 'Plan',
   3: 'Inspect',
-  4: 'Build',
-  5: 'Render',
+  4: 'Explore',
+  5: 'Build',
+  6: 'Render',
 }
 
 export const PHASE_NAMES_ORDERED = [
@@ -17,6 +18,7 @@ export const PHASE_NAMES_ORDERED = [
   PHASE_NAMES[3],
   PHASE_NAMES[4],
   PHASE_NAMES[5],
+  PHASE_NAMES[6],
 ] as const
 
 export function phaseName(num: number): string {

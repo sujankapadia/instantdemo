@@ -10,7 +10,7 @@ import {
 import type { PhaseUpdate, RunStatus } from '@/hooks/useRun'
 import { PHASE_NAMES } from '@/lib/phases'
 
-export const PHASE_NUMBERS = [1, 2, 3, 4, 5] as const
+export const PHASE_NUMBERS = [1, 2, 3, 4, 5, 6] as const
 
 export interface PhaseInfo {
   num: number
