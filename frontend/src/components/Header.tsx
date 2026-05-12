@@ -1,4 +1,4 @@
-import { PanelLeftClose, PanelLeftOpen, Plus, Settings, Square } from 'lucide-react'
+import { PanelLeftClose, PanelLeftOpen, RefreshCw, Settings, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Tooltip,
@@ -81,14 +81,20 @@ export function Header({
             Stop
           </Button>
         ) : showNewProject ? (
+          // When a project exists, this button opens the same modal as
+          // "Get started" but with current intent values prefilled,
+          // so users can tweak tone / focus / etc. and re-run the full
+          // pipeline. Labeled "Regenerate" to match the user mental
+          // model. The empty-state CTA ("Get started") covers cold-
+          // start; this never shows on empty.
           <Button
             size="sm"
             variant="secondary"
             onClick={onNewProject}
             disabled={loading}
           >
-            <Plus className="size-3" />
-            New project
+            <RefreshCw className="size-3" />
+            Regenerate
           </Button>
         ) : null}
         <Tooltip>

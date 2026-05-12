@@ -51,6 +51,14 @@ class ProjectState(BaseModel):
     project_dir: str
     url: str | None = None
     describe: str | None = None
+    # Source path the agent reads from during Phase 1 / Phase 3.
+    # Persisted in state.json so Regenerate can prefill it without
+    # the user re-typing the path.
+    source: str | None = None
+    # Current intent.json contents (or synthesized from describe when
+    # intent.json doesn't exist yet). Frontend uses this to prefill
+    # the Regenerate form.
+    intent: dict[str, Any] | None = None
     session_id: str | None = None
     created_at: str | None = None
     phases: dict[str, PhaseState] = {}
@@ -149,12 +157,27 @@ def get_project() -> ProjectState:
     phases_raw = raw.get("phases", {}) or {}
     phases = {key: PhaseState(**value) for key, value in phases_raw.items()}
 
+    # Load intent (or synthesize from describe for legacy projects)
+    # so the Regenerate form can prefill all current intent fields.
+    from instantdemo import intent as intent_mod
+    intent_obj = intent_mod.load_or_synthesize(pdir, raw.get("describe"))
+
     return ProjectState(
         exists=True,
         name=name,
         project_dir=str(pdir),
         url=raw.get("url"),
         describe=raw.get("describe"),
+        source=raw.get("source"),
+        intent={
+            "goal": intent_obj.goal,
+            "audience": intent_obj.audience,
+            "tone": intent_obj.tone,
+            "length": intent_obj.length,
+            "focus": intent_obj.focus,
+            "excludes": intent_obj.excludes,
+            "addenda": intent_obj.addenda,
+        },
         session_id=raw.get("session_id"),
         created_at=raw.get("created_at"),
         phases=phases,

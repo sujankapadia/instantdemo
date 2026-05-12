@@ -248,7 +248,12 @@ class RunManager:
             phases_dict = s.setdefault("phases", {})
             for phase_num in request.phases:
                 phases_dict[str(phase_num)] = {"status": "pending"}
-            state_mod.update_inputs(s, url=request.url, describe=request.describe)
+            state_mod.update_inputs(
+                s,
+                url=request.url,
+                describe=request.describe,
+                source=request.source,
+            )
 
             # If the request includes an intent body, persist it to
             # intent.json so future runs (and CLI users) see the

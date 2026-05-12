@@ -25,6 +25,11 @@ interface NewProjectModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   willOverwrite: boolean
+  /** Title shown in the dialog header. Defaults to "New project";
+   *  Layout flips it to "Regenerate demo" when a project already
+   *  exists, since the modal serves both cold-start and re-generate
+   *  via prefilled values. */
+  title?: string
   defaultValues?: Partial<NewProjectInputs>
   onSubmit: (values: NewProjectInputs) => void
 }
@@ -33,6 +38,7 @@ export function NewProjectModal({
   open,
   onOpenChange,
   willOverwrite,
+  title = 'New project',
   defaultValues,
   onSubmit,
 }: NewProjectModalProps) {
@@ -62,7 +68,7 @@ export function NewProjectModal({
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>New project</DialogTitle>
+            <DialogTitle>{title}</DialogTitle>
             <DialogDescription>
               Generate a narrated demo video of a running web app. Phases 1–5
               run in sequence; you'll see live progress in the agent log.

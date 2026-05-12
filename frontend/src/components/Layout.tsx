@@ -229,14 +229,18 @@ export function Layout() {
         open={newProjectOpen}
         onOpenChange={setNewProjectOpen}
         willOverwrite={data ? data.exists : false}
+        // Title flips to "Regenerate demo" once a project exists, so
+        // the same modal serves both cold-start and full-pipeline
+        // regeneration. Per the design discussion: "Regenerate" is
+        // the primary cascade affordance for end users.
+        title={data?.exists ? 'Regenerate demo' : 'New project'}
         defaultValues={{
           url: data?.url ?? '',
-          // Seed the intent's goal from the existing describe so a
-          // user re-opening "New project" against an existing one
-          // sees the original prompt as a starting point. Full intent
-          // editing (loading intent.json into the form) lands once
-          // the read-intent-from-disk endpoint is in place.
-          intent: {
+          source: data?.source ?? '',
+          // Prefill the full intent from /api/project (loaded from
+          // intent.json or synthesized from describe). Lets a user
+          // edit just one field (tone, focus) and regenerate.
+          intent: data?.intent ?? {
             ...emptyIntent(),
             goal: data?.describe ?? '',
           },

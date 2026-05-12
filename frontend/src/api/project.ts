@@ -23,6 +23,11 @@ export interface ProjectState {
   project_dir: string
   url?: string | null
   describe?: string | null
+  // Persisted source path for the Regenerate flow to prefill.
+  source?: string | null
+  // Current intent (loaded from intent.json or synthesized from describe).
+  // Frontend uses this to prefill the Regenerate form.
+  intent?: import('./runs').Intent | null
   session_id?: string | null
   created_at?: string | null
   phases: Record<string, PhaseState>

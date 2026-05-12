@@ -67,12 +67,22 @@ def save(state_dir: Path, state: dict) -> None:
     _state_path(state_dir).write_text(json.dumps(state, indent=2) + "\n")
 
 
-def update_inputs(state: dict, *, url: str, describe: str | None) -> dict:
-    """Set the run-level inputs on first run, leave alone on resume."""
-    if state.get("url") is None:
-        state["url"] = url
-    if state.get("describe") is None and describe is not None:
+def update_inputs(
+    state: dict,
+    *,
+    url: str,
+    describe: str | None,
+    source: str | None = None,
+) -> dict:
+    """Persist run-level inputs to state.json. Overwrites existing
+    values when a new value is provided — Regenerate sends current
+    form values, which may differ from the original run's inputs.
+    """
+    state["url"] = url
+    if describe is not None:
         state["describe"] = describe
+    if source is not None:
+        state["source"] = source
     return state
 
 
