@@ -88,8 +88,8 @@ parses this to decide whether the pipeline continues:
     {
       "index": <segment number, 1-based>,
       "status": "PASS" | "FAIL_SELECTOR" | "FAIL_NARRATIVE" | "WARN",
-      "reason": "<one-line description of what you observed>",
-      "suggestion": "<for FAIL_*: what would fix it; omit for PASS/WARN>",
+      "reason": "<technical observation — what you found on the live app, written for a developer reviewing the report>",
+      "suggestion": "<for FAIL_*: USER-FACING fix — see Suggestion rules below; omit for PASS/WARN>",
       "selector_swapped": <true if you replaced Phase 3's primary; omit if not>,
       "from": "<Phase 3's original primary; only when selector_swapped>",
       "to": "<your replacement; only when selector_swapped>"
@@ -102,7 +102,9 @@ parses this to decide whether the pipeline continues:
 
 - `PASS`: the selector resolves on the live app **and** the
   element it resolves to matches what the narrative is
-  describing.
+  describing. **A successful selector swap — where you replaced
+  Phase 3's primary with a working alternative — is still PASS,
+  with `selector_swapped: true`.** It's a fix, not a warning.
 - `FAIL_SELECTOR`: the selector doesn't resolve on the live app
   (10s `wait_for_selector` timeout). All Phase 3 fallbacks have
   also been tried.
@@ -111,8 +113,43 @@ parses this to decide whether the pipeline continues:
   says "the session with tool calls" but the resolved card has
   no tool calls; or the narrative references a section that
   isn't on the page right now (data not seeded).
-- `WARN`: works but flagged — e.g., very slow to resolve, edge
-  case the user might want to know about. Doesn't block.
+- `WARN`: works but the user should know — e.g., the selector
+  resolved very close to the 10s timeout, the page is unusually
+  sluggish, or you noticed a borderline case that might
+  intermittently flake. Reserved for genuine concerns; not for
+  "I had to swap a selector" (that's PASS+selector_swapped).
+
+**Suggestion rules** (`suggestion` field, FAIL_* only):
+
+The `suggestion` text is shown verbatim to a non-technical user
+in the GUI. Write it for that audience:
+
+- Describe what the user should DO, in plain language. Avoid
+  internal terms like "segment", "selector", "wait_for",
+  "narrate", "DOM", or specific CSS / Playwright syntax. The
+  technical detail belongs in `reason`, not `suggestion`.
+- Frame fixes in terms of the GUI actions actually available:
+  - **Seed data**: "Run the app long enough for X to appear",
+    "Create a Y in the app, then regenerate."
+  - **Adjust the intent / scope**: "Open Regenerate and add
+    'Recently ended sessions' to the Exclude field so the demo
+    skips that part."
+  - **Reword the goal**: "Open Regenerate and rewrite the goal
+    to focus on the parts of the app you want to show, without
+    referencing X."
+- One short paragraph, two sentences max. No bullet lists, no
+  code. The triage panel shows this text directly.
+
+Example contrast:
+
+- **Bad** (developer-y): "Drop Segment 6 from the demo and
+  re-narrate Segment 7 to bridge to the click-through. The
+  scrollBy is a no-op since scrollHeight=clientHeight."
+- **Good** (user-facing): "The 'Recently ended sessions' part
+  of the demo can't be shown because none ended in the last 2
+  hours. Either wait for one to end (or end one yourself),
+  then regenerate; or open Regenerate and add 'Recently ended
+  sessions' to the Exclude field so the demo skips that part."
 
 **Overall rules:**
 
