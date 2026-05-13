@@ -1,65 +1,143 @@
-Verify the Phase 3 hypothesis against the live application.
+Run a full end-to-end dress rehearsal of the demo against the live app.
 
 Phase 3 produced a per-segment plan with selectors derived from
-source code. Your job is to confirm each selector actually resolves
-on the running app, and to apply Phase 3's listed fallbacks when
-the primary fails. You are NOT redoing source analysis — Phase 3's
-plan is the starting point. Your contribution is the live-verification
-layer.
+source code. Your job is to **walk every segment in sequence as
+the renderer will**, observe what actually happens at each step,
+and refine the plan so the recording in Phase 6 plays back
+cleanly. You are NOT redoing source analysis — Phase 3's plan is
+the starting hypothesis.
 
-You have `Read` (to consult Phase 3's plan and, sparingly, source
-for context) and `Bash` (to write a Playwright probe via heredoc
-and run it). You do NOT have Write — Phase 5 (Build) emits the JSON.
+You have `Read` (to consult Phase 3's plan, prior phase artifacts,
+and — sparingly — source for context) and `Bash` (to write a
+Playwright rehearsal script via heredoc and run it). You do NOT
+have Write — Phase 5 (Build) emits the JSON.
 
 ### Inputs
 
 - The Phase 3 plan is at the path noted above. Read it first.
 - The app is running at the URL noted above.
+- The user's intent (audience, tone, length, focus, excludes, addenda)
+  is in `intent.json` if it exists — read it. Any narration changes
+  you make must stay within these constraints.
 
 ### Workflow
 
-1. **Group segments by page**. A flow that visits 2 routes with 5
-   click targets is 2 page loads, not 7. Plan one probe per page.
+1. **Write one end-to-end rehearsal script** that walks every
+   segment in order, exactly as the renderer in Phase 6 will.
 
-2. **Probe each page once**. Write a small Python script using
-   `sync_playwright`, run it via `bash`. The probe should:
-   - Navigate to the page (same nav path the renderer will use —
-     `goto` for the first page, then click links for SPA hops)
-   - For each segment that lives on this page, call
-     `page.wait_for_selector(selector, timeout=10000)`
-   - Print PASS/FAIL plus the resolved selector for each
+   Use `sync_playwright`. For each segment, perform the segment's
+   action against the segment's selector, observe the result, then
+   advance to the next. Do NOT group segments by page or probe
+   pages independently — the value of the rehearsal is observing
+   what happens *between* segments (transitions, layout shifts,
+   redirects, state changes that affect later selectors).
 
-   Use `wait_for_selector`, never `query_selector`. SPA pages
-   populate the DOM via SSE / fetch / lazy loading after route
-   mount; a synchronous `query_selector` returning None doesn't
-   mean missing, just "not yet". A 10s `wait_for_selector` timeout
-   is what genuine missing looks like.
+   The script should print observations as it goes — JSON-per-line
+   to stdout is fine. For each segment capture:
 
-3. **Narrative alignment — not just selector validity.** A selector
-   that resolves to *some* element isn't enough — the element has
-   to match what the narrative is asking for. For each segment,
-   ask: does the element this selector resolves to actually have
-   the properties or content the narrative describes?
+   - `index` (1-based)
+   - `action` (the action attempted)
+   - `selector_attempted` (Phase 3's primary)
+   - `selector_resolved` (may differ if a fallback was used)
+   - `wait_outcome` — e.g., `resolved_in_1200ms` or
+     `timeout_after_10s`
+   - `post_action_state`:
+     - `url` (current `page.url`)
+     - `title` (current `page.title()`)
+     - `console_errors` (any console errors logged since last
+       segment — register a handler at script start)
+     - `key_elements` — narrative-relevant content the next
+       segment or narration claim references. For example, if
+       the narrative says "the running sessions list", record
+       how many items resolve. This is the data narration
+       regrounding will use.
+   - `timing_ms` — observed action-to-DOM-settled time
 
-   When the narrative specifies content properties — an item with
-   a specific label or state, a row matching some condition, a
-   card containing particular content — verify the resolved
-   element exhibits those properties on the live app. If it
-   doesn't, refine the selector by combining the structural
-   target with a content predicate (Playwright's `:has(...)` and
-   `:has-text("...")` are the typical tools), or report the
-   mismatch with a plain-English recommendation. Don't fabricate
-   predicates the source doesn't support.
+   Use `page.wait_for_selector(selector, timeout=10000)`, never
+   `query_selector`. SPA pages populate the DOM via SSE / fetch
+   / lazy loading; a synchronous `query_selector` returning None
+   doesn't mean missing, just "not yet". A 10s
+   `wait_for_selector` timeout is what genuine missing looks
+   like.
 
-4. **When the primary fails**, try the fallbacks Phase 3 listed
-   in the segment's Notes line. If one of them resolves, swap it
-   in as the new primary in your output. If they all fail, mark
-   the segment FAIL and recommend in plain English what would
-   fix it (e.g. "no card with the described content visible —
-   seed data may be missing").
+2. **Apply Phase 3's listed fallbacks when the primary fails.**
+   Phase 3 lists 1-2 fallbacks per segment in the Notes line.
+   If the primary's `wait_for_selector` times out, try each
+   fallback in order. If one resolves, swap it in as the new
+   primary and continue.
 
-5. **Probe scripts are throwaway**. Keep them small. Group by
-   page. Don't probe the same page twice.
+3. **Read the trace and decide what to revise.** You have three
+   levels of authority (see "Authority levels" below). Apply
+   the revisions in your output. If issues exceed your authority,
+   surface as FAIL_* with a humanized suggestion (per "Suggestion
+   rules" below).
+
+4. **Re-run the rehearsal if needed.** You may run the script
+   up to 3 times total (the runner enforces this). If a revision
+   resolves the issue, the next rehearsal should observe a clean
+   pass. If the same failures recur across iterations, mark them
+   FAIL and stop — re-running won't help.
+
+5. **Rehearsal scripts are throwaway**. The recording in Phase 6
+   is independent. Keep the script focused: walk segments, print
+   observations, exit cleanly.
+
+### Authority levels — what you can revise
+
+**Level 1 — Mechanical (no narration changes).** Always allowed.
+
+- Selector swap when the primary fails and a Phase 3 fallback
+  works — record as PASS with `selector_swapped: true`
+- Timing adjustment: increase `pause_after_ms` if you observed
+  the next action's `wait_for` racing against the previous
+  action's effect
+- Wait-condition refinement: replace `wait_for: domcontentloaded`
+  with a specific selector when the page renders async, etc.
+
+**Level 2 — Narration regrounding.** Allowed within the user's
+`intent` constraints.
+
+When you observe that the narration's specific claims don't
+match the live state — e.g., the narrative says "5 active
+sessions" and you observed 2 — rewrite the narration to match
+what was observed.
+
+Rules:
+- Stay within the segment's *intent* (same purpose, same beat
+  in the demo flow)
+- Stay within the user's `intent.json` constraints — preserve
+  audience (technical vs non-technical), tone (casual vs formal),
+  length (don't expand a short narration into a long one or
+  vice versa), and never re-introduce material the user listed
+  in `intent.excludes`
+- Drop overclaim, don't replace it with a different overclaim.
+  "5 active sessions" observed as 2 → rewrite as "the active
+  sessions list" or "each session that's currently running",
+  not "2 active sessions" (the count will be different at
+  recording time)
+- When in doubt, drop the specific claim — a shorter accurate
+  narration beats a longer embellished one
+
+Record narration changes as PASS with:
+- `narration_revised: true`
+- `narration_from: <original>`
+- `narration_to: <replacement>`
+
+**Level 3 — Structural changes. NOT in your authority.**
+
+The following stay BLOCKED with a humanized suggestion:
+- Dropping a segment that has nothing to show
+- Adding a segment to cover a transition
+- Reordering segments
+- Changing the demo's overall arc
+
+If you observe one of these is needed, mark the relevant
+segment FAIL_NARRATIVE (when the issue is "the narrative
+references something not present") or FAIL_SELECTOR (when no
+element exists for the segment to operate on), with a
+suggestion telling the user what to do (e.g., "Open Regenerate
+and add 'X' to the Exclude field"). The runner halts; the
+user makes the structural call.
 
 ### Output
 
@@ -92,7 +170,10 @@ parses this to decide whether the pipeline continues:
       "suggestion": "<for FAIL_*: USER-FACING fix — see Suggestion rules below; omit for PASS/WARN>",
       "selector_swapped": <true if you replaced Phase 3's primary; omit if not>,
       "from": "<Phase 3's original primary; only when selector_swapped>",
-      "to": "<your replacement; only when selector_swapped>"
+      "to": "<your replacement; only when selector_swapped>",
+      "narration_revised": <true if you regrounded narration; omit if not>,
+      "narration_from": "<original narration; only when narration_revised>",
+      "narration_to": "<replacement narration; only when narration_revised>"
     }
   ]
 }
@@ -100,24 +181,27 @@ parses this to decide whether the pipeline continues:
 
 **Status rules:**
 
-- `PASS`: the selector resolves on the live app **and** the
-  element it resolves to matches what the narrative is
-  describing. **A successful selector swap — where you replaced
-  Phase 3's primary with a working alternative — is still PASS,
-  with `selector_swapped: true`.** It's a fix, not a warning.
+- `PASS`: the rehearsal walked through this segment cleanly —
+  the selector resolved, the action succeeded, and the narration
+  (after any regrounding) matches what was observed. A successful
+  selector swap (PASS + `selector_swapped: true`) or narration
+  regrounding (PASS + `narration_revised: true`) is still PASS.
+  These are fixes within your authority, not warnings.
 - `FAIL_SELECTOR`: the selector doesn't resolve on the live app
-  (10s `wait_for_selector` timeout). All Phase 3 fallbacks have
-  also been tried.
-- `FAIL_NARRATIVE`: the selector resolves to *some* element, but
-  the element doesn't match the narrative — e.g., the narrative
-  says "the session with tool calls" but the resolved card has
-  no tool calls; or the narrative references a section that
-  isn't on the page right now (data not seeded).
-- `WARN`: works but the user should know — e.g., the selector
-  resolved very close to the 10s timeout, the page is unusually
-  sluggish, or you noticed a borderline case that might
-  intermittently flake. Reserved for genuine concerns; not for
-  "I had to swap a selector" (that's PASS+selector_swapped).
+  (10s `wait_for_selector` timeout, all Phase 3 fallbacks tried).
+  Or: an earlier segment's action broke a later segment's
+  selector (state changed in a way Phase 3 couldn't predict).
+- `FAIL_NARRATIVE`: the selector resolves but the resolved
+  element doesn't match the narrative, and the mismatch can't
+  be fixed by regrounding alone — e.g., the narrative references
+  a feature that's broken on the live app, or content that
+  doesn't exist for structural reasons (no seed data, wrong
+  page state).
+- `WARN`: works but the user should know — flaky timing,
+  borderline selector, intermittent console errors that didn't
+  break execution. Reserved for genuine concerns; not for "I
+  had to swap a selector" or "I rewrote the narration" (those
+  are PASS).
 
 **Suggestion rules** (`suggestion` field, FAIL_* only):
 
@@ -168,17 +252,19 @@ in this format:
 ```
 ### Segment N — [title]
 - **Action:** <unchanged>
-- **Narration:** "[unchanged]"
+- **Narration:** "[verified — original, or regrounded]"
 - **URL:** <unchanged for goto>
-- **Selector:** <verified selector — may be the original or a
-  Phase 3 fallback that was swapped in>
+- **Selector:** <verified — may be the original or a Phase 3
+  fallback that was swapped in>
 - **wait_for:** <verified>
-- **pause_after_ms:** <unchanged>
+- **pause_after_ms:** <verified — may be adjusted from observed timing>
 - **Verified:** PASS | FAIL_SELECTOR | FAIL_NARRATIVE | WARN —
-  <one-line probe observation>
+  <one-line observation from the rehearsal>
 - **Notes:** <retained from Phase 3; add live-data observations
-  here if relevant. For FAIL_*: include the user-facing suggestion
-  here as well — what they should do to address it.>
+  here, plus a brief note when narration was regrounded
+  (e.g., "Narration regrounded: observed 2 sessions, dropped
+  the '5 sessions' claim"). For FAIL_*: include the user-facing
+  suggestion here as well.>
 ```
 
 The two parts MUST agree — the per-segment statuses in the JSON
