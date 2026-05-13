@@ -158,11 +158,75 @@ Regenerate, adjust intent.excludes, etc.).
 To avoid the agent revising and re-rehearsing indefinitely:
 
 - **Max iterations**: 3 (rehearse → revise → rehearse → revise →
-  rehearse). After that, BLOCKED.
+  rehearse). After that, BLOCKED. About decision quality, not
+  time — same cap regardless of demo length.
 - **No-progress detection**: if iteration N produces the same
   set of FAIL findings as iteration N-1, BLOCKED immediately.
-- **Time budget**: 90 seconds wall-clock for the whole phase
-  (most rehearsals should fit in 30-40s).
+- **Per-iteration wall-clock cap**:
+  `max(60s, segment_count × 8s)`. Scales with the work so long
+  demos aren't artificially gated, while short demos still get
+  a tight ceiling on pathological agent loops. The 8s/segment
+  is a conservative upper bound (real wall-clock per segment is
+  typically 3-5s: page load + waits + action).
+- **Overall phase ceiling**: 30 min absolute safety net. Should
+  never hit in practice; backstop against catastrophic loops or
+  hung pages that per-action timeouts somehow miss.
+
+What each layer is protecting against:
+
+- The iteration cap bounds *decision-quality* runaway (agent
+  oscillating between fixes).
+- The per-iteration cap bounds *agent-thinking-time* runaway,
+  which doesn't scale with segment count (input-token bound).
+- The overall ceiling bounds *everything else* including
+  pathological Playwright behavior the timeouts didn't catch.
+
+Rough wall-clock examples:
+
+| Demo length | Segments | Single rehearsal | 3-iter ceiling |
+|---|---|---|---|
+| 60-90s (shakedown) | 8 | ~30-40s | ~2 min |
+| 5 min | ~30 | ~2-2.5 min | ~7-8 min |
+| 10 min | ~60 | ~4-5 min | ~15 min |
+
+### Long-form demos and #50 (section abstraction)
+
+The wall-clock numbers above are for monolithic rehearsals.
+That works up to maybe 20-30 segments before it gets fragile —
+a mid-walk state surprise (timeout, unexpected redirect, modal
+that didn't close) can derail everything downstream of the
+problem segment.
+
+For long-form demos, the cleaner shape is **dress-rehearse
+per section, not per demo**:
+
+- Each section is ~5-10 segments — back in the shakedown's
+  tractable range
+- Each section gets its own convergence budget (iteration cap +
+  per-iteration wall-clock + ceiling) — same scheme above,
+  applied independently
+- Sections rehearse **independently**: a failure in section 3
+  doesn't waste section 1's rehearsal cost
+- Sections could rehearse **in parallel** for further wall-clock
+  savings (open question — depends on whether the live app
+  handles concurrent Playwright sessions cleanly; some apps
+  share session state, some don't)
+- Mid-section state changes can't derail the whole demo because
+  each section starts from a known nav state
+
+This is an additional reason #50 matters for long-form — it's
+not just narrative coherence, it's *rehearsal* coherence. A
+monolithic 60-segment rehearsal is structurally fragile; a
+sectioned one is naturally checkpointed.
+
+**Implication for the prototype**: validate dress-rehearsal on
+the short shakedown scenario first (monolithic is fine for
+8 segments). Don't try to combine dress-rehearsal + sections
+in the first prototype — that's two architectural changes at
+once and they can't be co-validated cleanly. Once dress-rehearsal
+is proven on short demos, the per-section adaptation for #50
+is straightforward (apply the same convergence scheme per
+section, no new design).
 
 ### Diff visibility — letting the user see what changed
 
