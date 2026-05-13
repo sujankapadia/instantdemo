@@ -40,11 +40,11 @@ export function IntentEditor({
   // Focus / excludes / addenda are persisted as string arrays but
   // edited as newline-separated textareas. Convert at the boundary.
   const toLines = (items: string[]) => items.join('\n')
-  const fromLines = (text: string) =>
-    text
-      .split('\n')
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0)
+  // Don't trim or filter during editing — that strips spaces and
+  // empty lines as the user types them. Trim + filter on form
+  // submit instead (see NewProjectForm.tsx). Raw split keeps the
+  // textarea behaving like a normal multi-line input.
+  const fromLines = (text: string) => text.split('\n')
 
   return (
     <div className="flex flex-col gap-4">

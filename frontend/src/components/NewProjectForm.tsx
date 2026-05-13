@@ -54,12 +54,25 @@ export function NewProjectForm({
       if (!ok) return
     }
 
+    // Trim+filter the multi-line array fields at submit time.
+    // IntentEditor keeps the raw textarea content during editing so
+    // users can type spaces and blank lines without the value being
+    // mutated under them. This is the one place we sanitize before
+    // sending to the backend.
+    const cleanList = (items: string[]) =>
+      items.map((s) => s.trim()).filter((s) => s.length > 0)
     onSubmit({
       url: url.trim(),
       source: source.trim(),
       intent: {
         ...intent,
         goal: intent.goal.trim(),
+        audience: intent.audience?.trim() || null,
+        tone: intent.tone?.trim() || null,
+        length: intent.length?.trim() || null,
+        focus: cleanList(intent.focus),
+        excludes: cleanList(intent.excludes),
+        addenda: cleanList(intent.addenda),
       },
       tts: 'kokoro',
       pause_between_phases: pauseBetweenPhases,
