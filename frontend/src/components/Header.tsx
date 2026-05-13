@@ -1,4 +1,4 @@
-import { PanelLeftClose, PanelLeftOpen, RefreshCw, Settings, Square } from 'lucide-react'
+import { Loader2, PanelLeftClose, PanelLeftOpen, RefreshCw, Settings, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Tooltip,
@@ -7,6 +7,7 @@ import {
 } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { formatCostUsd } from '@/lib/format'
+import { phaseName } from '@/lib/phases'
 import type { RunStatus } from '@/hooks/useRun'
 
 interface HeaderProps {
@@ -14,6 +15,10 @@ interface HeaderProps {
   url?: string | null
   loading?: boolean
   runStatus: RunStatus
+  /** Currently-executing phase (1-6). Null when no phase is in flight.
+   *  Used to render the compact "Phase N of 6 · Name" progress
+   *  indicator during active runs. */
+  currentPhase: number | null
   cumulativeCost: number
   onCancel: () => void
   onNewProject: () => void
@@ -29,6 +34,7 @@ export function Header({
   url,
   loading,
   runStatus,
+  currentPhase,
   cumulativeCost,
   onCancel,
   onNewProject,
@@ -40,8 +46,11 @@ export function Header({
     runStatus === 'running' ||
     runStatus === 'starting' ||
     runStatus === 'paused'
-  const showCost =
-    runStatus !== 'idle' && (cumulativeCost > 0 || isActive)
+  // Cost persists after a run completes (previously hidden once
+  // status returned to idle). Users want to remember what the
+  // demo they just watched actually cost.
+  const showCost = cumulativeCost > 0 || isActive
+  const showProgress = isActive && currentPhase !== null
 
   return (
     <header className="flex h-14 items-center justify-between border-b border-border bg-background px-4">
@@ -59,6 +68,17 @@ export function Header({
         )}
       </div>
       <div className="flex items-center gap-2">
+        {showProgress ? (
+          <span
+            className="flex items-center gap-1.5 text-xs text-muted-foreground"
+            aria-label={`Running phase ${currentPhase} of 6`}
+          >
+            <Loader2 className="size-3 animate-spin text-foreground/80" />
+            <span>
+              Phase {currentPhase} of 6 · {phaseName(currentPhase!)}
+            </span>
+          </span>
+        ) : null}
         {showCost ? (
           <span
             className={cn(

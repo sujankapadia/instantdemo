@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Header } from './Header'
 import {
   PhaseRail,
@@ -50,10 +50,11 @@ export function Layout() {
   // rail also auto-shows during an active run so users can watch
   // per-phase progress without finding the toggle.
   const [detailsVisible, setDetailsVisible] = useState(false)
-  // Log drawer's open state is hoisted to Layout so the Esc hotkey can
-  // close it alongside details. LogDrawer keeps its auto-open-on-run
-  // behavior internally via the same setter.
+  // Log drawer's open state is hoisted to Layout. Auto-opening on
+  // run start lives here (was in LogDrawer), gated on detailsVisible
+  // so end-user mode (details off) stays quiet during runs.
   const [logOpen, setLogOpen] = useState(false)
+  const wasRunningRef = useRef(false)
 
   const isLoading = state.status === 'loading'
   const isError = state.status === 'error'
@@ -126,6 +127,19 @@ export function Layout() {
     }
   }, [run.status, run.phaseUpdates])
 
+  // Auto-open the agent log drawer when a run starts — but only in
+  // power-user mode (details visible). End-user mode stays quiet
+  // during runs; progress is surfaced via the compact header
+  // indicator instead. (Moved from LogDrawer's internal useEffect
+  // so the gating lives next to the detailsVisible state.)
+  useEffect(() => {
+    const isRunning = run.status === 'starting' || run.status === 'running'
+    if (isRunning && !wasRunningRef.current && detailsVisible) {
+      setLogOpen(true)
+    }
+    wasRunningRef.current = isRunning
+  }, [run.status, detailsVisible])
+
   // Esc → "clean view": collapse phase rail + editor + agent log
   // drawer in one keystroke. Skip when an input is focused (the user
   // is probably trying to cancel an edit, e.g. the inline segment
@@ -160,6 +174,7 @@ export function Layout() {
         url={url}
         loading={isLoading}
         runStatus={run.status}
+        currentPhase={run.currentPhase}
         cumulativeCost={run.cumulativeCost}
         onCancel={() => void run.cancel()}
         onNewProject={() => setNewProjectOpen(true)}
@@ -233,15 +248,11 @@ export function Layout() {
         )
       })()}
       {(() => {
-        // Show the phase rail when the user opens details OR when a
-        // run is in flight (so they can watch per-phase progress
-        // without finding the toggle). Hide for idle end-user view.
-        const isRunActive =
-          run.status === 'running' ||
-          run.status === 'starting' ||
-          run.status === 'paused'
-        const showPhaseRail = detailsVisible || isRunActive
-        if (!showPhaseRail) return null
+        // Phase rail shows only when details is on. During end-user
+        // runs (details off), progress is surfaced via the compact
+        // header indicator instead. Power users (details on) still
+        // see the rail throughout the run.
+        if (!detailsVisible) return null
         return (
           <PhaseRail
             phases={phases}

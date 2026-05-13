@@ -484,7 +484,7 @@ function RowIconButton({
         accentClass ?? 'text-muted-foreground/60',
         alwaysVisible
           ? 'opacity-100'
-          : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100',
+          : 'opacity-40 group-hover:opacity-100 focus-within:opacity-100',
       )}
     >
       {icon}

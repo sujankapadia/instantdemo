@@ -40,21 +40,11 @@ export function LogDrawer({
     if (onOpenChange) onOpenChange(resolved)
     if (controlledOpen === undefined) setInternalOpen(resolved)
   }
-  const wasRunningRef = useRef(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Auto-open when a run starts. Don't auto-collapse when it ends —
-  // user can review the log and close manually.
-  useEffect(() => {
-    const isRunning = status === 'starting' || status === 'running'
-    if (isRunning && !wasRunningRef.current) {
-      setOpen(true)
-    }
-    wasRunningRef.current = isRunning
-    // setOpen identity intentionally not in deps — it captures the
-    // latest controlled value via closure each render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status])
+  // Auto-open on run start lives in Layout (not here), gated on the
+  // detailsVisible setting so end-user mode stays quiet during runs.
+  // LogDrawer is now purely a controlled presentational component.
 
   // Auto-scroll to the bottom as new entries arrive.
   useEffect(() => {
