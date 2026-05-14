@@ -86,6 +86,13 @@ class Context:
     # `(event: dict[str, Any]) -> None`.
     event_emitter: Any | None = None
 
+    # Per-pipeline-run identifier. When set, each phase derives its
+    # session id as f"phase{N}-{run_id[:8]}" so the SDK doesn't
+    # thread prior runs' conversation history into new queries. See
+    # issue #53. Optional for callers (older tests, CLI before
+    # threading) — None falls back to the legacy bare "phaseN" form.
+    run_id: str | None = None
+
     @property
     def script_path(self) -> Path:
         """Path to the user-facing demo-script.json (Phase 4 output).

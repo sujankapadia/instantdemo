@@ -139,7 +139,7 @@ async def run(context: Context) -> None:
     prompt = _build_prompt(phase1_text, inputs)
 
     narrative_text, result = await run_query_on_client(
-        context, prompt, session_id=session_id_for_phase(2)
+        context, prompt, session_id=session_id_for_phase(2, context.run_id)
     )
 
     if result is None:

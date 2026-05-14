@@ -84,7 +84,7 @@ async def _run_drift_check(context: Context) -> tuple[str, "object | None"]:
         )
     prompt = _build_prompt(context)
     return await run_query_on_client(
-        context, prompt, session_id=session_id_for_phase(6)
+        context, prompt, session_id=session_id_for_phase(6, context.run_id)
     )
 
 

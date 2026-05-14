@@ -400,6 +400,9 @@ class RunManager:
             client=self._client,
             dispatcher=self._dispatcher,
             event_emitter=lambda evt: run.queue.put_nowait(evt),
+            # Threads through to session_id_for_phase so each run
+            # gets fresh per-phase SDK sessions. See #53.
+            run_id=run.run_id,
         )
         # State.json was already prepared in start_run (phases reset to
         # pending, run-level inputs recorded). Just proceed.

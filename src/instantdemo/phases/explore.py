@@ -313,7 +313,7 @@ async def run(context: Context) -> None:
 
     segment_count = _count_segments_from_phase3(phase3_text)
     iteration_budget = _iteration_budget_s(segment_count)
-    session_id = session_id_for_phase(4)
+    session_id = session_id_for_phase(4, context.run_id)
 
     findings: dict[str, Any] | None = None
     overall: str | None = None

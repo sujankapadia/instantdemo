@@ -70,7 +70,7 @@ async def run(context: Context) -> None:
 
     prompt = _build_prompt(context)
     agent_text, result = await run_query_on_client(
-        context, prompt, session_id=session_id_for_phase(1)
+        context, prompt, session_id=session_id_for_phase(1, context.run_id)
     )
 
     if result is None:

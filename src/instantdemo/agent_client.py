@@ -51,11 +51,28 @@ PHASE_TOOLS: dict[str, frozenset[str]] = {
 }
 
 
-def session_id_for_phase(phase_number: int) -> str:
-    """Map a 1-based phase number to its conversation session id /
-    dispatcher key. The same string is used as `session_id=` on
-    `client.query()` and as the lookup into PHASE_TOOLS."""
-    return f"phase{phase_number}"
+def session_id_for_phase(
+    phase_number: int, run_id: str | None = None
+) -> str:
+    """Map a 1-based phase number to its conversation session id.
+
+    When `run_id` is provided, the session id includes an 8-char
+    prefix of it, e.g. `"phase4-abc12345"`. This makes each
+    pipeline run get a fresh per-phase session — preventing the
+    SDK from threading prior runs' conversation history into new
+    queries. See issue #53.
+
+    When `run_id` is None, returns the bare `"phaseN"` (legacy
+    behavior, kept for callers without a run id).
+
+    The PreToolUse hook strips the suffix to recover the
+    `"phaseN"` key for PHASE_TOOLS lookup, so per-phase tool
+    allowlists work uniformly across both forms.
+    """
+    base = f"phase{phase_number}"
+    if run_id:
+        return f"{base}-{run_id[:8]}"
+    return base
 
 
 class PhaseDispatcher:
@@ -87,8 +104,12 @@ class PhaseDispatcher:
         _ctx: Any,
     ) -> dict[str, Any]:
         phase = self.current_phase
+        # current_phase may be a session id like "phase4-abc12345"
+        # after #53. Strip any per-run suffix to recover the
+        # PHASE_TOOLS key.
+        phase_key = phase.split("-", 1)[0]
         tool_name = input_data.get("tool_name", "")
-        allowed = PHASE_TOOLS.get(phase, frozenset())
+        allowed = PHASE_TOOLS.get(phase_key, frozenset())
         if tool_name in allowed:
             return {
                 "hookSpecificOutput": {

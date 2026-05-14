@@ -61,7 +61,7 @@ async def run(context: Context) -> None:
 
     prompt = _build_prompt(phase4_text, str(artifact))
     _agent_text, result = await run_query_on_client(
-        context, prompt, session_id=session_id_for_phase(5)
+        context, prompt, session_id=session_id_for_phase(5, context.run_id)
     )
 
     if result is None:

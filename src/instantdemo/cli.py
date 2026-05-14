@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import uuid
 from pathlib import Path
 
 from instantdemo import __version__
@@ -90,6 +91,10 @@ def _resolve_context(args: argparse.Namespace) -> Context:
         tts=args.tts,
         no_edit=args.no_edit,
         intent=intent_obj,
+        # Fresh UUID per CLI invocation so each `instantdemo generate`
+        # or `instantdemo phase` run gets isolated per-phase SDK
+        # sessions. See #53.
+        run_id=str(uuid.uuid4()),
     )
 
 
