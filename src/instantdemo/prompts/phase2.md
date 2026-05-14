@@ -6,7 +6,7 @@ gathered after this one.)
 
 Use these defaults unless the user has specified otherwise:
 - **Tone**: casual (developer advocate)
-- **Audience**: technical (developers)
+- **Audience**: non-technical (general user, not a developer)
 - **Terminology**: use product/feature names from the codebase analysis
 
 Plan the narrative:
