@@ -4,10 +4,9 @@ You will write a narrative plan as markdown — not JSON. (The JSON
 script is produced in a later phase using the technical details
 gathered after this one.)
 
-Use these defaults unless the user has specified otherwise:
-- **Tone**: casual (developer advocate)
-- **Audience**: non-technical (general user, not a developer)
-- **Terminology**: use product/feature names from the codebase analysis
+The audience, tone, and any other constraints are stated above —
+treat them as facts about this demo. Use product / feature names
+from the codebase analysis for terminology.
 
 Plan the narrative:
 - **Pick one compelling flow** that shows the core value proposition.

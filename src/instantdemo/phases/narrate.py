@@ -8,11 +8,16 @@ output — no tools.
 Input resolution per field (highest priority wins):
   - flow:         intent.goal → phase1.md answer block → context.describe → ""
   - tone:         intent.tone → phase2.md answer block (legacy) → default "casual"
-  - audience:     intent.audience → phase2.md answer block (legacy) → default "technical"
+  - audience:     intent.audience → phase2.md answer block (legacy) → default "non-technical (general user, not a developer)"
   - length:       intent.length → (none in legacy answer block) → "" (let agent pick)
   - focus:        intent.focus
   - excludes:     intent.excludes
   - addenda:      intent.addenda
+
+All values are deterministically resolved by `_resolve_inputs` and
+templated into the prompt header before the agent sees it. The
+agent treats them as facts about the demo, not defaults to
+reason about.
 
 The phase2.md answer-block mechanism is retained for CLI users who
 prefer editing artifacts in $EDITOR. With #39 the GUI writes
@@ -33,7 +38,7 @@ from . import (
 
 
 DEFAULT_TONE = "casual"
-DEFAULT_AUDIENCE = "technical"
+DEFAULT_AUDIENCE = "non-technical (general user, not a developer)"
 
 
 def _resolve_inputs(
