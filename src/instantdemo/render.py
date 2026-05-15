@@ -341,6 +341,336 @@ def get_audio_duration(path: Path) -> float:
     return float(result.stdout.strip())
 
 
+def _write_segment_timing(
+    state_dir: Path,
+    segments: list[dict],
+    audio_durations_s: list[float],
+    output_filename: str,
+    recorded_durations_s: list[float] | None = None,
+) -> None:
+    """Write per-segment playback timing to <state_dir>/segment-timing.json.
+
+    Mirrors the timing math used in record_browser_video: each segment's
+    duration is max(audio_duration, pause_after_ms / 1000), starts at the
+    cumulative end of prior segments. Used by the GUI to map segments
+    onto positions in the rendered video for click-to-seek.
+
+    When `recorded_durations_s` is provided (clean-window lengths from
+    `record_browser_video`), each segment also gets
+    `recorded_clean_duration_s` — the actual length of visible frames
+    captured for that segment in the source recording. This is what
+    post-render operations (delete-segment, pace tweak, overflow
+    detection) need to make frame-accurate cuts into demo.mp4 without
+    re-recording. See issue #19.
+    """
+    cursor = 0.0
+    out_segments = []
+    for i, seg in enumerate(segments):
+        audio_s = audio_durations_s[i]
+        pause_s = (seg.get("pause_after_ms") or 0) / 1000
+        seg_s = max(audio_s, pause_s)
+        entry = {
+            "index": i,
+            "start_s": round(cursor, 3),
+            "end_s": round(cursor + seg_s, 3),
+            "audio_duration_s": round(audio_s, 3),
+        }
+        if recorded_durations_s is not None:
+            entry["recorded_clean_duration_s"] = round(
+                recorded_durations_s[i], 3
+            )
+        out_segments.append(entry)
+        cursor += seg_s
+
+    state_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "video": output_filename,
+        "total_duration_s": round(cursor, 3),
+        "segments": out_segments,
+    }
+    (state_dir / "segment-timing.json").write_text(
+        json.dumps(payload, indent=2) + "\n"
+    )
+
+
+def _build_combined_audio(
+    audio_clips: list[Path],
+    clip_durations: list[float],
+    segments: list[dict],
+    tmp_dir: Path,
+) -> Path:
+    """Concat per-segment audio clips with silence padding, return path
+    to the combined WAV. Same logic as the combine_audio_video tail —
+    extracted so audio-only re-render can reuse it without going through
+    video trim+concat."""
+    wav_clips = [_ensure_wav(clip, i, tmp_dir) for i, clip in enumerate(audio_clips)]
+    audio_files: list[Path] = []
+    for i, wav in enumerate(wav_clips):
+        audio_files.append(wav)
+        pause_ms = segments[i].get("pause_after_ms", 0)
+        audio_ms = clip_durations[i] * 1000
+        gap_ms = max(0, max(audio_ms, pause_ms) - audio_ms)
+        if gap_ms > 0:
+            gap_silence = tmp_dir / f"silence_{i}.wav"
+            subprocess.run(  # nosec B607
+                [
+                    "ffmpeg", "-y",
+                    "-f", "lavfi",
+                    "-i", "anullsrc=r=44100:cl=stereo",
+                    "-t", str(gap_ms / 1000),
+                    str(gap_silence),
+                ],
+                capture_output=True,
+            )
+            audio_files.append(gap_silence)
+
+    combined_audio = tmp_dir / "combined_audio.wav"
+    audio_inputs: list[str] = []
+    for path in audio_files:
+        audio_inputs.extend(["-i", str(path)])
+    n = len(audio_files)
+    audio_filter = (
+        "".join(f"[{i}:a]" for i in range(n))
+        + f"concat=n={n}:v=0:a=1[out]"
+    )
+    subprocess.run(  # nosec B607
+        ["ffmpeg", "-y"] + audio_inputs + [
+            "-filter_complex", audio_filter,
+            "-map", "[out]",
+            str(combined_audio),
+        ],
+        capture_output=True,
+    )
+    return combined_audio
+
+
+def cut_segment_from_video(
+    existing_video: Path,
+    cut_start_s: float,
+    cut_end_s: float,
+    output_path: Path,
+) -> None:
+    """Re-encode an mp4 with the frame range [cut_start_s, cut_end_s] removed.
+
+    Uses ffmpeg's `trim` + `concat` filter graph in a single invocation so
+    the cut is frame-accurate (vs. `-c:v copy -ss` which only cuts at
+    keyframes and can glitch by hundreds of ms).
+
+    Strips audio — callers are expected to mux fresh audio over the
+    output via `remux_audio_only` since the original audio also gets cut
+    and no longer aligns with anything.
+
+    Trade-off: re-encoding makes a delete-segment operation roughly as
+    expensive as a Phase 5 render on the trimmed length. For typical
+    1–2 minute demos this is ~10–30s, which is acceptable for a
+    once-per-demo surgical action. Caller should run this off the event
+    loop. See issue #13.
+    """
+    filter_graph = (
+        f"[0:v]trim=start=0:end={cut_start_s},setpts=PTS-STARTPTS[v0];"
+        f"[0:v]trim=start={cut_end_s},setpts=PTS-STARTPTS[v1];"
+        f"[v0][v1]concat=n=2:v=1:a=0[outv]"
+    )
+    result = subprocess.run(  # nosec B607
+        [
+            "ffmpeg", "-y",
+            "-i", str(existing_video),
+            "-filter_complex", filter_graph,
+            "-map", "[outv]",
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-pix_fmt", "yuv420p",
+            "-an",
+            str(output_path),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg cut failed: {result.stderr}")
+
+
+def remux_audio_only(
+    existing_video: Path,
+    audio_clips: list[Path],
+    clip_durations: list[float],
+    segments: list[dict],
+    output_path: Path,
+    tmp_dir: Path,
+    recorded_durations_s: list[float] | None = None,
+) -> None:
+    """Replace the audio track of an existing demo.mp4 with newly-built
+    audio. Picks one of three strategies based on how the new audio
+    compares to the existing per-segment video:
+
+    1. **No overflow anywhere** → fastest path: `-c:v copy`, just swap
+       the audio track.
+    2. **Per-segment overflow** (some segment's new audio is longer
+       than its recorded clean video) → rebuild the video by trimming
+       each segment from `existing_video`, extending overflowing ones
+       with `tpad` (frozen last frame), concatenating, then muxing.
+       Requires `recorded_durations_s`. See issue #37.
+    3. **Global tail overflow** (total audio > total video, but we
+       don't have per-segment durations to know where) → tpad the
+       last frame of the whole video. Same one-shot pad we used
+       before per-segment was an option.
+
+    `recorded_durations_s` is the per-segment clean video durations
+    persisted by #19. When provided, we can detect and fix overflow
+    surgically; otherwise we fall back to the global tail pad.
+    """
+    combined_audio = _build_combined_audio(
+        audio_clips, clip_durations, segments, tmp_dir
+    )
+
+    # Compute per-segment slot durations (matches _build_combined_audio's
+    # logic: each segment occupies max(audio, pause) of the timeline).
+    slot_durations_s = [
+        max(clip_durations[i], (segments[i].get("pause_after_ms") or 0) / 1000)
+        for i in range(len(segments))
+    ]
+
+    # If we have per-segment recorded durations, we can do surgical
+    # per-segment extension. Detect overflow per segment.
+    if recorded_durations_s is not None and len(recorded_durations_s) == len(segments):
+        per_seg_overflow = [
+            slot_durations_s[i] - recorded_durations_s[i]
+            for i in range(len(segments))
+        ]
+        if any(p > 0.05 for p in per_seg_overflow):
+            _remux_with_per_segment_extension(
+                existing_video=existing_video,
+                combined_audio=combined_audio,
+                recorded_durations_s=recorded_durations_s,
+                slot_durations_s=slot_durations_s,
+                output_path=output_path,
+            )
+            return
+        # All segments fit — use cheap copy path below.
+
+    audio_duration = get_audio_duration(combined_audio)
+    video_duration = get_audio_duration(existing_video)
+    pad_seconds = audio_duration - video_duration
+
+    if pad_seconds > 0.05:
+        print(
+            f"  Audio longer than video by {pad_seconds:.2f}s; "
+            f"freezing last frame to match (re-encoding)…"
+        )
+        result = subprocess.run(  # nosec B607
+            [
+                "ffmpeg", "-y",
+                "-i", str(existing_video),
+                "-i", str(combined_audio),
+                "-filter_complex",
+                f"[0:v]tpad=stop_mode=clone:stop_duration={pad_seconds:.3f}[vpad]",
+                "-map", "[vpad]",
+                "-map", "1:a",
+                "-c:v", "libx264",
+                "-preset", "fast",
+                "-pix_fmt", "yuv420p",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                str(output_path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+    else:
+        print("  Re-muxing existing video with new audio (no re-encode)…")
+        result = subprocess.run(  # nosec B607
+            [
+                "ffmpeg", "-y",
+                "-i", str(existing_video),
+                "-i", str(combined_audio),
+                "-map", "0:v",
+                "-map", "1:a",
+                "-c:v", "copy",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                "-shortest",
+                str(output_path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg remux failed: {result.stderr}")
+
+
+def _remux_with_per_segment_extension(
+    existing_video: Path,
+    combined_audio: Path,
+    recorded_durations_s: list[float],
+    slot_durations_s: list[float],
+    output_path: Path,
+) -> None:
+    """Rebuild the video with per-segment trim + tpad-extend + concat,
+    then mux the new audio. Used when at least one segment's audio
+    grew past its recorded video frames. See issue #37."""
+    # Cut points: segment N's clean window in existing_video occupies
+    # [sum(recorded[0..N-1]), sum(recorded[0..N])]. Each segment is
+    # then padded so its output duration matches its audio slot.
+    cursor = 0.0
+    trim_clauses: list[str] = []
+    pad_clauses: list[str] = []
+    concat_inputs: list[str] = []
+    for i, (rec, slot) in enumerate(zip(recorded_durations_s, slot_durations_s)):
+        start = cursor
+        end = cursor + rec
+        cursor = end
+        # Trim segment i from the source video and reset its timestamps.
+        trim_clauses.append(
+            f"[0:v]trim=start={start:.3f}:end={end:.3f},"
+            f"setpts=PTS-STARTPTS[s{i}t]"
+        )
+        # If this segment overflows, freeze the last frame for the
+        # missing duration. Otherwise pass through unchanged.
+        pad = max(0.0, slot - rec)
+        if pad > 0.05:
+            pad_clauses.append(
+                f"[s{i}t]tpad=stop_mode=clone:stop_duration={pad:.3f}[s{i}]"
+            )
+        else:
+            pad_clauses.append(f"[s{i}t]null[s{i}]")
+        concat_inputs.append(f"[s{i}]")
+
+    filter_graph = (
+        ";".join(trim_clauses)
+        + ";"
+        + ";".join(pad_clauses)
+        + ";"
+        + "".join(concat_inputs)
+        + f"concat=n={len(recorded_durations_s)}:v=1:a=0[outv]"
+    )
+
+    total_pad = sum(max(0.0, s - r) for r, s in zip(recorded_durations_s, slot_durations_s))
+    print(
+        f"  Per-segment overflow detected ({total_pad:.2f}s total); "
+        f"rebuilding video with extended segments (re-encoding)…"
+    )
+    result = subprocess.run(  # nosec B607
+        [
+            "ffmpeg", "-y",
+            "-i", str(existing_video),
+            "-i", str(combined_audio),
+            "-filter_complex", filter_graph,
+            "-map", "[outv]",
+            "-map", "1:a",
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            str(output_path),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg per-segment remux failed: {result.stderr}")
+
+
 def _ensure_wav(clip: Path, index: int, tmp_dir: Path) -> Path:
     """Convert an audio clip to WAV if it isn't already."""
     if clip.suffix == ".wav":
@@ -357,26 +687,72 @@ def _ensure_wav(clip: Path, index: int, tmp_dir: Path) -> Path:
 # Action dispatch
 # ---------------------------------------------------------------------------
 
+def _selector_candidates(value) -> list[str]:
+    """Normalize a selector field into a list of candidates. Accepts:
+    - a single string (returns [that string])
+    - a list of strings (filters out empties)
+    - None / empty (returns [])
+
+    See issue #47 — Phase 3 lists fallbacks; Phase 4 emits them as a
+    list; renderer iterates here.
+    """
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [s for s in value if isinstance(s, str) and s]
+    if isinstance(value, str) and value:
+        return [value]
+    return []
+
+
+def _wait_first_match(page, selectors: list[str], *, total_timeout_ms: int = 10000) -> str:
+    """Try each selector in order; return the first that resolves. The
+    total_timeout_ms is divided across candidates (with a 2s minimum
+    per candidate) so a 3-fallback case can't stall for 30s.
+
+    Raises the last selector's error if none resolve.
+    """
+    if not selectors:
+        raise RuntimeError("no selector candidates")
+    per = max(2000, total_timeout_ms // len(selectors))
+    last_err: Exception | None = None
+    for sel in selectors:
+        try:
+            page.wait_for_selector(sel, timeout=per)
+            return sel
+        except Exception as e:
+            last_err = e
+    if last_err is not None:
+        raise last_err
+    raise RuntimeError("unreachable")
+
+
+def _action_click(page, seg: dict) -> None:
+    matched = _wait_first_match(page, _selector_candidates(seg["selector"]))
+    _glide_to(page, matched)
+    page.click(matched)
+
+
+def _action_fill(page, seg: dict) -> None:
+    matched = _wait_first_match(page, _selector_candidates(seg["selector"]))
+    _glide_to(page, matched)
+    page.fill(matched, seg["value"])
+
+
+def _action_hover(page, seg: dict) -> None:
+    matched = _wait_first_match(page, _selector_candidates(seg["selector"]))
+    _glide_to(page, matched)
+    page.hover(matched)
+
+
 # Known actions with explicit argument mapping. Actions not listed here
 # fall back to getattr(page, action) with segment fields as kwargs.
 _ACTION_FIELD_MAP = {
     "navigate": lambda page, seg: _action_navigate(page, seg),
     "goto": lambda page, seg: _action_navigate(page, seg),
-    "click": lambda page, seg: (
-        page.wait_for_selector(seg["selector"], timeout=10000),
-        _glide_to(page, seg["selector"]),
-        page.click(seg["selector"]),
-    ),
-    "fill": lambda page, seg: (
-        page.wait_for_selector(seg["selector"], timeout=10000),
-        _glide_to(page, seg["selector"]),
-        page.fill(seg["selector"], seg["value"]),
-    ),
-    "hover": lambda page, seg: (
-        page.wait_for_selector(seg["selector"], timeout=10000),
-        _glide_to(page, seg["selector"]),
-        page.hover(seg["selector"]),
-    ),
+    "click": _action_click,
+    "fill": _action_fill,
+    "hover": _action_hover,
     "scroll": lambda page, seg: _action_scroll(page, seg),
     "wait": lambda _page, _seg: None,
     "select_option": lambda page, seg: page.select_option(
@@ -437,11 +813,15 @@ def _glide_to(page, selector: str, steps: int = 24) -> None:
 
 
 def _action_navigate(page, seg: dict) -> None:
-    """Handle navigate/goto action with optional wait_for selector."""
+    """Handle navigate/goto action with optional wait_for selector(s).
+
+    `wait_for` may be a string or a list of fallback selectors. The
+    first that resolves wins. See issue #47.
+    """
     page.goto(seg["url"], wait_until="domcontentloaded")
-    wait_selector = seg.get("wait_for")
-    if wait_selector:
-        page.wait_for_selector(wait_selector, timeout=15000)
+    wait_candidates = _selector_candidates(seg.get("wait_for"))
+    if wait_candidates:
+        _wait_first_match(page, wait_candidates, total_timeout_ms=15000)
     else:
         page.wait_for_load_state("load")
         time.sleep(1)
@@ -735,6 +1115,12 @@ def main(argv=None):
         help="Override the script's resolution (e.g. 1920x1080). "
         "Default: 1920x1080 if the script doesn't specify a resolution.",
     )
+    parser.add_argument(
+        "--state-dir",
+        type=Path,
+        default=None,
+        help="Directory to write segment-timing.json (default: <script>/.instantdemo)",
+    )
     args = parser.parse_args(argv)
 
     # Resolve paths
@@ -811,6 +1197,20 @@ def main(argv=None):
         video_path, audio_clips, clip_durations, segments, output_path, tmp_dir,
         timestamps,
     )
+
+    # Phase D: Write per-segment timing for the GUI segments view
+    state_dir = (
+        args.state_dir.resolve()
+        if args.state_dir
+        else script_path.parent / ".instantdemo"
+    )
+    recorded_durations = [end - start for (start, end) in timestamps]
+    _write_segment_timing(
+        state_dir, segments, clip_durations, output_path.name,
+        recorded_durations_s=recorded_durations,
+    )
+    print(f"  Timing: {state_dir / 'segment-timing.json'}")
+
     print(f"\nDone! Output: {output_path}")
     print(f"Temp files at: {tmp_dir}")
 
