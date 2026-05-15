@@ -40,6 +40,19 @@ brew install ffmpeg              # or your platform's equivalent
 
 The `[kokoro]` extra bundles a free, local, high-quality TTS. To swap TTS providers later, see [TTS providers](#tts-providers) below.
 
+### Authentication
+
+InstantDemo shells out to the `claude` CLI via `claude-agent-sdk`, so it uses whatever auth `claude` is using. The CLI's precedence is:
+
+1. `ANTHROPIC_API_KEY` env var, if set → bills against your API account
+2. Otherwise, the OAuth session from `claude login` → bills against your Claude.ai subscription
+
+The free-via-subscription path is the default. If you have `ANTHROPIC_API_KEY` set for other tools (Cursor, Aider, custom scripts), `instantdemo generate` / `phase` / `serve` will print a startup warning so you don't bill the wrong account silently. To opt back into the subscription:
+
+```bash
+unset ANTHROPIC_API_KEY
+```
+
 ### Claude Code skill (optional)
 
 The skill is a thin wrapper around the same `instantdemo` package — it provides a Claude Code-native conversational UX with `AskUserQuestion`-driven checkpoints. After installing the CLI prerequisites above:

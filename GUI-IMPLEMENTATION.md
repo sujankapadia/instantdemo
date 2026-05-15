@@ -226,7 +226,7 @@ already tracked, add to render output.
 
 ---
 
-## M2 — Run phases with SSE streaming (~3–4 days)
+## M2 — Run phases with SSE streaming (~10–15 hours / 6 iterations)
 
 **Goal:** cold-start works end-to-end in the GUI. New project →
 auto-advances through 5 phases → renders video. Live agent output
@@ -238,29 +238,121 @@ Click "New Project" → fill form (URL, source, describe, TTS) → watch
 all 5 phases run with live agent output, render the video at the end.
 Same project the CLI would produce, generated entirely in the GUI.
 
-### Tasks
+### Iterations
 
-1. SSE plumbing: `streaming.py` exposes a callback the phase modules
-   call with each text chunk. SSE endpoint pushes those to the browser.
-2. Modify phase modules to accept a streaming callback (small change
-   — the SDK already streams; we just need to thread the callback in).
-3. Endpoints:
-   - `POST /api/phases/{n}/run` — kicks off phase N, returns run_id
-   - `GET /api/phases/{n}/stream?run_id=...` — SSE stream of output
-   - `POST /api/project/new` — creates project from form data,
-     bootstraps `.instantdemo/`, kicks off Phase 1
-4. Frontend:
-   - "New Project" button in header → modal form
-   - Bottom drawer: agent log with live streaming, cost meter,
-     phase tabs (so you can see Phase 1 output even while Phase 2 runs)
-   - Phase pill status updates via SSE: pending → running → complete
-   - Auto-advance default: when Phase N completes, kick off Phase N+1
-   - Header toggle: "Pause between phases" — when on, requires user
-     to click "Continue" between phases
-5. Cancellation: "Stop" button on running phase. SSE channel closes,
-   backend kills the agent run. (Test the SDK's cancel path.)
+| # | What | ~Time |
+|---|---|---|
+| **12** | `ClaudeSDKClient` migration with per-phase tool dispatcher | 1–2h |
+| **13** | Run infrastructure backend (Pydantic models, `POST /api/runs`, SSE stream, cancel, run registry) | 2–3h |
+| **14** | Frontend run client (fetch+ReadableStream); phase pill animations; drawer streams text; cost ticks | 1.5–2h |
+| **15** | New Project modal + inline empty-state form; cold-start flow end-to-end | 1–1.5h |
+| **16** | Cancel button; per-phase Run/Re-run buttons; auto-advance with server-side pause | 1.5–2h |
+| **17** | Polish: error states, stale indicators, disconnect/reconnect | 1–2h |
 
-### Acceptance
+### Iteration 12 — `ClaudeSDKClient` migration with per-phase tool dispatcher
+
+Replaces `query()` per phase with a long-lived `ClaudeSDKClient`
+that's reused across all phases. Cold-start cost paid once (~5s)
+instead of 5× (~25–50s). Cancellation via `client.interrupt()` is
+near-instant (vs. `asyncio.cancel`'s ~6s).
+
+**Critical detail: per-phase tool allowlists must be preserved.**
+
+Today each phase has a different `allowed_tools` set (Phase 1: Read /
+Glob / Grep, Phase 2: empty, Phase 4: Write, Phase 5: Read / Bash).
+Those are set on `ClaudeAgentOptions` per `query()` call. With a
+shared client, options are set once at construction time — if we use
+the union as a permissive allowlist, Phase 2 gains tool access it
+doesn't have today, which could change narration character (more
+tokens, less determinism, possibly different output).
+
+Mitigation: use the SDK's `can_use_tool` callback to dispatch by
+`session_id` (phase number). Preserves current behavior exactly:
+
+```python
+async def can_use_tool(tool_name, input, ctx):
+    phase = ctx.session_id  # "phase1", "phase2", etc.
+    if tool_name in PHASE_TOOLS.get(phase, set()):
+        return PermissionResultAllow()
+    return PermissionResultDeny(message=f"{phase} cannot use {tool_name}")
+```
+
+**Iteration 12 acceptance:**
+- [ ] New `src/instantdemo/agent_client.py` (or similar) constructs
+      one `ClaudeSDKClient` with the union allowlist + `can_use_tool`
+      dispatcher
+- [ ] Each phase module accepts a client argument; calls
+      `client.query(prompt, session_id=f"phase{n}")` instead of `query(...)`
+- [ ] CLI creates one client at run start, passes through to all
+      phases, disconnects at end
+- [ ] Per-phase tool allowlists enforced via callback
+- [ ] CLI behavior verified unchanged: re-run a phase against
+      `claude-code-analytics`, compare output / cost / token counts
+      to a `query()`-based run
+- [ ] Cancellation path uses `client.interrupt()` (used by M2's
+      stop button later)
+
+### Iteration 13 — Run infrastructure backend
+
+- Pydantic models: `RunRequest`, `RunStatus`, run event types
+- `POST /api/runs` — accepts `{phases: [1..5], url, source, describe, tts}`,
+  returns `{run_id}`, kicks off background task
+- `GET /api/runs/{id}/stream` — SSE stream of typed events
+- `POST /api/runs/{id}/cancel` — calls `client.interrupt()`
+- Run registry in server state; lifecycle tied to FastAPI lifespan
+- `state.json.current_run` field added; cleared on completion
+- Background task runs phases sequentially, emits typed SSE events
+
+Event types (single discriminated union):
+
+```ts
+| { type: 'phase_started';  phase, ts }
+| { type: 'text_chunk';     phase, text }
+| { type: 'tool_use';       phase, tool, input }
+| { type: 'phase_progress'; phase, cost_usd, tokens }
+| { type: 'phase_complete'; phase, cost_usd, duration_ms }
+| { type: 'phase_error';    phase, error }
+| { type: 'paused';         next_phase }
+| { type: 'run_complete';   total_cost_usd }
+| { type: 'run_canceled' }
+```
+
+### Iteration 14 — Frontend run client + live updates
+
+- `frontend/src/api/runs.ts` — start a run, parse the SSE stream
+  via fetch + ReadableStream
+- `frontend/src/hooks/useRun.ts` — subscribes to events, exposes
+  current state to consumers
+- Phase pill animations: pending → running (blue spinner) → complete
+- Drawer auto-opens on run start, streams text chunks, scrolls
+  to bottom, per-phase tabs
+- Cost meter in header ticks live across phases
+
+### Iteration 15 — New Project flow
+
+- Modal form (header button) and inline form (empty-state)
+- URL + source + describe + tts + voice + resolution fields
+- Submit calls `POST /api/runs` with `phases: [1..5]`
+- After successful run, project view populates (artifacts + segments
+  + video flow in via the existing M1 viewers)
+
+### Iteration 16 — Run controls
+
+- Stop button in header during runs (calls cancel endpoint)
+- Per-phase "Run" / "Re-run" button in the phase rail (kicks off a
+  run with `phases: [n]`)
+- Auto-advance default: server runs phases sequentially in one run
+- Pause-between-phases toggle: server emits `paused` event between
+  phases when on; user clicks "Continue" → `POST /api/runs/{id}/continue`
+
+### Iteration 17 — Polish
+
+- Phase error: red banner in drawer + retry button on failed phase
+- Stale indicators on downstream phases when only some have re-run
+- Disconnect/reconnect handling (browser refresh mid-run)
+- Empty-state polish
+
+### M2 acceptance (overall)
 
 - [ ] New project from scratch in the GUI produces the same output as
       the CLI
@@ -268,15 +360,17 @@ Same project the CLI would produce, generated entirely in the GUI.
 - [ ] Phase pills update status in real time
 - [ ] Auto-advance works through all 5 phases
 - [ ] Pause toggle works — phases stop until user clicks Continue
-- [ ] Cancel mid-phase works (SDK cancellation, log shows aborted)
+- [ ] Cancel mid-phase works (`client.interrupt()` returns control
+      within ~1s)
 
-### Risk
+### Resolved risk (was: SDK semantics)
 
-The SDK's streaming callback API and cancellation semantics need
-verification. **Spike before committing to the architecture** — write
-a 50-line script that calls `query()` with a callback and a cancel
-token. If those don't work cleanly, we may need to fall back to
-subprocess shell-out (rejected in G1, but may be forced).
+The SDK spike (commits c5462fa-era) confirmed `query()` returns an
+`AsyncIterator`, `include_partial_messages=True` enables per-token
+streaming via `StreamEvent`, and `asyncio.cancel` works (slowly).
+A follow-up spike confirmed `ClaudeSDKClient` amortizes cold-start
+and `client.interrupt()` is near-instant. M2 architecture stands;
+G3 migration is now Iteration 12.
 
 ---
 

@@ -27,7 +27,9 @@ that `instantdemo render --help` shows the renderer's own help text.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
+import uuid
 from pathlib import Path
 
 from instantdemo import __version__
@@ -42,22 +44,57 @@ from .phases import (
 TTS_CHOICES = ("kokoro", "google", "elevenlabs", "piper")
 
 
+def _warn_about_api_key() -> None:
+    """Print a warning if ANTHROPIC_API_KEY is set.
+
+    The claude-agent-sdk subprocesses inherit our env, and the `claude`
+    CLI prefers ANTHROPIC_API_KEY over its OAuth session. Users who
+    set the key globally for other tools (Cursor, Aider, etc.) will
+    silently bill against API credit instead of their Claude.ai
+    subscription, which contradicts the project's "free local
+    generation via your subscription" pitch. See issue #15.
+    """
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        print(
+            "WARNING: ANTHROPIC_API_KEY is set in your environment.\n"
+            "         Runs will bill against your API account, not your\n"
+            "         Claude.ai subscription. To use the subscription:\n"
+            "             unset ANTHROPIC_API_KEY",
+            file=sys.stderr,
+        )
+
+
 def _resolve_context(args: argparse.Namespace) -> Context:
     """Build a Context from parsed CLI args."""
+    from . import intent as intent_mod
+
     source = Path(args.source).resolve() if args.source else Path.cwd()
     state_dir = source / ".instantdemo"
     if args.output:
         output = Path(args.output).resolve()
     else:
         output = source / "demo.mp4"
+    # Load intent.json from project root if present, else synthesize
+    # from --describe. CLI users haven't typically interacted with
+    # intent yet (#39 is GUI-first), so synthesize-from-describe is
+    # the common path.
+    intent_obj = intent_mod.load_or_synthesize(source, args.describe)
     return Context(
         url=args.url,
         source=source,
+        # CLI convention: project and source are the same directory.
+        # The GUI passes separate paths via runs.py.
+        project=source,
         describe=args.describe,
         state_dir=state_dir,
         output=output,
         tts=args.tts,
         no_edit=args.no_edit,
+        intent=intent_obj,
+        # Fresh UUID per CLI invocation so each `instantdemo generate`
+        # or `instantdemo phase` run gets isolated per-phase SDK
+        # sessions. See #53.
+        run_id=str(uuid.uuid4()),
     )
 
 
@@ -106,9 +143,10 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Subcommands:\n"
-            "  generate  Run all 5 phases end-to-end (analyze → render)\n"
+            "  generate  Run all 6 phases end-to-end (analyze → render)\n"
             "  phase N   Run a single phase by number (1..5)\n"
             "  render    Render an MP4 from a demo-script.json\n"
+            "  serve     Start the GUI server (requires `instantdemo[gui]`)\n"
             "\n"
             "Use `instantdemo <subcommand> --help` for subcommand flags.\n"
         ),
@@ -125,7 +163,7 @@ def build_parser() -> argparse.ArgumentParser:
     generate = subparsers.add_parser(
         "generate",
         help="Run the full 5-phase workflow end-to-end",
-        description="Run all 5 phases end-to-end with optional $EDITOR checkpoints.",
+        description="Run all 6 phases end-to-end with optional $EDITOR checkpoints.",
     )
     _add_common_flags(generate)
     generate.add_argument(
@@ -152,43 +190,64 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_common_flags(phase)
 
+    # serve (GUI)
+    serve = subparsers.add_parser(
+        "serve",
+        help="Start the GUI server (requires `instantdemo[gui]`)",
+        description="Start the GUI on http://127.0.0.1:8765",
+    )
+    serve.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Host to bind (default: 127.0.0.1)",
+    )
+    serve.add_argument(
+        "--port",
+        type=int,
+        default=8765,
+        help="Port to bind (default: 8765)",
+    )
+    serve.add_argument(
+        "--reload",
+        action="store_true",
+        help="Auto-reload on code changes (development only)",
+    )
+    serve.add_argument(
+        "--project",
+        type=Path,
+        default=None,
+        help="Project directory to serve (default: current directory)",
+    )
+    serve.add_argument(
+        "--no-open",
+        action="store_true",
+        help="Don't open the browser automatically",
+    )
+
     return parser
 
 
 def _import_phase_runner(number: int):
-    """Lazy-import the phase module's run() so a missing optional dep
-    doesn't blow up the whole CLI at startup."""
-    name = phase_name_from_number(number)
-    if name == "analyze":
-        from .phases import analyze
-        return analyze.run
-    if name == "narrate":
-        from .phases import narrate
-        return narrate.run
-    if name == "gather":
-        from .phases import gather
-        return gather.run
-    if name == "script":
-        from .phases import script
-        return script.run
-    if name == "validate":
-        from .phases import validate
-        return validate.run
-    raise AssertionError(f"unreachable: phase {name}")  # pragma: no cover
+    """Thin alias for `phases.get_phase_runner` so callers below keep
+    their original name. The actual dispatch lives in phases/__init__.py
+    as the single source of truth — see that module if you're adding
+    a new phase."""
+    from .phases import get_phase_runner
+    return get_phase_runner(number)
 
 
-# Phase 5 invokes the renderer; there's nothing to review afterwards.
-# The pre-render review (when real Phase 5 lands) happens inside the
-# phase itself, between validation and the render call.
-PHASES_WITH_REVIEW = (1, 2, 3, 4)
+# Phase 6 invokes the renderer; there's nothing to review afterwards.
+# Every other phase gets an $EDITOR checkpoint between agent run and
+# the next phase, so users can adjust before committing downstream.
+PHASES_WITH_REVIEW = (1, 2, 3, 4, 5)
 
 
-def _run_phase(number: int, context: Context) -> None:
+async def _run_phase(number: int, context: Context) -> None:
     name = phase_name_from_number(number)
     print(f"\n=== Phase {number}: {name} ===")
     runner = _import_phase_runner(number)
     with state.phase_run(context.state_dir, number):
-        runner(context)
+        await runner(context)
     if number in PHASES_WITH_REVIEW:
         artifact = context.phase_artifact(number)
         checkpoints.review(artifact, no_edit=context.no_edit)
@@ -202,19 +261,92 @@ def _init_state(context: Context) -> None:
     state.save(context.state_dir, s)
 
 
+async def _run_phases_with_client(
+    context: Context, phase_numbers: list[int]
+) -> None:
+    """Connect a single ClaudeSDKClient and run the requested phases
+    sequentially against it. Cold-start cost is paid once at connect()
+    instead of per-phase, and per-phase tool allowlists are preserved
+    via the PreToolUse hook dispatcher set up in agent_client."""
+    from .agent_client import make_agent_client
+
+    client, dispatcher = make_agent_client(cwd=str(context.source))
+    await client.connect()
+    context.client = client
+    context.dispatcher = dispatcher
+    try:
+        for n in phase_numbers:
+            await _run_phase(n, context)
+    finally:
+        try:
+            await client.disconnect()
+        finally:
+            context.client = None
+            context.dispatcher = None
+
+
 def cmd_generate(args: argparse.Namespace) -> int:
+    import asyncio
+
+    _warn_about_api_key()
     context = _resolve_context(args)
     _init_state(context)
-    for n in range(args.from_phase, len(PHASES) + 1):
-        _run_phase(n, context)
+    phase_numbers = list(range(args.from_phase, len(PHASES) + 1))
+    asyncio.run(_run_phases_with_client(context, phase_numbers))
     print("\nDone.")
     return 0
 
 
 def cmd_phase(args: argparse.Namespace) -> int:
+    import asyncio
+
+    _warn_about_api_key()
     context = _resolve_context(args)
     _init_state(context)
-    _run_phase(args.number, context)
+    asyncio.run(_run_phases_with_client(context, [args.number]))
+    return 0
+
+
+def cmd_serve(args: argparse.Namespace) -> int:
+    _warn_about_api_key()
+    try:
+        import threading
+        import time
+        import webbrowser
+        import uvicorn
+    except ImportError:
+        print(
+            "Error: GUI dependencies not installed. Install with:\n"
+            "  pip install 'instantdemo[gui]'",
+            file=sys.stderr,
+        )
+        return 1
+    if args.project is not None:
+        project_path = Path(args.project).resolve()
+        if not project_path.is_dir():
+            print(f"Error: --project path is not a directory: {project_path}", file=sys.stderr)
+            return 1
+        os.environ["INSTANTDEMO_PROJECT_DIR"] = str(project_path)
+        print(f"Project directory: {project_path}")
+    url = f"http://{args.host}:{args.port}"
+    print(f"InstantDemo GUI: {url}")
+    if not args.no_open and not args.reload:
+        # Defer the open() call so uvicorn has time to bind the port.
+        # Skipped under --reload because the worker restarts repeatedly.
+        def _open_later() -> None:
+            time.sleep(1.0)
+            try:
+                webbrowser.open(url)
+            except Exception:  # pragma: no cover
+                pass
+        threading.Thread(target=_open_later, daemon=True).start()
+    uvicorn.run(
+        "instantdemo.server.app:app",
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
+        log_level="info",
+    )
     return 0
 
 
@@ -236,6 +368,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_generate(args)
         if args.command == "phase":
             return cmd_phase(args)
+        if args.command == "serve":
+            return cmd_serve(args)
     except RuntimeError as e:
         # Phase runners raise RuntimeError for known user-facing issues
         # (e.g. missing prior-phase artifact). Print without the traceback.

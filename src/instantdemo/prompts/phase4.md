@@ -1,98 +1,272 @@
-Translate the technical plan above into a `demo-script.json` file that
-the renderer can consume. Use the schema below.
+Run a full end-to-end dress rehearsal of the demo against the live app.
 
-## Top-level structure
+Phase 3 produced a per-segment plan with selectors derived from
+source code. Your job is to **walk every segment in sequence as
+the renderer will**, observe what actually happens at each step,
+and refine the plan so the recording in Phase 6 plays back
+cleanly. You are NOT redoing source analysis — Phase 3's plan is
+the starting hypothesis.
+
+You have `Read` (to consult Phase 3's plan, prior phase artifacts,
+and — sparingly — source for context) and `Bash` (to write a
+Playwright rehearsal script via heredoc and run it). You do NOT
+have Write — Phase 5 (Build) emits the JSON.
+
+### Inputs
+
+- The Phase 3 plan is at the path noted above. Read it first.
+- The app is running at the URL noted above.
+- The user's intent (audience, tone, length, focus, excludes, addenda)
+  is in `intent.json` if it exists — read it. Any narration changes
+  you make must stay within these constraints.
+
+### Workflow
+
+1. **Write one end-to-end rehearsal script** that walks every
+   segment in order, exactly as the renderer in Phase 6 will.
+
+   Use `sync_playwright`. For each segment, perform the segment's
+   action against the segment's selector, observe the result, then
+   advance to the next. Do NOT group segments by page or probe
+   pages independently — the value of the rehearsal is observing
+   what happens *between* segments (transitions, layout shifts,
+   redirects, state changes that affect later selectors).
+
+   The script should print observations as it goes — JSON-per-line
+   to stdout is fine. For each segment capture:
+
+   - `index` (1-based)
+   - `action` (the action attempted)
+   - `selector_attempted` (Phase 3's primary)
+   - `selector_resolved` (may differ if a fallback was used)
+   - `wait_outcome` — e.g., `resolved_in_1200ms` or
+     `timeout_after_10s`
+   - `post_action_state`:
+     - `url` (current `page.url`)
+     - `title` (current `page.title()`)
+     - `console_errors` (any console errors logged since last
+       segment — register a handler at script start)
+     - `key_elements` — narrative-relevant content the next
+       segment or narration claim references. For example, if
+       the narrative says "the running sessions list", record
+       how many items resolve. This is the data narration
+       regrounding will use.
+   - `timing_ms` — observed action-to-DOM-settled time
+
+   Use `page.wait_for_selector(selector, timeout=10000)`, never
+   `query_selector`. SPA pages populate the DOM via SSE / fetch
+   / lazy loading; a synchronous `query_selector` returning None
+   doesn't mean missing, just "not yet". A 10s
+   `wait_for_selector` timeout is what genuine missing looks
+   like.
+
+2. **Apply Phase 3's listed fallbacks when the primary fails.**
+   Phase 3 lists 1-2 fallbacks per segment in the Notes line.
+   If the primary's `wait_for_selector` times out, try each
+   fallback in order. If one resolves, swap it in as the new
+   primary and continue.
+
+3. **Read the trace and decide what to revise.** You have three
+   levels of authority (see "Authority levels" below). Apply
+   the revisions in your output. If issues exceed your authority,
+   surface as FAIL_* with a humanized suggestion (per "Suggestion
+   rules" below).
+
+4. **Re-run the rehearsal if needed.** You may run the script
+   up to 3 times total (the runner enforces this). If a revision
+   resolves the issue, the next rehearsal should observe a clean
+   pass. If the same failures recur across iterations, mark them
+   FAIL and stop — re-running won't help.
+
+5. **Rehearsal scripts are throwaway**. The recording in Phase 6
+   is independent. Keep the script focused: walk segments, print
+   observations, exit cleanly.
+
+### Authority levels — what you can revise
+
+**Level 1 — Mechanical (no narration changes).** Always allowed.
+
+- Selector swap when the primary fails and a Phase 3 fallback
+  works — record as PASS with `selector_swapped: true`
+- Timing adjustment: increase `pause_after_ms` if you observed
+  the next action's `wait_for` racing against the previous
+  action's effect
+- Wait-condition refinement: replace `wait_for: domcontentloaded`
+  with a specific selector when the page renders async, etc.
+
+**Level 2 — Narration regrounding.** Allowed within the user's
+`intent` constraints.
+
+When you observe that the narration's specific claims don't
+match the live state — e.g., the narrative says "5 active
+sessions" and you observed 2 — rewrite the narration to match
+what was observed.
+
+Rules:
+- Stay within the segment's *intent* (same purpose, same beat
+  in the demo flow)
+- Stay within the user's `intent.json` constraints — preserve
+  audience (technical vs non-technical), tone (casual vs formal),
+  length (don't expand a short narration into a long one or
+  vice versa), and never re-introduce material the user listed
+  in `intent.excludes`
+- Drop overclaim, don't replace it with a different overclaim.
+  "5 active sessions" observed as 2 → rewrite as "the active
+  sessions list" or "each session that's currently running",
+  not "2 active sessions" (the count will be different at
+  recording time)
+- When in doubt, drop the specific claim — a shorter accurate
+  narration beats a longer embellished one
+
+Record narration changes as PASS with:
+- `narration_revised: true`
+- `narration_from: <original>`
+- `narration_to: <replacement>`
+
+**Level 3 — Structural changes. NOT in your authority.**
+
+The following stay BLOCKED with a humanized suggestion:
+- Dropping a segment that has nothing to show
+- Adding a segment to cover a transition
+- Reordering segments
+- Changing the demo's overall arc
+
+If you observe one of these is needed, mark the relevant
+segment FAIL_NARRATIVE (when the issue is "the narrative
+references something not present") or FAIL_SELECTOR (when no
+element exists for the segment to operate on), with a
+suggestion telling the user what to do (e.g., "Open Regenerate
+and add 'X' to the Exclude field"). The runner halts; the
+user makes the structural call.
+
+### Output
+
+Your response is the full Phase 4 report — the runner saves it
+to `phase4.md`. You don't have a Write tool; the response text
+IS the artifact.
+
+**The response has two parts, in order:**
+
+#### Part 1 — Structured findings (machine-readable)
+
+Begin your response with a fenced JSON code block. The runner
+parses this to decide whether the pipeline continues:
 
 ```json
 {
-  "title": "Demo Title",
-  "resolution": { "width": 1280, "height": 720 },
-  "segments": [
-    /* one object per segment */
-  ]
-}
-```
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `title` | string | No | Display name (informational). Pull from the narrative title. |
-| `resolution` | object | Yes | Always `{ "width": 1280, "height": 720 }` unless told otherwise. |
-| `segments` | array | Yes | Ordered list of segment objects. |
-
-## Common segment fields (every segment)
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `narration` | string | Yes | TTS text. Use `""` for silent segments. |
-| `action` | string | Yes | Playwright `page` method name (see below). |
-| `pause_after_ms` | number | No | Minimum dwell time. Final duration = `max(audio_duration, pause_after_ms)`. |
-
-## Per-action fields
-
-| Action | Required | Optional | Notes |
-|---|---|---|---|
-| `goto` (alias `navigate`) | `url` | `wait_for` | `wait_for` is a CSS selector; use it for SSE/SPA pages instead of `networkidle`. |
-| `click` | `selector` | — | First match wins (10s timeout). |
-| `fill` | `selector`, `value` | — | Sets input text. |
-| `hover` | `selector` | — | — |
-| `scroll` | `pixels` | — | Scrolls the page viewport (`window.scrollBy(0, pixels)`). For in-container scroll, use `evaluate`. |
-| `evaluate` | `expression` | — | Runs arbitrary JavaScript. Useful for in-container scrolls. |
-| `wait` | — | — | No browser action; narration plays over the static frame. |
-| Other (`select_option`, `press`, `check`, ...) | varies | varies | Any Playwright `page` method works; extra fields pass through as kwargs. |
-
-## Worked example (small)
-
-```json
-{
-  "title": "Active Sessions Demo",
-  "resolution": { "width": 1280, "height": 720 },
+  "summary": {
+    "total": <total segment count>,
+    "pass": <count of PASS segments>,
+    "fail_selector": <count of FAIL_SELECTOR segments>,
+    "fail_narrative": <count of FAIL_NARRATIVE segments>,
+    "warn": <count of WARN segments>,
+    "overall": "OK" | "BLOCKED"
+  },
   "segments": [
     {
-      "narration": "Claude Code Analytics gives you a live view of running sessions.",
-      "action": "goto",
-      "url": "http://localhost:8000/active",
-      "wait_for": "a[href*='/sessions/']",
-      "pause_after_ms": 1000
-    },
-    {
-      "narration": "Each card shows the project, duration, and recent messages.",
-      "action": "wait",
-      "pause_after_ms": 2000
-    },
-    {
-      "narration": "Click any card to open the conversation viewer.",
-      "action": "click",
-      "selector": "a[href*='/sessions/']",
-      "pause_after_ms": 1500
+      "index": <segment number, 1-based>,
+      "status": "PASS" | "FAIL_SELECTOR" | "FAIL_NARRATIVE" | "WARN",
+      "reason": "<technical observation — what you found on the live app, written for a developer reviewing the report>",
+      "suggestion": "<for FAIL_*: USER-FACING fix — see Suggestion rules below; omit for PASS/WARN>",
+      "selector_swapped": <true if you replaced Phase 3's primary; omit if not>,
+      "from": "<Phase 3's original primary; only when selector_swapped>",
+      "to": "<your replacement; only when selector_swapped>",
+      "narration_revised": <true if you regrounded narration; omit if not>,
+      "narration_from": "<original narration; only when narration_revised>",
+      "narration_to": "<replacement narration; only when narration_revised>"
     }
   ]
 }
 ```
 
-## JSON quoting gotcha for `evaluate`
+**Status rules:**
 
-The `expression` value lives inside a JSON string, so its inner quotes
-have to play nicely:
+- `PASS`: the rehearsal walked through this segment cleanly —
+  the selector resolved, the action succeeded, and the narration
+  (after any regrounding) matches what was observed. A successful
+  selector swap (PASS + `selector_swapped: true`) or narration
+  regrounding (PASS + `narration_revised: true`) is still PASS.
+  These are fixes within your authority, not warnings.
+- `FAIL_SELECTOR`: the selector doesn't resolve on the live app
+  (10s `wait_for_selector` timeout, all Phase 3 fallbacks tried).
+  Or: an earlier segment's action broke a later segment's
+  selector (state changed in a way Phase 3 couldn't predict).
+- `FAIL_NARRATIVE`: the selector resolves but the resolved
+  element doesn't match the narrative, and the mismatch can't
+  be fixed by regrounding alone — e.g., the narrative references
+  a feature that's broken on the live app, or content that
+  doesn't exist for structural reasons (no seed data, wrong
+  page state).
+- `WARN`: works but the user should know — flaky timing,
+  borderline selector, intermittent console errors that didn't
+  break execution. Reserved for genuine concerns; not for "I
+  had to swap a selector" or "I rewrote the narration" (those
+  are PASS).
 
-- Prefer unquoted attribute selectors: `[data-testid=conversation-scroll]`
-- Or escape double quotes: `[data-testid=\"conversation-scroll\"]`
-- Avoid single quotes around attribute values — they work in JavaScript
-  but produce noisy nested-quoting in JSON.
+**Suggestion rules** (`suggestion` field, FAIL_* only):
 
-## Translation rules
+The `suggestion` text is shown verbatim to a non-technical user
+in the GUI. Write it for that audience:
 
-- **One JSON segment per technical-plan segment.** If the plan expands a
-  step into sub-steps (e.g. "9a / 9b / 9c / 9d" for a multi-step dialog),
-  flatten them into consecutive JSON segments. Re-number is fine — the
-  renderer doesn't care about segment numbers, only order.
-- **Field name mapping**: the plan uses Title-Case headings (`Selector`,
-  `wait_for`, `Pixels`, `Expression`, `pause_after_ms`). The JSON uses
-  lowercase: `selector`, `wait_for`, `pixels`, `expression`, `pause_after_ms`.
-- **Skip irrelevant fields**: only include fields that apply to the
-  segment's action (don't add `selector` to a `wait` segment, etc.).
-- **Notes from the plan stay out of the JSON.** Those are for human
-  reviewers, not the renderer.
-- **Narration**: copy verbatim from the plan. If the plan says "(silent)",
-  use an empty string `""`.
+- Describe what the user should DO, in plain language. Avoid
+  internal terms like "segment", "selector", "wait_for",
+  "narrate", "DOM", or specific CSS / Playwright syntax. The
+  technical detail belongs in `reason`, not `suggestion`.
+- Frame fixes in terms of the GUI actions actually available:
+  - **Seed data**: "Run the app long enough for X to appear",
+    "Create a Y in the app, then regenerate."
+  - **Adjust the intent / scope**: "Open Regenerate and add
+    'Recently ended sessions' to the Exclude field so the demo
+    skips that part."
+  - **Reword the goal**: "Open Regenerate and rewrite the goal
+    to focus on the parts of the app you want to show, without
+    referencing X."
+- One short paragraph, two sentences max. No bullet lists, no
+  code. The triage panel shows this text directly.
 
-Use the Write tool to write the JSON to the path the user specified.
+Example contrast:
+
+- **Bad** (developer-y): "Drop Segment 6 from the demo and
+  re-narrate Segment 7 to bridge to the click-through. The
+  scrollBy is a no-op since scrollHeight=clientHeight."
+- **Good** (user-facing): "The 'Recently ended sessions' part
+  of the demo can't be shown because none ended in the last 2
+  hours. Either wait for one to end (or end one yourself),
+  then regenerate; or open Regenerate and add 'Recently ended
+  sessions' to the Exclude field so the demo skips that part."
+
+**Overall rules:**
+
+- `BLOCKED` if `fail_selector + fail_narrative >= 1`.
+- `OK` otherwise (all PASS / WARN).
+
+There is no PARTIAL outcome. The pipeline either has all the
+information it needs to produce a real demo, or it doesn't and
+the user needs to address the failures before continuing.
+
+#### Part 2 — Human-readable per-segment report
+
+After the JSON block, write the per-segment markdown report
+in this format:
+
+```
+### Segment N — [title]
+- **Action:** <unchanged>
+- **Narration:** "[verified — original, or regrounded]"
+- **URL:** <unchanged for goto>
+- **Selector:** <verified — may be the original or a Phase 3
+  fallback that was swapped in>
+- **wait_for:** <verified>
+- **pause_after_ms:** <verified — may be adjusted from observed timing>
+- **Verified:** PASS | FAIL_SELECTOR | FAIL_NARRATIVE | WARN —
+  <one-line observation from the rehearsal>
+- **Notes:** <retained from Phase 3; add live-data observations
+  here, plus a brief note when narration was regrounded
+  (e.g., "Narration regrounded: observed 2 sessions, dropped
+  the '5 sessions' claim"). For FAIL_*: include the user-facing
+  suggestion here as well.>
+```
+
+The two parts MUST agree — the per-segment statuses in the JSON
+must match the `Verified:` lines in the markdown. The JSON is
+the machine contract; the markdown is the human view.

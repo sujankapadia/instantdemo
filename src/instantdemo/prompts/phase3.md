@@ -3,13 +3,67 @@ needed to render the demo against the live app. Read the frontend source
 (components, routes, layouts) to identify stable selectors and the right
 wait conditions.
 
-**Selectors** (in order of preference):
-1. `data-testid` attributes — most stable
-2. `aria-label` or `role` attributes — semantic and stable
-3. Semantic HTML (`button[type='submit']`, `a[href*='/dashboard']`) — usually stable
-4. Avoid: generated class names (`.css-1a2b3c`, `.MuiButton-root`)
+**Selectors — find them in the source, don't infer them.**
 
-When the same element can be matched several ways, prefer the most stable.
+A file or component named `conversation-viewer.tsx` does NOT mean
+the rendered element has `data-testid="conversation-viewer"`.
+Component names are conventions; the rendered attribute values
+are the contract Playwright sees.
+
+### Step 1: project-level convention survey (do ONCE, upfront)
+
+Before working through individual segments, run a small set of
+broad greps to learn what this project uses. You're looking for
+patterns, not exhaustive lists:
+
+- Test ID convention: `rg "data-testid=" -c` and same for
+  `data-test=`, `data-cy=`, `data-qa=`. Whichever has the most
+  hits is the project's convention. If all are zero, the
+  project doesn't use test IDs.
+- Whether ARIA labels / role attributes are widely used (one
+  count grep each is enough).
+
+Record the result as a one-line note at the top of your output,
+e.g.:
+
+> Selector conventions in this project: `data-testid` (47 hits),
+> ARIA labels used sparingly, route-based href links throughout.
+
+**Do not repeat these broad scans per segment.** Once you know
+the convention, use it directly.
+
+### Step 2: per-segment selector lookup (efficient)
+
+For each segment, use the conventions established above.
+Prefer this order, but **stop as soon as you have a stable,
+grep-verified match** — don't try every strategy:
+
+1. **The project's test-ID convention** — if it exists, grep
+   for the specific attribute literal in the component file
+   most likely to render this segment's target. One focused
+   grep, not a project-wide scan.
+2. **Hrefs / URLs / text content** — `href="/..."` literals,
+   `:has-text("Active Sessions")`. Stable for nav links and
+   labeled buttons.
+3. **ARIA / semantic attributes** — `aria-label=`, `role=`,
+   accessible names.
+4. **Structural CSS** as a last resort — `main h1`,
+   `nav a:first-child`. Avoid generated class names
+   (`.css-1a2b3c`, `.MuiButton-root`) — they change on every
+   build.
+
+If you can't find evidence in the source for any strategy
+after a focused look, say so in one line of Notes — Phase 5
+will probe the live app to fill the gap.
+
+For each segment, include **one or two fallback selectors** you
+believe could work. These don't need exhaustive verification —
+they're hints for Phase 5's recovery path. Single-line notes
+are enough.
+
+**Be efficient.** A useful Phase 3 produces correct selectors
+in a few grep-and-read passes per segment, not a full codebase
+scan each time.
 
 **Wait conditions**:
 - For `goto` / `navigate`, what indicates the page is ready? An element
