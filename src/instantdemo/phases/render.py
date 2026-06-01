@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 
 from .. import prompts
 from ..agent_client import session_id_for_phase
@@ -111,6 +112,11 @@ async def run(context: Context) -> None:
     artifact = context.phase_artifact(6)
     artifact.parent.mkdir(parents=True, exist_ok=True)
 
+    # Track the true phase wall-clock — drift check + (when not BLOCKED)
+    # the executor that runs the renderer. See issue #55: the SDK's
+    # `result.duration_ms` only covers the agent query.
+    phase_start = time.monotonic()
+
     report_text, result = await _run_drift_check(context)
 
     if result is None:
@@ -119,11 +125,14 @@ async def run(context: Context) -> None:
         )
 
     artifact.write_text(report_text + "\n")
-    record_phase_result(context, 6, result)
-    print(summarize_run(6, artifact, result))
 
     directive, reason = _parse_directive(report_text)
+
     if directive == "RENDER_BLOCKED":
+        # The drift check is the whole phase here — no executor.
+        phase_duration_ms = int((time.monotonic() - phase_start) * 1000)
+        record_phase_result(context, 6, result, duration_ms=phase_duration_ms)
+        print(summarize_run(6, artifact, result, duration_ms=phase_duration_ms))
         raise RuntimeError(
             f"Phase 6 blocked the render. Reason: {reason or '(none given)'}\n"
             f"See {artifact} for the full report."
@@ -137,4 +146,13 @@ async def run(context: Context) -> None:
     # current loop is the one driving `asyncio.run(...)` — same
     # offload pattern is safe there too. See issue #33.
     loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, _invoke_renderer, context)
+    try:
+        await loop.run_in_executor(None, _invoke_renderer, context)
+    finally:
+        # Record AFTER the executor so duration_ms reflects the true
+        # phase wall-clock. The try/finally guarantees we still record
+        # if the renderer raises (e.g. ffmpeg failure, Playwright
+        # crash) so the failed phase's metrics are preserved.
+        phase_duration_ms = int((time.monotonic() - phase_start) * 1000)
+        record_phase_result(context, 6, result, duration_ms=phase_duration_ms)
+        print(summarize_run(6, artifact, result, duration_ms=phase_duration_ms))
