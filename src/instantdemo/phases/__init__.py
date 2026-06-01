@@ -320,7 +320,11 @@ async def run_query_on_client(
 
 
 def record_phase_result(
-    context: "Context", phase_number: int, result: "ResultMessage"
+    context: "Context",
+    phase_number: int,
+    result: "ResultMessage",
+    *,
+    duration_ms: int | None = None,
 ) -> None:
     """Capture metrics from a query() ResultMessage.
 
@@ -334,6 +338,14 @@ def record_phase_result(
     same phase would otherwise inflate the recorded cost. We subtract
     the previously-seen total (tracked per session_id in the
     dispatcher) to get the per-run cost. See issue #45.
+
+    `duration_ms` is the recorded **phase wall-clock**. When the caller
+    passes None (the default), we fall back to the SDK's per-query
+    measurement (`result.duration_ms`) — correct for phases whose only
+    work is the agent query. For phases that do additional work after
+    the agent returns (Phase 6 runs the renderer in an executor),
+    callers MUST pass the measured phase wall-clock so this field
+    reflects what the phase actually took. See issue #55.
     """
     state_dir = context.state_dir
     dispatcher = context.dispatcher
@@ -352,7 +364,7 @@ def record_phase_result(
     usage = result.usage or {}
     fields = {
         "cost_usd": delta,
-        "duration_ms": result.duration_ms,
+        "duration_ms": duration_ms if duration_ms is not None else result.duration_ms,
         "duration_api_ms": result.duration_api_ms,
         "num_turns": result.num_turns,
         "is_error": result.is_error,
@@ -378,10 +390,23 @@ def record_phase_result(
     )
 
 
-def summarize_run(phase_number: int, artifact: Path, result: "ResultMessage") -> str:
-    """Format the per-phase one-liner shown after a successful run."""
+def summarize_run(
+    phase_number: int,
+    artifact: Path,
+    result: "ResultMessage",
+    *,
+    duration_ms: int | None = None,
+) -> str:
+    """Format the per-phase one-liner shown after a successful run.
+
+    `duration_ms` overrides the SDK's per-query measurement — pass the
+    phase wall-clock for phases that do additional work after the
+    agent returns (Phase 6). When None, falls back to
+    `result.duration_ms`.
+    """
+    shown_ms = duration_ms if duration_ms is not None else result.duration_ms
     return (
         f"\nPhase {phase_number} done — {artifact} "
-        f"(${result.total_cost_usd:.2f}, {result.duration_ms / 1000:.1f}s, "
+        f"(${result.total_cost_usd:.2f}, {shown_ms / 1000:.1f}s, "
         f"{result.num_turns} turns)"
     )
