@@ -268,9 +268,30 @@ async def _run_phases_with_client(
     sequentially against it. Cold-start cost is paid once at connect()
     instead of per-phase, and per-phase tool allowlists are preserved
     via the PreToolUse hook dispatcher set up in agent_client."""
+    import tempfile
+
     from .agent_client import make_agent_client
 
-    client, dispatcher = make_agent_client(cwd=str(context.source))
+    # Opt-in filesystem jail (INSTANTDEMO_FS_JAIL=1): file tools may
+    # only reach the source/project dirs and the system tempdir
+    # (Phase 4 reads back scripts it writes there via Bash). Without
+    # it, an agent given a sparse --source will locate the app's real
+    # repo elsewhere on disk — fine for normal runs, but it breaks
+    # source-free testing and any future hosted-isolation story.
+    # CLI-only for now: the GUI server builds its client from cwd
+    # alone and project != source there, so jailing it needs the
+    # project root threaded through RunManager first.
+    allowed_roots = None
+    if os.environ.get("INSTANTDEMO_FS_JAIL"):
+        allowed_roots = [
+            context.source,
+            context.project,
+            Path(tempfile.gettempdir()),
+            Path("/tmp"),
+        ]
+    client, dispatcher = make_agent_client(
+        cwd=str(context.source), allowed_roots=allowed_roots
+    )
     await client.connect()
     context.client = client
     context.dispatcher = dispatcher
