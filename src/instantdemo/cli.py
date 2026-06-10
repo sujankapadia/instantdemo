@@ -41,7 +41,7 @@ from .phases import (
 )
 
 
-TTS_CHOICES = ("kokoro", "google", "elevenlabs", "piper")
+TTS_CHOICES = ("kokoro", "google", "elevenlabs", "piper", "pocket-tts")
 
 
 def _warn_about_api_key() -> None:

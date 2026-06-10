@@ -51,10 +51,18 @@ brew install ffmpeg
 pip install "kokoro>=0.9.4" soundfile
 
 # Optional alternative providers
+pip install pocket-tts                    # Pocket TTS (local, CPU, voice cloning)
 pip install piper-tts pathvalidate        # Piper (local, robotic)
 pip install google-cloud-sdk              # Google Cloud TTS
 # or set ELEVENLABS_API_KEY in .env       # ElevenLabs
 ```
+
+Pocket TTS supports voice cloning: `instantdemo render --tts
+pocket-tts --pocket-ref voice.wav` narrates in a voice cloned from a
+~10s reference recording (`--pocket-voice` picks a stock voice
+instead). Cloning weights are gated — accept terms at
+huggingface.co/kyutai/pocket-tts + HF auth. See
+`docs/local-tts-models.md` for the bake-off behind this.
 
 For the GUI's frontend:
 
