@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -165,22 +166,39 @@ class RunManager:
     def __init__(self) -> None:
         self._client: Any = None
         self._dispatcher: Any = None
-        self._client_cwd: str | None = None
+        # Cache key for the connected client: (cwd, sorted resolved
+        # jail roots). Roots are part of the key — otherwise a
+        # Regenerate that adds/changes the source dir would silently
+        # keep the previous run's jail.
+        self._client_key: tuple[str, tuple[str, ...]] | None = None
         self.active: _Run | None = None
         self._lock = asyncio.Lock()
 
-    async def _ensure_client(self, cwd: str) -> None:
+    async def _ensure_client(
+        self, cwd: str, allowed_roots: list[Path]
+    ) -> None:
         """Create-and-connect the ClaudeSDKClient on first use, or
-        reconnect with a different cwd if the project changed."""
-        if self._client is not None and self._client_cwd == cwd:
+        reconnect if the project cwd or jail roots changed.
+
+        The filesystem jail is ALWAYS on for server runs (M1): the
+        GUI is the product surface, and the agent must not read
+        outside the project/source (a jail-less source-free Phase 1
+        demonstrably goes hunting for the repo elsewhere on disk —
+        see PRODUCT_DIRECTION.md §5). The CLI keeps its
+        INSTANTDEMO_FS_JAIL opt-in.
+        """
+        key = (cwd, tuple(sorted(str(p.resolve()) for p in allowed_roots)))
+        if self._client is not None and self._client_key == key:
             return
         if self._client is not None:
             try:
                 await self._client.disconnect()
             except Exception:
                 pass
-        self._client, self._dispatcher = make_agent_client(cwd=cwd)
-        self._client_cwd = cwd
+        self._client, self._dispatcher = make_agent_client(
+            cwd=cwd, allowed_roots=allowed_roots
+        )
+        self._client_key = key
         await self._client.connect()
 
     async def shutdown(self) -> None:
@@ -192,7 +210,7 @@ class RunManager:
                 pass
             self._client = None
             self._dispatcher = None
-            self._client_cwd = None
+            self._client_key = None
 
     async def start_run(self, request: RunRequest) -> _Run:
         """Validate inputs, lazily connect the client, reset state for
@@ -237,7 +255,14 @@ class RunManager:
                 if request.source
                 else project
             )
-            await self._ensure_client(str(agent_cwd))
+            # Jail roots: the project (state dir, artifacts), the
+            # source when given (== agent_cwd), and the system temp
+            # dirs (Phase 4 reads back rehearsal scripts it writes
+            # there via Bash). File tools cannot reach anywhere else.
+            allowed_roots = [project, Path(tempfile.gettempdir()), Path("/tmp")]
+            if request.source:
+                allowed_roots.insert(0, agent_cwd)
+            await self._ensure_client(str(agent_cwd), allowed_roots)
 
             # Reset state for phases in this run. Phases not in the
             # request keep their existing entries (so a targeted re-run

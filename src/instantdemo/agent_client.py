@@ -37,7 +37,11 @@ from claude_agent_sdk import (
 # Phase session_id (e.g. "phase1") → tools that phase is allowed to use.
 # Mirrors the per-phase `allowed_tools` values from before the migration.
 PHASE_TOOLS: dict[str, frozenset[str]] = {
-    "phase1": frozenset({"Read", "Glob", "Grep"}),
+    # Phase 1 (Understand) explores the LIVE APP via Bash + Playwright
+    # as primary evidence (M1, explore-first); Read/Glob/Grep are for
+    # optional source enrichment and are confined by the filesystem
+    # jail. Bash safety is prompt-level (read-only exploration rules).
+    "phase1": frozenset({"Bash", "Read", "Glob", "Grep"}),
     "phase2": frozenset(),
     "phase3": frozenset({"Read", "Glob", "Grep"}),
     # Phase 4 (Explore) probes the live app via Bash + Playwright,
