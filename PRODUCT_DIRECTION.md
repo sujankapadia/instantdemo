@@ -593,6 +593,38 @@ collapses gracefully into hypothesis-writing; the dress-rehearsal
 absorbs all deferred verification. The remaining proof points are
 the auth-walled app and (optionally) the cca repeat.
 
+### Round 6: cca end-to-end — the React app, jailed (same day)
+
+Repeated the sterile protocol against claude-code-analytics: React
+SPA, ~no test IDs, volatile data (live session cards). Fixture:
+`fixtures/source-free-cca-jailed-2026-06-09`. Result: **48s MP4,
+frames verified**, chain cost ~$1.02 incl. external Phase 1.
+
+- **Phase 3 jailed: zero source citations**, text/href selectors
+  from Phase 1 observations, honest "probe live" flags. Notable
+  economics: $0.18 · 65s · 9 turns jailed vs $0.55 · 261s · 36
+  turns for an accidental unjailed control (which spent its budget
+  reading the repo to gold-plate selectors Phase 4 re-verifies
+  anyway). The jail isn't just isolation — it's cheaper.
+- **Phase 4: 7/8 PASS + 1 WARN, one iteration.** The WARN is the
+  experiment's best work: detail page doesn't window-scroll;
+  mouse-wheel scrolling proved FLAKY (worked in probe runs 1 and 3,
+  silently failed in 2); Phase 4 prescribed the deterministic
+  container-`evaluate`, which Phase 5/6 used and the rendered frame
+  confirms. It also dropped the unverifiable liveness claim ("new
+  messages show up as they happen") after 6s/10s observation
+  windows showed no updates.
+- **Process footnote:** the first cca attempt ran unjailed because
+  the working tree was on `fix/action-contract`, which doesn't
+  contain the jail (editable install runs the working tree; the env
+  var was silently a no-op). Third independent confirmation that an
+  unjailed Phase 3 source-hunts every time — and a reminder that
+  with editable installs, "flag set" ≠ "feature present"; verify
+  the branch before trusting the test.
+
+**Both fixture apps now pass end-to-end source-free.** Remaining
+proof point: the auth-walled app (gated on saved sessions, #7).
+
 ## 6. Open questions for discussion
 
 1. Is the PM/marketer persona the bet, or is the near-term wedge the

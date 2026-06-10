@@ -197,6 +197,9 @@ self-contained restoration of a prior run.
 - `source-free-evernote-jailed-2026-06-09` — first fully-isolated
   source-free run (no repo access, filesystem jail on); see
   `PRODUCT_DIRECTION.md` §5
+- `source-free-cca-jailed-2026-06-09` — source-free run on the
+  React app (volatile data, flaky-scroll catch); see
+  `PRODUCT_DIRECTION.md` §5 Round 6
 
 To restore: `cp -r fixtures/<name>/. /tmp/restore && instantdemo
 serve --project /tmp/restore --port 8770`.
