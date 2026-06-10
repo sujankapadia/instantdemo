@@ -234,6 +234,9 @@ self-contained restoration of a prior run.
 - `source-free-cca-jailed-2026-06-09` — source-free run on the
   React app (volatile data, flaky-scroll catch); see
   `PRODUCT_DIRECTION.md` §5 Round 6
+- `explore-first-evernote-2026-06-10` — first M1 two-run cold start
+  (pre-flight → filmstrip → intent confirmation → demo), user-driven
+  in the GUI; $0.58 total; corrected-audio demo.mp4
 
 To restore: `cp -r fixtures/<name>/. /tmp/restore && instantdemo
 serve --project /tmp/restore --port 8770`.
