@@ -28,3 +28,4 @@ src/instantdemo/server/web/
 # Local-only test fixtures and baseline artifacts. Not committed —
 # treat each subfolder as a personal scratch / backup directory.
 fixtures/
+scripts/explore/out/tts-bakeoff/

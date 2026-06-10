@@ -286,6 +286,71 @@ def generate_audio_elevenlabs(
     return clips
 
 
+def generate_audio_pocket_tts(
+    segments: list[dict], tmp_dir: Path, voice: str, ref_wav: Path | None
+) -> list[Path]:
+    """Generate WAV audio clips using Pocket TTS (local, CPU, clonable).
+
+    `voice` names one of Pocket TTS's stock voices (e.g. "alba").
+    `ref_wav`, when given, OVERRIDES `voice`: the model zero-shot
+    clones the speaker from that ~10s reference recording — this is
+    the per-project "brand voice" path. Stock and clone use the same
+    underlying API: the voice prompt is either a catalog name or a
+    WAV path, encoded once into a reusable voice state.
+
+    Stock voices download ungated; the CLONING weights are gated on
+    Hugging Face (accept terms at huggingface.co/kyutai/pocket-tts +
+    HF_TOKEN). See docs/local-tts-models.md for the bake-off that
+    selected this provider (clone RTF ~0.21 on an M1 Pro CPU).
+    """
+    try:
+        import soundfile as sf
+        from pocket_tts import TTSModel
+    except ImportError:
+        print(
+            "  Pocket TTS not installed. Run: pip install pocket-tts",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    prompt = str(ref_wav) if ref_wav else voice
+    kind = "cloned voice from" if ref_wav else "stock voice"
+    print(f"  Loading Pocket TTS model ({kind} {prompt})...")
+    model = TTSModel.load_model()
+    try:
+        voice_state = model.get_state_for_audio_prompt(prompt)
+    except ValueError as e:
+        if ref_wav and "cloning" in str(e).lower():
+            print(
+                "  Pocket TTS cloning weights are gated. Accept the "
+                "terms at https://huggingface.co/kyutai/pocket-tts, "
+                "then authenticate (`uvx hf auth login` or HF_TOKEN) "
+                "and re-run.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        raise
+    sample_rate = int(model.sample_rate)
+
+    clips = []
+    for i, seg in enumerate(segments):
+        text = seg["narration"]
+        if not text.strip():
+            clips.append(_silent_clip(tmp_dir, i))
+            print(f"  Segment {i}: empty narration, using silence")
+            continue
+        output_path = tmp_dir / f"segment_{i}.wav"
+        print(f"  Generating audio for segment {i}: {text[:50]}...")
+        audio = model.generate_audio(voice_state, text)
+        sf.write(
+            str(output_path),
+            audio.numpy() if hasattr(audio, "numpy") else audio,
+            sample_rate,
+        )
+        clips.append(output_path)
+    return clips
+
+
 def generate_audio_kokoro(
     segments: list[dict], tmp_dir: Path, voice: str, speed: float
 ) -> list[Path]:
@@ -1082,7 +1147,7 @@ def main(argv=None):
     )
     parser.add_argument(
         "--tts",
-        choices=["piper", "google", "elevenlabs", "kokoro"],
+        choices=["piper", "google", "elevenlabs", "kokoro", "pocket-tts"],
         default="google",
         help="TTS provider (default: google)",
     )
@@ -1116,6 +1181,22 @@ def main(argv=None):
         type=float,
         default=1.0,
         help="Kokoro speech speed (default: 1.0)",
+    )
+    parser.add_argument(
+        "--pocket-voice",
+        type=str,
+        default="alba",
+        help="Pocket TTS stock voice name (default: alba). "
+        "Catalog: alba, marius, javert, jean, fantine, cosette, "
+        "eponine, azelma, and others — see the pocket-tts docs.",
+    )
+    parser.add_argument(
+        "--pocket-ref",
+        type=Path,
+        default=None,
+        help="Path to a ~10s reference WAV to CLONE a voice from "
+        "(overrides --pocket-voice). Requires the gated cloning "
+        "weights: accept terms at huggingface.co/kyutai/pocket-tts.",
     )
     parser.add_argument(
         "--resolution",
@@ -1197,6 +1278,14 @@ def main(argv=None):
     elif provider_name == "kokoro":
         audio_clips = generate_audio_kokoro(
             segments, tmp_dir, args.kokoro_voice, args.kokoro_speed
+        )
+    elif provider_name == "pocket-tts":
+        pocket_ref = args.pocket_ref
+        if pocket_ref is not None and not pocket_ref.exists():
+            print(f"  --pocket-ref not found: {pocket_ref}", file=sys.stderr)
+            sys.exit(1)
+        audio_clips = generate_audio_pocket_tts(
+            segments, tmp_dir, args.pocket_voice, pocket_ref
         )
     else:
         print(f"  Unknown TTS provider: {provider_name}", file=sys.stderr)
