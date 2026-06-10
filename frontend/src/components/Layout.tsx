@@ -201,6 +201,25 @@ export function Layout() {
     return () => window.removeEventListener('keydown', handler)
   }, [])
 
+  // Project-wide cost (M1): the run ticker resets per run, and the
+  // two-run cold start made that visible — the meter under-reported
+  // by the exploration run's cost. state.json keeps per-phase costs
+  // (the backend wipes a phase's entry when a new run includes it, so
+  // summing state never double-counts the live ticker's phases);
+  // while a run is active, add its live accumulation on top. On
+  // terminal states the refetched state total is authoritative.
+  const stateCost = Object.values(data?.phases ?? {}).reduce(
+    (sum, p) => sum + (p?.cost_usd ?? 0),
+    0,
+  )
+  const runActive =
+    run.status === 'starting' ||
+    run.status === 'running' ||
+    run.status === 'paused'
+  const displayCost = runActive
+    ? stateCost + run.cumulativeCost
+    : Math.max(stateCost, run.cumulativeCost)
+
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
       <Header
@@ -209,7 +228,7 @@ export function Layout() {
         loading={isLoading}
         runStatus={run.status}
         currentPhase={run.currentPhase}
-        cumulativeCost={run.cumulativeCost}
+        cumulativeCost={displayCost}
         onCancel={() => void run.cancel()}
         onNewProject={() => setNewProjectOpen(true)}
         showNewProject={!empty}
