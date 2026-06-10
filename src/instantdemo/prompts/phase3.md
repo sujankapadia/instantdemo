@@ -1,4 +1,4 @@
-For each segment in the narrative above, find the implementation details
+For each scene in the storyboard above, find the implementation details
 needed to render the demo against the live app. Read the frontend source
 (components, routes, layouts) to identify stable selectors and the right
 wait conditions.
@@ -53,12 +53,12 @@ grep-verified match** — don't try every strategy:
    build.
 
 If you can't find evidence in the source for any strategy
-after a focused look, say so in one line of Notes — Phase 5
+after a focused look, say so in one line of Notes — Phase 4
 will probe the live app to fill the gap.
 
 For each segment, include **one or two fallback selectors** you
 believe could work. These don't need exhaustive verification —
-they're hints for Phase 5's recovery path. Single-line notes
+they're hints for Phase 4's recovery path. Single-line notes
 are enough.
 
 **Be efficient.** A useful Phase 3 produces correct selectors
@@ -71,18 +71,22 @@ scan each time.
 - For pages with SSE or WebSockets, use `wait_for` with a selector — never
   rely on `networkidle` (it never resolves with persistent connections).
 
-**Actions**: The rendering pipeline uses Playwright. Actions map to
-Playwright `page` methods. Use whichever fits the interaction:
+**Actions**: The rendering pipeline uses Playwright. The action set is
+CLOSED — only these values are valid (do not invent new ones):
 - `goto` or `navigate` — load a URL
 - `click` — click an element
-- `fill` — type into an input
+- `fill` — type into an input (needs `value`)
 - `hover` — hover over an element
-- `scroll` — scroll the page viewport (`window.scrollBy`)
+- `scroll` — scroll the page viewport (`window.scrollBy`; optional `pixels`)
 - `evaluate` — run arbitrary JavaScript (useful for in-container scrolls
-  via `document.querySelector(...).scrollBy(...)`)
+  via `document.querySelector(...).scrollBy(...)`; needs `expression`)
 - `wait` — no action, narration plays over a static frame
-- Any other Playwright `page` method works (`select_option`, `press`,
-  `check`, etc.)
+- `select_option` (needs `selector` + `value`), `press` (needs
+  `selector` + `key`), `check` / `uncheck` (need `selector`)
+
+You may CHANGE a scene's action from Phase 2's proposal when the
+source reveals a better mechanism (e.g. `scroll` → `evaluate` for an
+in-container scroll) — that is part of your job.
 
 **SPA navigation**: For single-page applications (React, Vue, etc.),
 use `goto` only for the first navigation. For subsequent pages, click
@@ -99,22 +103,36 @@ so narration length also affects how long a frame stays on screen.
 
 ---
 
-**Output**: Reproduce each segment from the narrative, augmenting it
-with the resolved technical details. Use this format per segment:
+**Output**: You may summarize your convention survey in prose first,
+but your response must END with exactly ONE fenced ```json block
+containing every input scene `id` exactly once — no new scenes, no
+splits, no omissions:
 
-```
-### Segment N — [title]
-- **Action:** <goto | click | fill | hover | scroll | evaluate | wait | ...>
-- **Narration:** "[narration text]"   (or "(silent)")
-- **URL:** http://...                  (goto only)
-- **Selector:** <CSS selector>          (click / fill / hover)
-- **wait_for:** <selector>              (optional, mainly for goto)
-- **Value:** <text>                     (fill only)
-- **Pixels:** <integer>                 (scroll only)
-- **Expression:** <JS expression>       (evaluate only)
-- **pause_after_ms:** <integer>
-- **Notes:** <optional — selector fragility, alternatives, etc.>
+```json
+{
+  "scenes": [
+    {
+      "id": "s1",
+      "action": "goto",
+      "url": "http://localhost:8000/active",
+      "wait_for": ["h1:has-text(\"Active Sessions\")", "main a[href*='/sessions/']"],
+      "pause_after_ms": 1200,
+      "notes": "SSE page — wait on the heading, never networkidle."
+    },
+    {
+      "id": "s2",
+      "action": "click",
+      "selector": ["a[href=\"/active\"]", "nav a:has-text(\"Active\")"],
+      "pause_after_ms": 1000
+    }
+  ]
+}
 ```
 
-Include only the lines that apply to the segment's action. Number the
-segments to match the narrative input.
+- `selector` and `wait_for` are ALWAYS arrays: your best selector
+  first, then 1-2 fallbacks (the renderer tries them in order — this
+  is its recovery path). Notes are for fragility commentary only,
+  not for stashing alternative selectors.
+- Include only the fields that apply to the scene's action.
+- Do NOT include `narration` or `title` — they are already canonical
+  in the storyboard and you must not re-type them.

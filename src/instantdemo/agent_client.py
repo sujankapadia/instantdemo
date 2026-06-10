@@ -44,10 +44,9 @@ PHASE_TOOLS: dict[str, frozenset[str]] = {
     # reading Phase 3's hypothesis to verify selectors against reality.
     # No Write — the agent's response text is saved by the runner.
     "phase4": frozenset({"Read", "Bash"}),
-    # Read is needed because the Write tool refuses to overwrite an
-    # existing file without a prior Read in the same session (re-runs
-    # or follow-up edits would otherwise deadlock). See issue #32.
-    "phase5": frozenset({"Read", "Write"}),
+    # Phase 5 (Build) is deterministic since M0 — no agent runs, so
+    # it has no PHASE_TOOLS entry (the dispatcher default-denies any
+    # stray phase5 tool call).
     "phase6": frozenset({"Read", "Bash"}),
 }
 

@@ -1,9 +1,12 @@
 """Phase 2 — Plan the narrative.
 
 Reads the Phase 1 artifact (analysis text + answer block) and produces
-a markdown narrative plan: 4-8 segments with draft narration and
-proposed actions, leading with the payoff. Pure reasoning over Phase 1
-output — no tools.
+the initial storyboard: scenes with title, draft narration, action,
+and a high-level target hint, leading with the payoff. Pure reasoning
+over Phase 1 output — no tools. The agent emits a fenced JSON payload
+(validated, one corrective retry); the runner creates
+.instantdemo/storyboard.json (status: planned) and renders phase2.md
+as a human-readable view of it.
 
 Input resolution per field (highest priority wins):
   - flow:         intent.goal → phase1.md answer block → context.describe → ""
@@ -26,13 +29,14 @@ intent.json, which takes priority.
 
 from __future__ import annotations
 
-from .. import prompts
+from .. import prompts, storyboard
+from ..actions import CANONICAL_ACTIONS
 from ..agent_client import session_id_for_phase
 from ..checkpoints import parse_answer_block
 from . import (
     Context,
     record_phase_result,
-    run_query_on_client,
+    run_structured_query,
     summarize_run,
 )
 
@@ -109,16 +113,31 @@ def _build_prompt(phase1_text: str, inputs: dict[str, object]) -> str:
     return "\n".join(lines)
 
 
-def _build_artifact(narrative_text: str, inputs: dict[str, object]) -> str:
-    return (
-        "<!-- ANSWER THESE BEFORE CONTINUING -->\n"
-        f"tone: {inputs['tone']}\n"
-        f"audience: {inputs['audience']}\n"
-        f"terminology: {inputs['terminology']}\n"
-        "<!-- /ANSWER -->\n"
-        "\n"
-        f"{narrative_text}\n"
-    )
+def _validate_payload(payload: dict) -> list[str]:
+    """Validate the agent's plan payload before it becomes a storyboard."""
+    problems: list[str] = []
+    scenes = payload.get("scenes")
+    if not isinstance(scenes, list) or not scenes:
+        problems.append("payload must contain a non-empty 'scenes' array")
+        return problems
+    if not isinstance(payload.get("title"), str) or not payload["title"]:
+        problems.append("payload must contain a non-empty 'title' string")
+    for i, scene in enumerate(scenes, start=1):
+        if not isinstance(scene, dict):
+            problems.append(f"scene {i}: must be an object")
+            continue
+        if not isinstance(scene.get("title"), str) or not scene["title"]:
+            problems.append(f"scene {i}: missing 'title'")
+        if not isinstance(scene.get("narration"), str):
+            problems.append(
+                f"scene {i}: 'narration' must be a string (\"\" for silent)"
+            )
+        if scene.get("action") not in CANONICAL_ACTIONS:
+            problems.append(
+                f"scene {i}: unknown action {scene.get('action')!r}; "
+                f"allowed: {', '.join(sorted(CANONICAL_ACTIONS))}"
+            )
+    return problems
 
 
 async def run(context: Context) -> None:
@@ -143,15 +162,36 @@ async def run(context: Context) -> None:
     inputs = _resolve_inputs(context, phase1_answers, phase2_answers)
     prompt = _build_prompt(phase1_text, inputs)
 
-    narrative_text, result = await run_query_on_client(
-        context, prompt, session_id=session_id_for_phase(2, context.run_id)
+    payload, result = await run_structured_query(
+        context,
+        prompt,
+        session_id_for_phase(2, context.run_id),
+        validate=_validate_payload,
+        phase_number=2,
     )
 
-    if result is None:
-        raise RuntimeError(
-            "Phase 2: the Claude Agent SDK did not return a ResultMessage."
+    doc = storyboard.new_document(
+        title=payload["title"],
+        url=context.url,
+        summary=payload.get("summary", ""),
+        provenance={
+            "tone": inputs["tone"],
+            "audience": inputs["audience"],
+            "terminology": inputs["terminology"],
+            "intent_goal": inputs["flow"],
+        },
+    )
+    for scene in payload["scenes"]:
+        storyboard.add_scene(
+            doc,
+            title=scene["title"],
+            narration=scene.get("narration", ""),
+            action=scene["action"],
+            target_hint=scene.get("target_hint", ""),
         )
+    storyboard.save(context.state_dir, doc)
 
-    artifact.write_text(_build_artifact(narrative_text, inputs))
+    artifact.write_text(storyboard.render_phase2_view(doc, inputs))
     record_phase_result(context, 2, result)
     print(summarize_run(2, artifact, result))
+    print(f"  (storyboard: {len(doc['scenes'])} scenes)")

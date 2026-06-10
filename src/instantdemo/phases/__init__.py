@@ -319,6 +319,83 @@ async def run_query_on_client(
         context.dispatcher.current_phase = ""
 
 
+async def run_structured_query(
+    context: "Context",
+    prompt: str,
+    session_id: str,
+    *,
+    validate,
+    phase_number: int,
+) -> tuple[dict, Any]:
+    """Run a prompt that must yield a fenced JSON payload; validate;
+    retry once with the problems before failing.
+
+    The generalized #57 pattern: agents may reason in prose, but the
+    response must end with one fenced ```json block. `validate` is a
+    callable(payload) -> list[str] of problems (empty = valid). On
+    failure (missing block or problems) a single corrective turn is
+    issued in the same session — the agent still has full context, so
+    "fix these problems" is cheap and usually sufficient.
+
+    Returns (payload, last_result). The CALLER records phase metrics
+    once with last_result: the SDK's total_cost_usd is cumulative per
+    session, so a single record after the final turn captures the
+    combined cost of both turns (recording per-turn would keep only
+    the retry's delta — see record_phase_result).
+    """
+    from ..storyboard import extract_json_block
+
+    def _problems_for(text: str) -> tuple[dict | None, list[str]]:
+        payload = extract_json_block(text)
+        if payload is None:
+            return None, [
+                "the response contained no parseable fenced ```json block"
+            ]
+        return payload, validate(payload)
+
+    text, result = await run_query_on_client(
+        context, prompt, session_id=session_id
+    )
+    if result is None:
+        raise RuntimeError(
+            f"Phase {phase_number}: the Claude Agent SDK did not return "
+            "a ResultMessage."
+        )
+    payload, problems = _problems_for(text)
+    if not problems:
+        assert payload is not None
+        return payload, result
+
+    print(
+        f"\n  Phase {phase_number} output failed validation "
+        f"({len(problems)} problem(s)); asking the agent to correct it..."
+    )
+    fix_prompt = (
+        "Your previous response failed validation:\n\n"
+        + "\n".join(f"- {p}" for p in problems)
+        + "\n\nRe-emit the COMPLETE corrected JSON payload (the entire "
+        "object, not a diff), ending your response with the single "
+        "fenced ```json block."
+    )
+    text, result = await run_query_on_client(
+        context, fix_prompt, session_id=session_id
+    )
+    if result is None:
+        raise RuntimeError(
+            f"Phase {phase_number}: the Claude Agent SDK did not return "
+            "a ResultMessage on the correction turn."
+        )
+    payload, problems = _problems_for(text)
+    if problems:
+        raise RuntimeError(
+            f"Phase {phase_number} output still invalid after one "
+            "correction attempt:\n"
+            + "\n".join(f"  - {p}" for p in problems)
+        )
+    assert payload is not None
+    return payload, result
+
+
 def record_phase_result(
     context: "Context",
     phase_number: int,
