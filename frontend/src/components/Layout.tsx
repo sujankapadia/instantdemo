@@ -20,6 +20,8 @@ import { Phase4TriagePanel } from './Phase4TriagePanel'
 import { IntentConfirmCard } from './IntentConfirmCard'
 import { StoryboardView } from './StoryboardView'
 import { useStoryboard } from '@/hooks/useStoryboard'
+import { VoiceDialog } from './VoiceDialog'
+import { useVoice } from '@/hooks/useVoice'
 import { RunInProgressBanner } from './RunInProgressBanner'
 import { useProject } from '@/hooks/useProject'
 import { useRun } from '@/hooks/useRun'
@@ -57,6 +59,9 @@ export function Layout() {
   })
   const [selected, setSelected] = useState<number>(1)
   const [newProjectOpen, setNewProjectOpen] = useState(false)
+  // Voice & Pronunciation dialog (M3) — header gear.
+  const [voiceOpen, setVoiceOpen] = useState(false)
+  const voice = useVoice()
   // Cold-start two-run flow (M1): form values stashed between the
   // exploration run [1] and the confirm run [2..6]. Falls back to
   // /api/project values after a reload.
@@ -115,7 +120,8 @@ export function Layout() {
         source: values.source || undefined,
         intent: values.intent,
         docs: values.docs || undefined,
-        tts: values.tts,
+        // No tts field since M3 — the renderer reads the project's
+        // tts.json (edited via the Voice dialog).
         pause_between_phases: values.pause_between_phases,
       }
       if (data?.exists) {
@@ -144,7 +150,6 @@ export function Layout() {
         describe: intent.goal || undefined,
         source: pendingSetup?.source || data?.source || undefined,
         intent,
-        tts: 'kokoro',
         pause_between_phases: pendingSetup?.pause_between_phases ?? false,
       })
     },
@@ -161,7 +166,6 @@ export function Layout() {
       phases: [5, 6],
       url,
       source: pendingSetup?.source || data?.source || undefined,
-      tts: 'kokoro',
     })
   }, [pendingSetup, data, run])
 
@@ -263,6 +267,7 @@ export function Layout() {
         showNewProject={!empty}
         editorVisible={detailsVisible}
         onToggleEditor={() => setDetailsVisible((v) => !v)}
+        onOpenSettings={() => setVoiceOpen(true)}
       />
       {isError ? (
         <ErrorBanner message={state.error} onRetry={refetch} />
@@ -466,6 +471,20 @@ export function Layout() {
         open={logOpen}
         onOpenChange={setLogOpen}
       />
+      <VoiceDialog
+        open={voiceOpen}
+        onOpenChange={(open) => {
+          setVoiceOpen(open)
+          if (!open) voice.refetch()
+        }}
+        state={voice.state}
+        apply={voice.apply}
+        runActive={
+          run.status === 'starting' ||
+          run.status === 'running' ||
+          run.status === 'paused'
+        }
+      />
       <NewProjectModal
         open={newProjectOpen}
         onOpenChange={setNewProjectOpen}
@@ -488,7 +507,22 @@ export function Layout() {
           },
         }}
         onSubmit={handleNewProjectSubmit}
+        voiceSummary={
+          voice.state.status === 'success'
+            ? voice.state.data.ref_exists
+              ? 'My cloned voice'
+              : `${prettyVoiceName(voice.state.data.config.voice)} (stock)`
+            : undefined
+        }
+        onOpenVoiceSettings={() => setVoiceOpen(true)}
       />
     </div>
   )
+}
+
+function prettyVoiceName(name: string): string {
+  return name
+    .split('_')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ')
 }
