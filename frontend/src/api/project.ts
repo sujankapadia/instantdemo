@@ -81,6 +81,10 @@ export interface ProjectState {
   // proposal exists and this is false. Derived server-side so a page
   // reload mid-flow re-shows the card.
   intent_confirmed?: boolean
+  // Storyboard gate (M2): false after the [2,3,4] rehearsal leg;
+  // true once a run including phase 5/6 starts. The approve bar
+  // shows when a rehearsed storyboard exists and this is false.
+  storyboard_approved?: boolean
 }
 
 // --- M1: exploration screenshots + pre-flight ---

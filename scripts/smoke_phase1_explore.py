@@ -180,10 +180,13 @@ async def run_smoke(confirm: bool) -> int:
             if not (project / "product-context.md").exists():
                 errors.append("product-context.md not written")
 
-            # 4. Optional: confirm flips the marker
+            # 4. Optional: the full M2 gate flow — confirm runs
+            # [2,3,4], the storyboard gate opens, a narration PATCH
+            # lands, and approving ([5,6]) flips the marker (run is
+            # then CANCELLED so we don't pay for a render).
             if confirm and not errors:
                 resp = await client.post("/api/runs", json={
-                    "phases": [2],
+                    "phases": [2, 3, 4],
                     "url": app_url,
                     "intent": proposal,
                 })
@@ -197,9 +200,80 @@ async def run_smoke(confirm: bool) -> int:
                             ("run_complete", "run_error", "run_canceled")
                         ):
                             break
+
                 state = json.loads((state_dir / "state.json").read_text())
                 if state.get("intent_confirmed") is not True:
                     errors.append("intent_confirmed did not flip true")
+                if state.get("storyboard_approved") is not False:
+                    errors.append(
+                        "storyboard_approved should be false after [2,3,4]"
+                    )
+                sb = (await client.get("/api/project/storyboard")).json()
+                if not sb.get("exists"):
+                    errors.append("no storyboard after the rehearsal leg")
+                else:
+                    scenes = sb["storyboard"]["scenes"]
+                    bad = [
+                        s["id"] for s in scenes
+                        if s["status"] not in ("verified", "warn")
+                    ]
+                    if bad:
+                        errors.append(f"scenes not verified/warn: {bad}")
+                    shot_scene = next(
+                        (s for s in scenes if s.get("rehearsal_screenshot")),
+                        None,
+                    )
+                    if shot_scene is None:
+                        errors.append("no scene has a rehearsal screenshot")
+                    else:
+                        img = await client.get(
+                            "/api/project/rehearsal/"
+                            f"{shot_scene['rehearsal_screenshot']}"
+                        )
+                        if img.status_code != 200:
+                            errors.append(
+                                f"rehearsal shot endpoint: {img.status_code}"
+                            )
+                    # Gate edit: PATCH a narration, expect a phase-0
+                    # revision on disk + the phase4.md view updated.
+                    target = scenes[0]
+                    res = await client.patch(
+                        "/api/project/storyboard/scenes/"
+                        f"{target['id']}",
+                        json={"narration": "Edited at the gate (smoke)."},
+                    )
+                    if res.status_code != 200:
+                        errors.append(f"scene PATCH: {res.status_code}")
+                    else:
+                        doc = json.loads(
+                            (state_dir / "storyboard.json").read_text()
+                        )
+                        rev = doc["scenes"][0].get("revisions", [])
+                        if not rev or rev[-1].get("phase") != 0:
+                            errors.append("gate edit revision missing")
+                        view = (state_dir / "phase4.md").read_text()
+                        if "Edited at the gate (smoke)." not in view:
+                            errors.append("phase4.md view not re-rendered")
+
+                if not errors:
+                    # Approve: [5,6] flips the marker; cancel before
+                    # the render burns time.
+                    resp = await client.post("/api/runs", json={
+                        "phases": [5, 6],
+                        "url": app_url,
+                    })
+                    approve_id = resp.json()["run_id"]
+                    deadline = time.monotonic() + 20
+                    approved = False
+                    while time.monotonic() < deadline:
+                        proj = (await client.get("/api/project")).json()
+                        if proj.get("storyboard_approved") is True:
+                            approved = True
+                            break
+                        await asyncio.sleep(0.5)
+                    if not approved:
+                        errors.append("storyboard_approved did not flip")
+                    await client.post(f"/api/runs/{approve_id}/cancel")
 
         if errors:
             print("[smoke] FAIL:", file=sys.stderr)

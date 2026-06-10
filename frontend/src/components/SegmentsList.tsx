@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Loader2, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { Button } from '@/components/ui/button'
+import { NarrationEditor } from './NarrationEditor'
 import type { Segment } from '@/api/project'
 import {
   AlertDialog,
@@ -516,66 +516,16 @@ function SegmentEditor({
   onSave: (narration: string) => Promise<void>
   onCancel: () => void
 }) {
-  const [text, setText] = useState(initialNarration)
-  const [saving, setSaving] = useState(false)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-
-  useEffect(() => {
-    textareaRef.current?.focus()
-  }, [])
-
-  const handleSave = async () => {
-    if (saving || rerendering || !text.trim()) return
-    setSaving(true)
-    try {
-      await onSave(text.trim())
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const busy = saving || rerendering
-  const dirty = text.trim() !== initialNarration.trim()
-
+  // Thin wrapper over the shared editor (extracted in M2 so the
+  // storyboard gate uses the same surface).
   return (
-    <div className="border-t border-border bg-background px-4 py-3">
-      <textarea
-        ref={textareaRef}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        disabled={busy}
-        rows={4}
-        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 resize-y"
-        placeholder="Narration…"
-      />
-      {error ? (
-        <p className="mt-2 text-xs text-destructive">{error}</p>
-      ) : null}
-      <div className="mt-2 flex justify-end gap-2">
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={onCancel}
-          disabled={busy}
-        >
-          Cancel
-        </Button>
-        <Button
-          size="sm"
-          onClick={() => void handleSave()}
-          disabled={busy || !dirty || !text.trim()}
-        >
-          {saving ? (
-            <>
-              <Loader2 className="size-3 animate-spin" />
-              Saving…
-            </>
-          ) : (
-            'Save'
-          )}
-        </Button>
-      </div>
-    </div>
+    <NarrationEditor
+      initialNarration={initialNarration}
+      busyExternal={rerendering}
+      error={error}
+      onSave={onSave}
+      onCancel={onCancel}
+    />
   )
 }
 
