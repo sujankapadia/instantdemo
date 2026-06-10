@@ -235,6 +235,58 @@ Almost nothing here is new invention — it's the existing backlog
 a budget and a recurring pain, instead of around the developer who
 happens to be able to run the tool today.
 
+### 3.6 Feedback as the interface: notes → tiered revision → durable intent
+
+The persona doesn't think in "which phase do I re-run" — they think
+in **notes**, the way they'd give feedback to a video agency: watch
+the cut, leave comments, get v2. The polished revision UX takes that
+literally.
+
+**One feedback surface.** All feedback is a note attached to what
+they're looking at — a segment ("this line overclaims"), a section
+("this part drags"), or the whole demo ("too formal"; "never show
+customer names"). Free text, their vocabulary. No forms, no phase
+buttons, no tier selector.
+
+**The system classifies each note into the cheapest sufficient
+revision.** The tiers map onto machinery that already exists:
+
+| Tier | Note sounds like | What regenerates | Machinery |
+|---|---|---|---|
+| 0: Direct edit | (types replacement text) | One segment's audio | Shipped (PATCH + audio re-render) |
+| 1: Line notes | "less jargon", "shorten this" | LLM rewrites that line, structure fixed → audio | Small prompt + existing re-render |
+| 2: Global style | "more playful", "slower", "different voice" | All narration rewritten within fixed structure → audio; or pure TTS config (voice/pace), no words at all | Phase-2-style pass + #59 voice config + #18 pace |
+| 3: Coverage/structure | "drop the settings part", "add the export flow", "lead with X" | Re-plan from intent onward — scoped to a section once #50 lands | #38 + #50 |
+
+Design rules that make it feel polished:
+
+1. **Show the consequence before the spend.** "This changes what's
+   covered — I'll re-plan and re-record section 2 (~3 min, ~$0.40);
+   other sections won't change." Cost/time control without pipeline
+   vocabulary. For ambiguous notes ("make it warmer" — the words or
+   the voice?), disambiguate by *previewing both interpretations* —
+   at clone RTF ~0.21, audio previews are effectively free.
+2. **Notes graduate into durable intent.** "Never show customer
+   names" is not a one-off fix — it's written into `intent.json`
+   (excludes/addenda) so every future regeneration and every #51
+   auto-refresh honors it. Feedback trains the project's brief; after
+   a few demos the project has an accumulated house style and new
+   demos come out right the first time. This is the compounding-value
+   loop.
+3. **Speak in versions, not re-runs.** v1 → notes → v2 → approve.
+   Keep the prior take, show "what changed since v1" (the Phase 4
+   diff machinery already produces exactly this artifact for its own
+   revisions), allow revert. Batch semantics: five notes on one
+   viewing → one regeneration addressing all five (group by tier,
+   one pass per tier), not five sequential re-runs.
+
+Architectural note: this tier taxonomy is the same one Phase 4
+already uses internally (Level 1 selector swap / Level 2 regrounding
+/ BLOCKED structural) — pointed in the other direction, with the
+human as the revision source instead of the rehearsal. It's the
+unifying mechanism behind #14, #16, #18, #38, #50, and the
+storyboard gate (§3.4). Tracked as a vision issue.
+
 ---
 
 ## 4. Priority roadmap
