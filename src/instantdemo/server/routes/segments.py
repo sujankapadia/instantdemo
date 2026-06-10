@@ -260,6 +260,44 @@ async def delete_segment_endpoint(
     )
 
 
+def _generate_project_audio(
+    project: Path, segments: list[dict[str, Any]], tmp_dir: Path
+) -> list[Path]:
+    """Synthesize segment audio with the PROJECT'S voice (tts.json:
+    provider, stock voice or cloned reference, pronunciations) instead
+    of the pre-M3 hardcoded kokoro/af_heart. Provider import failures
+    surface as 503 with guidance — the provider fns call sys.exit(1),
+    so SystemExit must be caught here (in-process call site)."""
+    from argparse import Namespace
+
+    from instantdemo import tts_config as tts_config_mod
+    from instantdemo.render import _resolve_tts, generate_audio
+
+    config = tts_config_mod.load(project)
+    resolved = _resolve_tts(
+        Namespace(
+            tts=None, kokoro_voice=None, kokoro_speed=None,
+            pocket_voice=None, pocket_ref=None,
+        ),
+        config,
+        project if config else None,
+    )
+    try:
+        return generate_audio(
+            segments, tmp_dir, resolved, env_path=project / ".env"
+        )
+    except SystemExit as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                f"TTS provider {resolved.provider!r} failed to start. "
+                "If it isn't installed, run: pip install "
+                f"{'pocket-tts' if resolved.provider == 'pocket-tts' else resolved.provider} "
+                "— or change the project's voice in Voice settings."
+            ),
+        ) from exc
+
+
 def _do_delete_segment(
     project: Path,
     script_path: Path,
@@ -273,7 +311,6 @@ def _do_delete_segment(
     from instantdemo.render import (
         _write_segment_timing,
         cut_segment_from_video,
-        generate_audio_kokoro,
         get_audio_duration,
         remux_audio_only,
     )
@@ -306,10 +343,9 @@ def _do_delete_segment(
             output_path=trimmed_video,
         )
 
-        # Step 2: regenerate audio for the remaining segments.
-        clips = generate_audio_kokoro(
-            remaining_segments, tmp_dir, "af_heart", 1.0
-        )
+        # Step 2: regenerate audio for the remaining segments with
+        # the project's voice.
+        clips = _generate_project_audio(project, remaining_segments, tmp_dir)
         clip_durations = [get_audio_duration(c) for c in clips]
 
         # Step 3: mux new audio over the trimmed video. Pass through
@@ -393,7 +429,6 @@ def _do_re_render_audio(
     """Synchronous worker for the re-render-audio endpoint."""
     from instantdemo.render import (
         _write_segment_timing,
-        generate_audio_kokoro,
         get_audio_duration,
         remux_audio_only,
     )
@@ -409,9 +444,10 @@ def _do_re_render_audio(
 
     tmp_dir = Path(tempfile.mkdtemp(prefix="instantdemo-re-render-"))
     try:
-        # Generate audio for ALL segments (no cache in v1).
-        # Default voice/speed match the renderer's defaults.
-        clips = generate_audio_kokoro(segments, tmp_dir, "af_heart", 1.0)
+        # Generate audio for ALL segments (no cache in v1) with the
+        # project's voice — provider, stock/cloned voice, and
+        # pronunciations all come from tts.json.
+        clips = _generate_project_audio(project, segments, tmp_dir)
         clip_durations = [get_audio_duration(c) for c in clips]
 
         # Atomic write: render to tmp file then move into place.
