@@ -24,7 +24,7 @@ the renderer can consume. Use the schema below.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `narration` | string | Yes | TTS text. Use `""` for silent segments. |
-| `action` | string | Yes | Playwright `page` method name (see below). |
+| `action` | string | Yes | One of the actions in the table below — this set is closed; no other values are accepted. |
 | `pause_after_ms` | number | No | Minimum dwell time. Final duration = `max(audio_duration, pause_after_ms)`. |
 
 ## Per-action fields
@@ -37,8 +37,14 @@ the renderer can consume. Use the schema below.
 | `hover` | `selector` | — | `selector` accepts fallback array. |
 | `scroll` | `pixels` | — | Scrolls the page viewport (`window.scrollBy(0, pixels)`). For in-container scroll, use `evaluate`. |
 | `evaluate` | `expression` | — | Runs arbitrary JavaScript. Useful for in-container scrolls. |
-| `wait` | — | — | No browser action; narration plays over the static frame. |
-| Other (`select_option`, `press`, `check`, ...) | varies | varies | Any Playwright `page` method works; extra fields pass through as kwargs. |
+| `wait` | — | — | No browser action; narration plays over the static frame. There is no wait-for-selector action — if a segment needs a readiness condition, the preceding action's behavior (click result, goto `wait_for`) must provide it. |
+| `select_option` | `selector`, `value` | — | Selects an option in a `<select>`. |
+| `press` | `selector`, `key` | — | Presses a key on the focused element. |
+| `check` / `uncheck` | `selector` | — | Toggles a checkbox. |
+
+These are the ONLY valid actions. Do not invent new action names
+(e.g. Playwright method names like `wait_for_selector`) — the
+renderer rejects unknown actions and the script will fail validation.
 
 ## Worked example (small)
 
