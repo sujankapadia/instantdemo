@@ -90,14 +90,19 @@ async def _run_drift_check(context: Context) -> tuple[str, "object | None"]:
 
 
 def _invoke_renderer(context: Context) -> None:
-    """Call the bundled renderer in-process with the user's chosen TTS."""
+    """Call the bundled renderer in-process. The project's tts.json
+    carries the voice (provider/stock voice/cloned reference/
+    pronunciations); an explicit Context.tts (CLI --tts) overrides
+    the config's provider."""
     argv = [
         str(context.script_path),
-        "--tts",
-        context.tts,
+        "--tts-config",
+        str(context.project / "tts.json"),
         "-o",
         str(context.output),
     ]
+    if context.tts is not None:
+        argv += ["--tts", context.tts]
     print(f"\n[Phase 6] Drift check passed — running renderer:")
     print(f"           instantdemo render {' '.join(argv)}\n")
     render_main(argv)

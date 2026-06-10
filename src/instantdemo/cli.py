@@ -119,8 +119,9 @@ def _add_common_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--tts",
         choices=TTS_CHOICES,
-        default="kokoro",
-        help="TTS provider for the render step (default: kokoro)",
+        default=None,
+        help="Override the project's tts.json provider for the "
+        "render step (default: project voice config, or pocket-tts)",
     )
     parser.add_argument(
         "-o",
