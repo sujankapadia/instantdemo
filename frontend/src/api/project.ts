@@ -36,6 +36,14 @@ export interface ExploreFindings {
   segments?: ExploreSegmentFinding[]
 }
 
+// Phase 1 (explore-first, M1): one entry per screen the agent visited.
+export interface ScreenInfo {
+  name: string
+  route?: string | null
+  screenshot?: string | null
+  notes?: string | null
+}
+
 export interface PhaseState {
   status?: PhaseStatus
   started_at?: string
@@ -47,6 +55,11 @@ export interface PhaseState {
   // block, written to state.json by the runner. See issue #48.
   explore_findings?: ExploreFindings
   explore_overall?: 'OK' | 'BLOCKED'
+  // Phase 1 (M1) only: the agent's proposed demo intent + visited
+  // screens + warnings — feeds the intent-confirmation card.
+  intent_proposal?: import('./runs').Intent | null
+  screens?: ScreenInfo[] | null
+  warnings?: string[] | null
 }
 
 export interface ProjectState {
@@ -64,6 +77,40 @@ export interface ProjectState {
   created_at?: string | null
   phases: Record<string, PhaseState>
   current_run_id?: string | null
+  // Two-run intent confirmation (M1): the confirm card shows when a
+  // proposal exists and this is false. Derived server-side so a page
+  // reload mid-flow re-shows the card.
+  intent_confirmed?: boolean
+}
+
+// --- M1: exploration screenshots + pre-flight ---
+
+export async function fetchExplorationShots(): Promise<{ files: string[] }> {
+  const res = await fetch('/api/project/exploration')
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return (await res.json()) as { files: string[] }
+}
+
+export interface PreflightResponse {
+  ok: boolean
+  title?: string | null
+  final_url?: string | null
+  screenshot: boolean
+  error?: string | null
+}
+
+export async function runPreflight(
+  url: string,
+  signal?: AbortSignal,
+): Promise<PreflightResponse> {
+  const res = await fetch('/api/preflight', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url }),
+    signal,
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return (await res.json()) as PreflightResponse
 }
 
 export async function fetchProject(): Promise<ProjectState> {

@@ -82,8 +82,8 @@ de-risks the next:
 
 | # | Milestone | What's new | What's already proven | Size |
 |---|---|---|---|---|
-| **M0** | **`storyboard.json` — the data contract** | One canonical structured artifact (scenes: narration, action, selector, screenshot ref, status, flags) that phases 2–5 write/read, replacing markdown-parsing between phases | The action-contract bug taught us exactly why: implicit contracts break when input distributions shift. Close them *before* building UI on top | M |
-| **M1** | Source-free Phase 1 + pre-flight + intent proposal | New phase1 prompt w/ browser tooling, jail default-on for it, screenshot streaming (new SSE event), intent-confirmation endpoint | The entire §5 experiment series; the harness is the prototype | M |
+| **M0** ✅ 2026-06-10 | **`storyboard.json` — the data contract** | One canonical structured artifact (scenes: narration, action, selector, screenshot ref, status, flags) that phases 2–5 write/read, replacing markdown-parsing between phases | The action-contract bug taught us exactly why: implicit contracts break when input distributions shift. Close them *before* building UI on top | M |
+| **M1** ✅ 2026-06-10 | Source-free Phase 1 + pre-flight + intent proposal | New phase1 prompt w/ browser tooling, jail default-on for it, screenshot streaming (new SSE event), intent-confirmation endpoint | The entire §5 experiment series; the harness is the prototype | M |
 | **M2** | Storyboard UI | React storyboard view over `storyboard.json`; rehearsal screenshots; triage→scene notices; phase rail demoted | GUI scaffolding, SSE, triage panel all exist — this is a re-skin plus screenshots | L |
 | **M3** | Voice & brand (#59 + #54 generalized) | Per-project TTS config, voice picker w/ upload validation + consent, pronunciation respelling layer with the **speech-text/display-text split** | pocket-tts provider shipped; bake-off findings 7–8 are the UX spec | M |
 | **M4** | Feedback loop, tiers 0–2 (#60) | Notes UI, tier classifier (small LLM task), line/global narration rewrite passes, **versioned takes** | Tier 0 is shipped; Phase 4's diff machinery is the versioning precedent | L |

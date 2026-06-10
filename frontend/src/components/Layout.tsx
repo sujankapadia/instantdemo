@@ -17,6 +17,7 @@ import { emptyIntent } from '@/api/runs'
 import { PauseBanner } from './PauseBanner'
 import { PhaseFailureBanner } from './PhaseFailureBanner'
 import { Phase4TriagePanel } from './Phase4TriagePanel'
+import { IntentConfirmCard } from './IntentConfirmCard'
 import { RunInProgressBanner } from './RunInProgressBanner'
 import { useProject } from '@/hooks/useProject'
 import { useRun } from '@/hooks/useRun'
@@ -43,6 +44,12 @@ export function Layout() {
   })
   const [selected, setSelected] = useState<number>(1)
   const [newProjectOpen, setNewProjectOpen] = useState(false)
+  // Cold-start two-run flow (M1): form values stashed between the
+  // exploration run [1] and the confirm run [2..6]. Falls back to
+  // /api/project values after a reload.
+  const [pendingSetup, setPendingSetup] = useState<NewProjectInputs | null>(
+    null,
+  )
   // Developer-facing details (phase rail + editor pane with phase
   // artifacts) are hidden by default — they're text-heavy and foreign
   // to typical end users. The right pane (video + segments) is the
@@ -86,8 +93,7 @@ export function Layout() {
 
   const handleNewProjectSubmit = useCallback(
     (values: NewProjectInputs) => {
-      void run.startRun({
-        phases: [1, 2, 3, 4, 5, 6],
+      const common = {
         url: values.url,
         // Goal doubles as the legacy describe field so backend
         // synthesize-from-describe fallback keeps working when
@@ -95,11 +101,39 @@ export function Layout() {
         describe: values.intent.goal || undefined,
         source: values.source || undefined,
         intent: values.intent,
+        docs: values.docs || undefined,
         tts: values.tts,
         pause_between_phases: values.pause_between_phases,
+      }
+      if (data?.exists) {
+        // Regenerate: intent is already curated — full single run.
+        void run.startRun({ phases: [1, 2, 3, 4, 5, 6], ...common })
+        return
+      }
+      // Cold start (M1 two-run flow): explore first; phases 2-6 run
+      // after the user confirms the proposed intent. Stash the form
+      // values so the confirm step can reuse url/source/tts.
+      setPendingSetup(values)
+      void run.startRun({ phases: [1], ...common })
+    },
+    [data, run],
+  )
+
+  const handleIntentConfirm = useCallback(
+    (intent: import('@/api/runs').Intent) => {
+      const url = pendingSetup?.url || data?.url
+      if (!url) return
+      void run.startRun({
+        phases: [2, 3, 4, 5, 6],
+        url,
+        describe: intent.goal || undefined,
+        source: pendingSetup?.source || data?.source || undefined,
+        intent,
+        tts: 'kokoro',
+        pause_between_phases: pendingSetup?.pause_between_phases ?? false,
       })
     },
-    [run],
+    [pendingSetup, data, run],
   )
 
   // When the run pauses, auto-select the just-completed phase so the
@@ -167,6 +201,25 @@ export function Layout() {
     return () => window.removeEventListener('keydown', handler)
   }, [])
 
+  // Project-wide cost (M1): the run ticker resets per run, and the
+  // two-run cold start made that visible — the meter under-reported
+  // by the exploration run's cost. state.json keeps per-phase costs
+  // (the backend wipes a phase's entry when a new run includes it, so
+  // summing state never double-counts the live ticker's phases);
+  // while a run is active, add its live accumulation on top. On
+  // terminal states the refetched state total is authoritative.
+  const stateCost = Object.values(data?.phases ?? {}).reduce(
+    (sum, p) => sum + (p?.cost_usd ?? 0),
+    0,
+  )
+  const runActive =
+    run.status === 'starting' ||
+    run.status === 'running' ||
+    run.status === 'paused'
+  const displayCost = runActive
+    ? stateCost + run.cumulativeCost
+    : Math.max(stateCost, run.cumulativeCost)
+
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
       <Header
@@ -175,7 +228,7 @@ export function Layout() {
         loading={isLoading}
         runStatus={run.status}
         currentPhase={run.currentPhase}
-        cumulativeCost={run.cumulativeCost}
+        cumulativeCost={displayCost}
         onCancel={() => void run.cancel()}
         onNewProject={() => setNewProjectOpen(true)}
         showNewProject={!empty}
@@ -227,6 +280,32 @@ export function Layout() {
           onContinue={() => void run.continueRun()}
         />
       ) : null}
+      {(() => {
+        // Intent confirmation card (M1 two-run flow): exploration
+        // finished, proposal recorded, not yet confirmed. Derived
+        // from /api/project so a reload mid-flow re-shows it.
+        const phase1 = data?.phases?.['1']
+        const runActive =
+          run.status === 'starting' || run.status === 'running'
+        if (
+          runActive ||
+          data?.intent_confirmed ||
+          phase1?.status !== 'completed' ||
+          !phase1?.intent_proposal
+        ) {
+          return null
+        }
+        return (
+          <IntentConfirmCard
+            proposal={phase1.intent_proposal}
+            userIntent={pendingSetup?.intent ?? data?.intent ?? null}
+            screens={phase1.screens}
+            warnings={phase1.warnings}
+            busy={false}
+            onConfirm={handleIntentConfirm}
+          />
+        )
+      })()}
       {(() => {
         // Phase 4 triage panel — only when Phase 4 produced blocking
         // findings (FAIL_SELECTOR or FAIL_NARRATIVE on any segment).
@@ -291,6 +370,8 @@ export function Layout() {
               <RightPane
                 runStatus={run.status}
                 runCompleteToken={runCompleteToken}
+                screenshots={run.screenshots}
+                exploring={run.currentPhase === 1}
               />
             </div>
           </main>
@@ -314,6 +395,7 @@ export function Layout() {
         defaultValues={{
           url: data?.url ?? '',
           source: data?.source ?? '',
+          docs: '',
           // Prefill the full intent from /api/project (loaded from
           // intent.json or synthesized from describe). Lets a user
           // edit just one field (tone, focus) and regenerate.
