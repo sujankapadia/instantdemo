@@ -99,12 +99,24 @@ narrow tool allowlist:
 
 | # | Internal name | User-facing label | Purpose | Tools |
 |---|---|---|---|---|
-| 1 | `analyze` | Understand | Read codebase, build a model of structure / routes / data flow | `Read`, `Glob`, `Grep` |
+| 1 | `analyze` | Understand | **Explore-first (M1)**: drive the LIVE APP with Playwright (screenshots stream to the GUI), optionally enriched by source + a product one-pager; proposes the demo intent for user confirmation | `Bash`, `Read`, `Glob`, `Grep` |
 | 2 | `narrate` | Plan | Create `storyboard.json` (scenes: title/narration/action/target_hint) from Phase 1 + `intent.json` | (none) |
 | 3 | `gather` | Inspect | Enrich scenes with selectors (+fallback arrays), wait conditions, pacing — merged by stable scene id | `Read`, `Glob`, `Grep` |
 | 4 | `explore` | Explore | Dress-rehearsal: walk the plan in headless Playwright, verify selectors, reground narration; findings merge back into the storyboard as revisions | `Read`, `Bash` |
 | 5 | `script` | Build | **Deterministic projection** (no agent): storyboard → `demo-script.json`, validated against `actions.py` | (pure code) |
 | 6 | `render` | Render | Lightweight drift check, then record video + TTS + ffmpeg merge | `Read`, `Bash` |
+
+**The explore-first flow (M1):** the GUI cold start is TWO runs —
+phases `[1]` (exploration: pre-flight screenshot on the New Project
+form, live filmstrip via `screenshot` SSE events, fenced-JSON payload
+with `intent_proposal`/`screens`/`warnings` recorded to state.json),
+then an intent-confirmation card, then phases `[2..6]` with the
+confirmed intent (`intent_confirmed` marker in state.json).
+Regenerate stays a single `[1..6]` run. Source is OPTIONAL
+enrichment; an optional one-pager lives at `product-context.md`. The
+filesystem jail is always on for server runs (CLI keeps the
+`INSTANTDEMO_FS_JAIL` opt-in). Smoke:
+`scripts/smoke_phase1_explore.py` (self-contained fixture site).
 
 **The storyboard contract (M0):** `.instantdemo/storyboard.json` is
 the canonical structured artifact phases 2–5 read and write
@@ -222,6 +234,9 @@ self-contained restoration of a prior run.
 - `source-free-cca-jailed-2026-06-09` — source-free run on the
   React app (volatile data, flaky-scroll catch); see
   `PRODUCT_DIRECTION.md` §5 Round 6
+- `explore-first-evernote-2026-06-10` — first M1 two-run cold start
+  (pre-flight → filmstrip → intent confirmation → demo), user-driven
+  in the GUI; $0.58 total; corrected-audio demo.mp4
 
 To restore: `cp -r fixtures/<name>/. /tmp/restore && instantdemo
 serve --project /tmp/restore --port 8770`.

@@ -1,16 +1,23 @@
-import { useState } from 'react'
-import { Loader2, Play } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { CheckCircle2, Loader2, Play, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { IntentEditor } from './IntentEditor'
 import { emptyIntent, type Intent } from '@/api/runs'
+import { runPreflight, type PreflightResponse } from '@/api/project'
 
 export interface NewProjectInputs {
   url: string
   source: string
   intent: Intent
+  docs: string
   tts: 'kokoro'
   pause_between_phases: boolean
 }
+
+type PreflightState =
+  | { status: 'idle' }
+  | { status: 'checking' }
+  | { status: 'done'; result: PreflightResponse; checkedUrl: string }
 
 interface NewProjectFormProps {
   defaultValues?: Partial<NewProjectInputs>
@@ -35,12 +42,51 @@ export function NewProjectForm({
   const [intent, setIntent] = useState<Intent>(
     () => defaultValues?.intent ?? emptyIntent(),
   )
+  const [docs, setDocs] = useState(defaultValues?.docs ?? '')
   const [pauseBetweenPhases, setPauseBetweenPhases] = useState(
     defaultValues?.pause_between_phases ?? false,
   )
   const [submitInFlight, setSubmitInFlight] = useState(false)
+  const [preflight, setPreflight] = useState<PreflightState>({
+    status: 'idle',
+  })
 
   const isWorking = submitting || submitInFlight
+
+  // Pre-flight: debounced probe of the URL as the user types (M1).
+  // Soft gate — failures warn but never block submission.
+  useEffect(() => {
+    const trimmed = url.trim()
+    if (!/^https?:\/\/.+/.test(trimmed)) {
+      setPreflight({ status: 'idle' })
+      return
+    }
+    const controller = new AbortController()
+    const timer = setTimeout(() => {
+      setPreflight({ status: 'checking' })
+      runPreflight(trimmed, controller.signal)
+        .then((result) =>
+          setPreflight({ status: 'done', result, checkedUrl: trimmed }),
+        )
+        .catch((err) => {
+          if (controller.signal.aborted) return
+          setPreflight({
+            status: 'done',
+            checkedUrl: trimmed,
+            result: {
+              ok: false,
+              screenshot: false,
+              error:
+                err instanceof Error ? err.message : 'pre-flight failed',
+            },
+          })
+        })
+    }, 600)
+    return () => {
+      clearTimeout(timer)
+      controller.abort()
+    }
+  }, [url])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -64,6 +110,7 @@ export function NewProjectForm({
     onSubmit({
       url: url.trim(),
       source: source.trim(),
+      docs: docs.trim(),
       intent: {
         ...intent,
         goal: intent.goal.trim(),
@@ -97,15 +144,49 @@ export function NewProjectForm({
           className="rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
         />
         <p className="text-xs text-muted-foreground">
-          The live URL where your app is running. The agent will visit this
-          to find selectors and validate the demo.
+          The live URL where your app is running. The agent explores this
+          to understand your app and build the demo.
         </p>
+        {preflight.status === 'checking' && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 className="size-3 animate-spin" />
+            Checking your app…
+          </div>
+        )}
+        {preflight.status === 'done' && preflight.result.ok && (
+          <div className="flex items-start gap-3 rounded-md border border-border bg-secondary/20 p-2">
+            <img
+              src={`/api/preflight/screenshot?v=${encodeURIComponent(preflight.checkedUrl)}`}
+              alt="App preview"
+              className="h-16 rounded border border-border object-cover"
+            />
+            <div className="flex flex-col gap-0.5 text-xs">
+              <span className="flex items-center gap-1 font-medium text-green-600">
+                <CheckCircle2 className="size-3.5" /> Found your app
+              </span>
+              {preflight.result.title && (
+                <span className="text-muted-foreground">
+                  “{preflight.result.title}”
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+        {preflight.status === 'done' && !preflight.result.ok && (
+          <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-400">
+            <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+            <span>
+              {preflight.result.error} You can still continue — the agent
+              retries during exploration.
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="flex flex-col gap-1.5">
         <label htmlFor="np-source" className="text-sm font-medium">
           Source directory{' '}
-          <span className="text-muted-foreground">(recommended)</span>
+          <span className="text-muted-foreground">(optional)</span>
         </label>
         <input
           id="np-source"
@@ -118,10 +199,29 @@ export function NewProjectForm({
           className="rounded-md border border-input bg-background px-3 py-2 font-mono text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
         />
         <p className="text-xs text-muted-foreground">
-          Absolute path to your app's source code. The agent reads this in
-          Phase 1 to understand routes, components, and navigation. Leave
-          blank to skip — the agent will guess from the live app only,
-          which produces lower-quality results.
+          Absolute path to your app's source code. Optional enrichment —
+          the agent explores the live app either way, and may read source
+          for hidden routes and exact terminology when provided.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="np-docs" className="text-sm font-medium">
+          Product context{' '}
+          <span className="text-muted-foreground">(optional)</span>
+        </label>
+        <textarea
+          id="np-docs"
+          rows={3}
+          value={docs}
+          onChange={(e) => setDocs(e.target.value)}
+          placeholder="Paste a product one-pager or README excerpt…"
+          disabled={isWorking}
+          className="rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+        />
+        <p className="text-xs text-muted-foreground">
+          Used for framing and vocabulary (what features are called, who
+          it's for). The live app remains the source of truth.
         </p>
       </div>
 

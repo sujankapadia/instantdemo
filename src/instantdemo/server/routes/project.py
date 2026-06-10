@@ -9,6 +9,7 @@ that's the cwd of `instantdemo serve`; it can be overridden via the
 from __future__ import annotations
 
 import json
+import re
 import os
 from pathlib import Path
 from typing import Any, Literal
@@ -45,6 +46,12 @@ class PhaseState(BaseModel):
     # issue #48.
     explore_findings: dict[str, Any] | None = None
     explore_overall: str | None = None  # "OK" or "BLOCKED"
+    # Phase 1 (Understand, explore-first since M1) records its
+    # proposed demo intent + visited screens + warnings here. The
+    # frontend's intent-confirmation card reads these.
+    intent_proposal: dict[str, Any] | None = None
+    screens: list[dict[str, Any]] | None = None
+    warnings: list[str] | None = None
 
 
 class ProjectState(BaseModel):
@@ -74,6 +81,12 @@ class ProjectState(BaseModel):
     # on terminal events. The GUI uses this to detect that a run is
     # still in flight after a browser refresh.
     current_run_id: str | None = None
+    # Two-run intent confirmation (M1): false after a phases-[1]-only
+    # exploration run; true once a run with intent + phases >= 2
+    # starts. The GUI shows the confirmation card when a proposal
+    # exists and this is false — derived server-side so reloads
+    # re-show the card.
+    intent_confirmed: bool = False
 
 
 class ArtifactResponse(BaseModel):
@@ -190,6 +203,7 @@ def get_project() -> ProjectState:
         created_at=raw.get("created_at"),
         phases=phases,
         current_run_id=raw.get("current_run_id"),
+        intent_confirmed=bool(raw.get("intent_confirmed", False)),
     )
 
 
@@ -295,6 +309,46 @@ def get_segments() -> SegmentsResponse:
         total_duration_s=total_duration_s,
         segments=segments,
     )
+
+
+_EXPLORATION_FILENAME_RE = re.compile(r"^[A-Za-z0-9._-]+\.png$")
+
+
+def _exploration_dir(pdir: Path) -> Path:
+    return pdir / ".instantdemo" / "exploration"
+
+
+@router.get("/project/exploration")
+def list_exploration() -> dict[str, list[str]]:
+    """Sorted exploration screenshot filenames (Phase 1, M1).
+
+    The frontend filmstrip merges this with live `screenshot` SSE
+    events so a page reload still shows the strip.
+    """
+    exp_dir = _exploration_dir(_project_dir())
+    if not exp_dir.is_dir():
+        return {"files": []}
+    return {
+        "files": sorted(
+            p.name
+            for p in exp_dir.iterdir()
+            if p.is_file() and _EXPLORATION_FILENAME_RE.match(p.name)
+        )
+    }
+
+
+@router.get("/project/exploration/{filename}")
+def get_exploration_shot(filename: str) -> FileResponse:
+    """Serve one exploration screenshot. Filenames are whitelisted by
+    regex and resolved-path checked — belt and suspenders against
+    traversal."""
+    if not _EXPLORATION_FILENAME_RE.match(filename):
+        raise HTTPException(status_code=400, detail="invalid filename")
+    exp_dir = _exploration_dir(_project_dir())
+    path = (exp_dir / filename).resolve()
+    if not path.is_relative_to(exp_dir.resolve()) or not path.exists():
+        raise HTTPException(status_code=404, detail="no such screenshot")
+    return FileResponse(path=str(path), media_type="image/png")
 
 
 @router.get("/project/video")
