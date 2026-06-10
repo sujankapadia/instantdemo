@@ -431,6 +431,7 @@ export function Layout() {
                   runStatus={run.status}
                   currentPhase={run.currentPhase}
                   gateOpen={gateOpen}
+                  liveShots={run.screenshots}
                   onApprove={handleApprove}
                   onRegenerate={() => setNewProjectOpen(true)}
                   approving={

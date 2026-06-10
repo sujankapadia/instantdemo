@@ -39,6 +39,9 @@ interface StoryboardViewProps {
   onApprove: () => void
   onRegenerate: () => void
   approving: boolean
+  /** Live SSE screenshots — rehearsal shots (s<N>.png) bind to scene
+   * cards optimistically while Phase 4 is still running. */
+  liveShots?: { file: string; url: string }[]
 }
 
 /**
@@ -56,6 +59,7 @@ export function StoryboardView({
   onApprove,
   onRegenerate,
   approving,
+  liveShots = [],
 }: StoryboardViewProps) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editError, setEditError] = useState<string | null>(null)
@@ -103,6 +107,29 @@ export function StoryboardView({
     }
   }
 
+  // In-flight rehearsal shots by scene index: "s3.png" → 3. Used as
+  // optimistic thumbnails while Phase 4 runs (the canonical refs land
+  // in the doc when the phase completes).
+  const liveShotByIndex = new Map<number, string>()
+  for (const shot of liveShots) {
+    const match = /^s(\d+)\.png$/.exec(shot.file)
+    if (match && shot.url.includes('/rehearsal/')) {
+      liveShotByIndex.set(parseInt(match[1]!, 10), shot.url)
+    }
+  }
+
+  const progressLabel = runActive
+    ? currentPhase === 2
+      ? 'Planning scenes…'
+      : currentPhase === 3
+        ? 'Finding selectors…'
+        : currentPhase === 4
+          ? 'Rehearsing against your app…'
+          : currentPhase !== null && currentPhase >= 5
+            ? 'Rendering your video…'
+            : 'Working…'
+    : null
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border bg-muted/30 px-4">
@@ -113,6 +140,12 @@ export function StoryboardView({
             — {doc.summary}
           </span>
         ) : null}
+        {progressLabel ? (
+          <span className="ml-auto flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+            <Loader2 className="size-3 animate-spin" />
+            {progressLabel}
+          </span>
+        ) : null}
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-3">
@@ -121,6 +154,7 @@ export function StoryboardView({
             <SceneCard
               key={scene.id}
               scene={scene}
+              liveShotUrl={liveShotByIndex.get(scene.index) ?? null}
               editing={editingId === scene.id}
               editError={editingId === scene.id ? editError : null}
               canEdit={gateOpen && !runActive && editingId === null}
@@ -202,6 +236,7 @@ export function StoryboardView({
 
 function SceneCard({
   scene,
+  liveShotUrl,
   editing,
   editError,
   canEdit,
@@ -210,6 +245,7 @@ function SceneCard({
   onSave,
 }: {
   scene: StoryboardScene
+  liveShotUrl: string | null
   editing: boolean
   editError: string | null
   canEdit: boolean
@@ -240,9 +276,13 @@ function SceneCard({
       </div>
 
       <div className="flex gap-3 px-4 py-3">
-        {scene.rehearsal_screenshot ? (
+        {scene.rehearsal_screenshot || liveShotUrl ? (
           <img
-            src={`/api/project/rehearsal/${scene.rehearsal_screenshot}`}
+            src={
+              scene.rehearsal_screenshot
+                ? `/api/project/rehearsal/${scene.rehearsal_screenshot}`
+                : liveShotUrl!
+            }
             alt={`Scene ${scene.index}: ${scene.title}`}
             className="h-24 shrink-0 rounded-md border border-border object-cover"
             loading="lazy"
