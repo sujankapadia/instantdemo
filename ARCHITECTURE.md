@@ -467,3 +467,20 @@ understanding why the architecture is shaped this way:
 - `README.md` — product overview + getting started
 - `docs/` — reference material (Kokoro internals, monetization,
   manifest design, TTS providers)
+
+---
+
+## Addendum (M0, 2026-06-10): storyboard.json supersedes markdown contracts
+
+The cross-phase markdown conventions described above (segment
+headings, labeled rows, prompt-embedded artifacts) were replaced by
+a structured contract: `.instantdemo/storyboard.json`
+(`src/instantdemo/storyboard.py`). Phases 2-4 emit fenced JSON
+payloads that runners validate (one corrective retry) and merge by
+stable scene id; phases 2-4's `phaseN.md` artifacts are now rendered
+views of that document. Phase 5 no longer runs an agent at all — it
+is a deterministic projection storyboard → demo-script.json,
+validated against the closed action contract (`actions.py`).
+demo-script.json, the renderer, the GUI segment endpoints, and the
+Phase 4 findings shape in state.json are unchanged. See CLAUDE.md
+("The storyboard contract") and PRODUCT_PLAN.md (M0) for details.

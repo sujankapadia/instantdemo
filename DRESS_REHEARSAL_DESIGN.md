@@ -431,3 +431,28 @@ GUI integration (diff visibility, regrounded-segment indicator).
   prompt-only to observation-grounded
 - #51 — stale-detection; the dress-rehearsal mechanism is
   exactly the diagnostic primitive #51 would reuse
+
+---
+
+## Addendum (M0, 2026-06-10): the storyboard contract
+
+Phase 4's I/O changed with the storyboard cutover
+(`feature/storyboard-contract`; see CLAUDE.md "The storyboard
+contract" and PRODUCT_PLAN.md M0):
+
+- **Part 2 of the response format is gone.** The agent's response
+  ends with the fenced JSON findings block; the runner merges the
+  findings into `.instantdemo/storyboard.json` (selector swaps,
+  narration regroundings, status/verification per scene) and renders
+  `phase4.md` as a view of the merged document. This removes the
+  "two parts must agree" failure mode entirely.
+- **New optional `updates` channel per finding**
+  (`{"wait_for": [...], "pause_after_ms": n}`): Level-1 timing /
+  wait-condition refinements previously survived only in the Part-2
+  prose that the Phase 5 agent read. Phase 5 is now a deterministic
+  projection, so these refinements MUST flow through findings or
+  they'd be silently lost.
+- The findings JSON otherwise keeps its index-keyed shape —
+  `state.json`'s `explore_findings` and the GUI triage panel are
+  unchanged. The convergence loop (MAX_ITERATIONS, failure
+  signatures, soft budgets) is unchanged.
