@@ -184,6 +184,34 @@ async def run_smoke() -> int:
                     "demo.mp4 should not exist after a Phase-2-only run"
                 )
 
+            # Storyboard contract (M0): Phase 2 must create the
+            # canonical structured artifact plus its rendered view.
+            sb_path = state_dir / "storyboard.json"
+            if not sb_path.exists():
+                errors.append("storyboard.json was not created")
+            else:
+                sb = json.loads(sb_path.read_text())
+                if sb.get("version") != 1:
+                    errors.append(
+                        f"storyboard version expected 1, got {sb.get('version')!r}"
+                    )
+                scenes = sb.get("scenes") or []
+                if not scenes:
+                    errors.append("storyboard has no scenes")
+                for i, scene in enumerate(scenes, start=1):
+                    for field in ("id", "title", "action"):
+                        if not scene.get(field):
+                            errors.append(
+                                f"storyboard scene {i} missing {field!r}"
+                            )
+            view_path = state_dir / "phase2.md"
+            if not view_path.exists():
+                errors.append("phase2.md view was not created")
+            elif "### Segment 1" not in view_path.read_text():
+                errors.append(
+                    "phase2.md view missing '### Segment 1' heading"
+                )
+
             if errors:
                 print("[smoke] FAIL:", file=sys.stderr)
                 for err in errors:

@@ -1,36 +1,52 @@
 Design the demo's story arc.
 
-You will write a narrative plan as markdown — not JSON. (The JSON
-script is produced in a later phase using the technical details
-gathered after this one.)
-
 The audience, tone, and any other constraints are stated above —
 treat them as facts about this demo. Use product / feature names
 from the codebase analysis for terminology.
 
 Plan the narrative:
 - **Pick one compelling flow** that shows the core value proposition.
-- **Use as many segments as the flow naturally needs.** A flow with many
-  distinct beats deserves more, smaller segments; a flow with a few
+- **Use as many scenes as the flow naturally needs.** A flow with many
+  distinct beats deserves more, smaller scenes; a flow with a few
   atomic actions can be tight. Don't pad and don't compress.
 - **Aim for visual dynamism.** The viewer should see the camera move,
   not just stare at one static page while narration plays. Include
-  scrolls, hovers, or wait-on-detail segments where they help the
+  scrolls, hovers, or wait-on-detail scenes where they help the
   story breathe.
 - **Lead with the payoff** — show the impressive result early, then
   explain how you got there.
 - **Narration defaults**: short sentences, present tense, spoken-word
   style, no jargon, contractions OK.
-- Some segments may have no narration (e.g. login, scrolling to
-  position) — flag those.
+- Some scenes may have no narration (e.g. login, scrolling to
+  position) — use `""` for those.
 
-For each segment, write:
-1. A short title
-2. The proposed action (navigate, click, scroll, wait, fill, hover, evaluate, etc.)
-3. Draft narration text (or note "(silent)" if appropriate)
-4. The target at a high level (page name or URL, descriptive locator) — exact CSS selectors and timing land in the next phase
+## Output format
 
-Number the segments. Keep each segment compact — three to five lines is plenty.
+Reason in prose first if it helps, but your response must END with
+exactly ONE fenced ```json block:
+
+```json
+{
+  "title": "Demo title",
+  "summary": "One-line description of the flow",
+  "scenes": [
+    {
+      "title": "Short scene title",
+      "narration": "Draft narration text, or \"\" for silent",
+      "action": "goto",
+      "target_hint": "Page name / URL / descriptive locator at a high level"
+    }
+  ]
+}
+```
+
+- `action` must be one of (this set is closed — do not invent new
+  values): `goto`, `navigate`, `click`, `fill`, `hover`, `scroll`,
+  `wait`, `select_option`, `press`, `check`, `uncheck`, `evaluate`.
+- `target_hint` is a high-level description (page name, URL, what to
+  point at) — exact CSS selectors and timing land in the next phase.
+- Scene order in the array is the demo order. Do not number scenes;
+  the pipeline assigns ids.
 
 ## Narration style — anti-patterns to avoid
 

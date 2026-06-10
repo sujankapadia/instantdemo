@@ -35,7 +35,6 @@ import argparse
 import asyncio
 import json
 import os
-import re
 import shutil
 import socket
 import subprocess
@@ -83,57 +82,50 @@ def target_app_reachable() -> bool:
         return False
 
 
-def apply_scenario_5b(phase3_path: Path) -> None:
-    """Break Segment 2's selector and remove its fallback so the
+def _load_storyboard(state_dir: Path) -> dict:
+    return json.loads((state_dir / "storyboard.json").read_text())
+
+
+def _save_storyboard(state_dir: Path, doc: dict) -> None:
+    (state_dir / "storyboard.json").write_text(
+        json.dumps(doc, indent=2) + "\n"
+    )
+
+
+def apply_scenario_5b(state_dir: Path) -> None:
+    """Break scene s2's selector and remove its fallback so the
     rehearsal has nothing to swap in. Expected outcome: BLOCKED
-    with FAIL_SELECTOR on segment 2.
+    with FAIL_SELECTOR on segment 2 (or PASS+swap if the agent
+    invents a recovery from the live DOM).
     """
-    text = phase3_path.read_text()
-    # Replace Segment 2's selector
-    text = text.replace(
-        '- **Selector:** `a[href="/active"]`',
-        '- **Selector:** `a[href="/totally-nonexistent-route-xyz"]`',
-        1,
-    )
-    # Strip Segment 2's fallback note so the agent has nothing to try.
-    # Match the Notes line for Segment 2 and replace the fallback clause.
-    text = re.sub(
-        r'(\*\*Notes:\*\* `NavLink to="/active"` renders an `<a href="/active">`\. '
-        r'Client-side route — no full reload\.) Fallback: `aside a:has-text\("Active"\)`\.',
-        r"\1 (No fallback available — this segment must work as-is.)",
-        text,
-        count=1,
-    )
-    phase3_path.write_text(text)
+    doc = _load_storyboard(state_dir)
+    scene = next(s for s in doc["scenes"] if s["id"] == "s2")
+    scene["selector"] = ['a[href="/totally-nonexistent-route-xyz"]']
+    scene["notes"] = "(No fallback available — this scene must work as-is.)"
+    _save_storyboard(state_dir, doc)
 
 
-def apply_scenario_5c(phase3_path: Path) -> None:
-    """Inject an overclaim into Segment 4's narration that the rehearsal
+def apply_scenario_5c(state_dir: Path) -> None:
+    """Inject an overclaim into scene s4's narration that the rehearsal
     can verify is false by observation. The active-session card does NOT
     have a "real-time terminal view"; the cards show project name,
     runtime, and a recent-messages preview. Expected outcome: either
     PASS + narration_revised=True (regrounded) or FAIL_NARRATIVE.
     """
-    text = phase3_path.read_text()
-    original = (
-        '- **Narration:** "Each card is one running process. I get the '
-        "project name, how long it's been going, and a preview of the most "
-        'recent messages — so I can tell at a glance what each session is '
-        'actually doing."'
-    )
-    overclaim = (
-        '- **Narration:** "Each card is one running process. I get the '
-        "project name, how long it's been going, and a real-time terminal "
-        "view streaming every command the AI is running right now — so I can "
-        'watch each session work in real time."'
-    )
-    if original not in text:
+    doc = _load_storyboard(state_dir)
+    scene = next(s for s in doc["scenes"] if s["id"] == "s4")
+    if "preview of the most recent messages" not in scene["narration"]:
         raise RuntimeError(
-            "5c setup: could not find Segment 4 narration to replace "
-            "in phase3.md — fixture may have drifted."
+            "5c setup: scene s4 narration drifted — fixture storyboard "
+            "no longer matches the expected baseline."
         )
-    text = text.replace(original, overclaim, 1)
-    phase3_path.write_text(text)
+    scene["narration"] = (
+        "Each card is one running process. I get the project name, how "
+        "long it's been going, and a real-time terminal view streaming "
+        "every command the AI is running right now — so I can watch "
+        "each session work in real time."
+    )
+    _save_storyboard(state_dir, doc)
 
 
 async def run_smoke(scenario: str) -> int:
@@ -164,14 +156,20 @@ async def run_smoke(scenario: str) -> int:
         else:
             shutil.copy2(entry, dest)
     state_dir = tmp_root / ".instantdemo"
-    phase3_path = state_dir / "phase3.md"
+    if not (state_dir / "storyboard.json").exists():
+        print(
+            "[smoke] PRECONDITION: fixture has no storyboard.json — "
+            "hand-convert phase3.md first (see M0 plan).",
+            file=sys.stderr,
+        )
+        return 2
 
     if scenario == "5b":
-        apply_scenario_5b(phase3_path)
-        print("[smoke] Scenario 5b: broke Segment 2 selector + removed fallback")
+        apply_scenario_5b(state_dir)
+        print("[smoke] Scenario 5b: broke scene s2 selector + removed fallback")
     elif scenario == "5c":
-        apply_scenario_5c(phase3_path)
-        print("[smoke] Scenario 5c: injected overclaim into Segment 4 narration")
+        apply_scenario_5c(state_dir)
+        print("[smoke] Scenario 5c: injected overclaim into scene s4 narration")
 
     port = find_free_port()
     base_url = f"http://127.0.0.1:{port}"
@@ -366,6 +364,44 @@ async def run_smoke(scenario: str) -> int:
             diff = state_dir / "phase4-diff.md"
             if not diff.exists():
                 errors.append("phase4-diff.md was not written")
+
+            # M0 storyboard contract: findings must have been merged
+            # into the canonical document — scene statuses updated and
+            # every swapped/regrounded finding mirrored by a revision.
+            sb = _load_storyboard(state_dir)
+            scenes_by_index = {s["index"]: s for s in sb["scenes"]}
+            findings_for_sb = (
+                (json.loads(state_path.read_text())["phases"]["4"]
+                 .get("explore_findings") or {})
+                if state_path.exists() else {}
+            )
+            if scenario == "5a":
+                bad = [
+                    s["id"] for s in sb["scenes"]
+                    if s.get("status") not in ("verified", "warn")
+                ]
+                if bad:
+                    errors.append(
+                        f"5a: scenes not verified/warn after OK rehearsal: {bad}"
+                    )
+            for f in findings_for_sb.get("segments") or []:
+                scene = scenes_by_index.get(f.get("index"))
+                if scene is None:
+                    continue
+                if f.get("selector_swapped"):
+                    rev_types = [r["type"] for r in scene.get("revisions", [])]
+                    if "selector" not in rev_types:
+                        errors.append(
+                            f"segment {f['index']}: selector_swapped finding "
+                            "has no matching scene revision"
+                        )
+                if f.get("narration_revised"):
+                    rev_types = [r["type"] for r in scene.get("revisions", [])]
+                    if "narration" not in rev_types:
+                        errors.append(
+                            f"segment {f['index']}: narration_revised finding "
+                            "has no matching scene revision"
+                        )
 
             if errors:
                 print("[smoke] FAIL:", file=sys.stderr)

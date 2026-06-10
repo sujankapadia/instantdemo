@@ -100,11 +100,22 @@ narrow tool allowlist:
 | # | Internal name | User-facing label | Purpose | Tools |
 |---|---|---|---|---|
 | 1 | `analyze` | Understand | Read codebase, build a model of structure / routes / data flow | `Read`, `Glob`, `Grep` |
-| 2 | `narrate` | Plan | Write a narrative plan (markdown) from Phase 1 + `intent.json` | (none) |
-| 3 | `gather` | Inspect | Find stable CSS selectors from source | `Read`, `Glob`, `Grep` |
-| 4 | `explore` | Explore | Dress-rehearsal: walk the plan in headless Playwright, verify selectors, reground narration where observations contradict predictions | `Read`, `Bash` |
-| 5 | `script` | Build | Translate Phase 4's verified plan into `demo-script.json` | `Read`, `Write` |
+| 2 | `narrate` | Plan | Create `storyboard.json` (scenes: title/narration/action/target_hint) from Phase 1 + `intent.json` | (none) |
+| 3 | `gather` | Inspect | Enrich scenes with selectors (+fallback arrays), wait conditions, pacing — merged by stable scene id | `Read`, `Glob`, `Grep` |
+| 4 | `explore` | Explore | Dress-rehearsal: walk the plan in headless Playwright, verify selectors, reground narration; findings merge back into the storyboard as revisions | `Read`, `Bash` |
+| 5 | `script` | Build | **Deterministic projection** (no agent): storyboard → `demo-script.json`, validated against `actions.py` | (pure code) |
 | 6 | `render` | Render | Lightweight drift check, then record video + TTS + ffmpeg merge | `Read`, `Bash` |
+
+**The storyboard contract (M0):** `.instantdemo/storyboard.json` is
+the canonical structured artifact phases 2–5 read and write
+(`src/instantdemo/storyboard.py` — schema, per-stage validators,
+projection, view renderers). Agents emit fenced JSON payloads that
+runners validate (one corrective retry via
+`phases.run_structured_query`) and merge; the `phaseN.md` files for
+phases 2–4 are **rendered views** of the storyboard — prose edits to
+them do NOT feed forward (the phase2 ANSWER block still does; edit
+`storyboard.json` directly for everything else). Scene ids ("s1",
+"s2", …) are runner-assigned and never reused.
 
 **Phase 4 is the most distinctive** — it's an end-to-end dress
 rehearsal with authority to revise the plan within limits (selector
@@ -124,15 +135,17 @@ src/instantdemo/
 ├── intent.py                  # Intent dataclass (goal/audience/tone/etc.) + load/save/synth
 ├── state.py                   # state.json read/write + per-phase metrics
 ├── render.py                  # The renderer: Playwright + TTS + ffmpeg merge
+├── storyboard.py              # THE phase 2-5 contract: schema, validators, projection, views
+├── actions.py                 # Closed demo-script action contract (shared with renderer)
 ├── prompts/                   # Per-phase prompt templates
-│   ├── phase1.md ... phase6.md
+│   ├── phase1.md ... phase4.md, phase6.md   # (no phase5 — deterministic)
 ├── phases/                    # Per-phase Python runners
-│   ├── __init__.py            # Context dataclass, run_query_on_client, record_phase_result
+│   ├── __init__.py            # Context, run_query_on_client, run_structured_query
 │   ├── analyze.py             # Phase 1 runner
-│   ├── narrate.py             # Phase 2 runner (incl. deterministic input resolution)
-│   ├── gather.py              # Phase 3 runner
-│   ├── explore.py             # Phase 4 runner (dress-rehearsal + convergence loop + diff)
-│   ├── script.py              # Phase 5 runner (incl. JSON structural validation)
+│   ├── narrate.py             # Phase 2 runner (storyboard creation + input resolution)
+│   ├── gather.py              # Phase 3 runner (merge-by-scene-id enrichment)
+│   ├── explore.py             # Phase 4 runner (rehearsal + convergence + findings merge)
+│   ├── script.py              # Phase 5 runner (deterministic storyboard→script projection)
 │   └── render.py              # Phase 6 runner (drift check + render via run_in_executor)
 └── server/                    # FastAPI backend
     ├── app.py
@@ -166,7 +179,8 @@ Each project directory has:
 └── .instantdemo/
     ├── state.json             # Persistent run state: per-phase status, cost, metrics
     ├── metrics.jsonl          # Append-only per-run-per-phase records
-    ├── phase1.md ... phase6.md  # Per-phase artifacts (markdown for phases 1-4, 6)
+    ├── storyboard.json        # CANONICAL phase 2-5 artifact (scenes, statuses, revisions)
+    ├── phase1.md ... phase6.md  # Phase 1/6: agent output; phases 2-4: rendered VIEWS of storyboard.json
     ├── phase4-diff.md         # Phase 4's per-segment revisions summary
     └── segment-timing.json    # Per-segment time ranges in demo.mp4
 ```
@@ -222,10 +236,14 @@ serve --project /tmp/restore --port 8770`.
 - **PhaseDispatcher.hook strips the run-id suffix** for PHASE_TOOLS
   lookup. The dispatcher's `current_phase` carries the full session id;
   the hook does `phase_key = current_phase.split("-", 1)[0]`.
-- **Structured findings are JSON inside markdown** (Phase 4's fenced
-  ```json block). Runner parses with `re.search`, derives its own
-  `overall` from per-segment statuses (does NOT trust the agent's
-  self-reported `summary.overall`).
+- **Agents emit fenced JSON; runners own artifacts.** Phases 2/3/4
+  end their responses with one ```json block, validated with one
+  corrective retry (`phases.run_structured_query`). The runner merges
+  into storyboard.json and renders the phaseN.md view. Phase 4's
+  findings keep their index-keyed shape in `state.json`
+  (`explore_findings`) for the GUI triage panel; the runner derives
+  its own `overall` from per-segment statuses (does NOT trust the
+  agent's self-reported `summary.overall`).
 - **Cost-delta tracking** in `PhaseDispatcher.session_cost_totals` —
   the SDK's `total_cost_usd` is cumulative for a session; we subtract
   the previous total to get per-run cost.

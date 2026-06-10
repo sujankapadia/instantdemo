@@ -141,16 +141,11 @@ user makes the structural call.
 
 ### Output
 
-Your response is the full Phase 4 report — the runner saves it
-to `phase4.md`. You don't have a Write tool; the response text
-IS the artifact.
-
-**The response has two parts, in order:**
-
-#### Part 1 — Structured findings (machine-readable)
-
-Begin your response with a fenced JSON code block. The runner
-parses this to decide whether the pipeline continues:
+Your response must END with exactly ONE fenced JSON findings
+block — that block is the entire contract. The runner applies
+your revisions to the canonical plan and renders the human
+report from it; do NOT write a per-segment markdown report.
+You may summarize observations in prose before the block.
 
 ```json
 {
@@ -173,10 +168,27 @@ parses this to decide whether the pipeline continues:
       "to": "<your replacement; only when selector_swapped>",
       "narration_revised": <true if you regrounded narration; omit if not>,
       "narration_from": "<original narration; only when narration_revised>",
-      "narration_to": "<replacement narration; only when narration_revised>"
+      "narration_to": "<replacement narration; only when narration_revised>",
+      "updates": {
+        "wait_for": ["<refined wait selector>", "<fallback>"],
+        "pause_after_ms": <adjusted pacing>
+      }
     }
   ]
 }
+```
+
+**The `updates` object (Level 1 refinements):** if the rehearsal
+led you to adjust a segment's wait condition or pacing, record it
+here — this is the ONLY way those changes reach the renderer.
+Include only the keys you actually changed; omit `updates`
+entirely when nothing changed. Worked example: you observed that
+segment 3's detail pane populates only after `#note-title`
+contains text, and the page needs 2s (not 1s) to settle:
+
+```json
+{"index": 3, "status": "PASS", "reason": "detail pane populates ~1.4s after click",
+ "updates": {"wait_for": ["#note-title:has-text(\"Marketing\")"], "pause_after_ms": 2000}}
 ```
 
 **Status rules:**
@@ -243,30 +255,3 @@ Example contrast:
 There is no PARTIAL outcome. The pipeline either has all the
 information it needs to produce a real demo, or it doesn't and
 the user needs to address the failures before continuing.
-
-#### Part 2 — Human-readable per-segment report
-
-After the JSON block, write the per-segment markdown report
-in this format:
-
-```
-### Segment N — [title]
-- **Action:** <unchanged>
-- **Narration:** "[verified — original, or regrounded]"
-- **URL:** <unchanged for goto>
-- **Selector:** <verified — may be the original or a Phase 3
-  fallback that was swapped in>
-- **wait_for:** <verified>
-- **pause_after_ms:** <verified — may be adjusted from observed timing>
-- **Verified:** PASS | FAIL_SELECTOR | FAIL_NARRATIVE | WARN —
-  <one-line observation from the rehearsal>
-- **Notes:** <retained from Phase 3; add live-data observations
-  here, plus a brief note when narration was regrounded
-  (e.g., "Narration regrounded: observed 2 sessions, dropped
-  the '5 sessions' claim"). For FAIL_*: include the user-facing
-  suggestion here as well.>
-```
-
-The two parts MUST agree — the per-segment statuses in the JSON
-must match the `Verified:` lines in the markdown. The JSON is
-the machine contract; the markdown is the human view.
