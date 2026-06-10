@@ -194,6 +194,9 @@ self-contained restoration of a prior run.
   generalizability demonstration
 - `evernote-non-technical-fixed-2026-05-14` — generalizability test
   on a different stack (FastAPI + vanilla HTML)
+- `source-free-evernote-jailed-2026-06-09` — first fully-isolated
+  source-free run (no repo access, filesystem jail on); see
+  `PRODUCT_DIRECTION.md` §5
 
 To restore: `cp -r fixtures/<name>/. /tmp/restore && instantdemo
 serve --project /tmp/restore --port 8770`.
