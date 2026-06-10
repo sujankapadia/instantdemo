@@ -39,19 +39,29 @@ See DRESS_REHEARSAL_DESIGN.md.
 
 from __future__ import annotations
 
+import asyncio
 import re
 import time
+from pathlib import Path
 from typing import Any
 
 from .. import prompts, storyboard
 from .. import state as state_mod
 from ..agent_client import session_id_for_phase
+from .analyze import new_screenshots, screenshot_event, watch_screenshots
 from . import (
     Context,
     record_phase_result,
     run_query_on_client,
     summarize_run,
 )
+
+REHEARSAL_DIRNAME = "rehearsal"
+_REHEARSAL_URL_PREFIX = "/api/project/rehearsal"
+
+
+def rehearsal_dir(state_dir: Path) -> Path:
+    return state_dir / REHEARSAL_DIRNAME
 
 # Legacy fallback: parse the old text directive if no JSON block is
 # present. Maps EXPLORE_OK/PARTIAL/BLOCKED to the new strict outcome.
@@ -89,11 +99,15 @@ def _iteration_budget_s(segment_count: int) -> float:
     return max(_PER_ITERATION_FLOOR_S, segment_count * _PER_SEGMENT_BUDGET_S)
 
 
-def _build_initial_prompt(doc: dict, url: str, phase3_path: str) -> str:
+def _build_initial_prompt(
+    doc: dict, url: str, phase3_path: str, shots_dir: Path
+) -> str:
     """The plan is rendered FROM the storyboard (not read from
     phase3.md on disk) so the prompt is guaranteed consistent with
     the canonical document."""
     template = prompts.load("phase4")
+    # str.replace, not str.format — the template contains JSON braces.
+    template = template.replace("{rehearsal_dir}", str(shots_dir))
     return (
         f"The app being demoed is running at: {url}\n"
         f"The Phase 3 plan is at: {phase3_path}\n"
@@ -378,6 +392,66 @@ def _write_diff_artifact(
     diff_path.write_text("\n\n".join(parts))
 
 
+def link_rehearsal_screenshots(doc: dict, shots_dir: Path) -> list[str]:
+    """Join rehearsal screenshots to scenes by segment-index naming
+    (`s<index>.png`). Pure function (unit-tested). Sets each scene's
+    `rehearsal_screenshot` when the file exists and POPS it when it
+    doesn't — a prior run's storyboard must not carry stale refs into
+    the gate. Returns the linked filenames."""
+    linked: list[str] = []
+    existing: set[str] = set()
+    if shots_dir.is_dir():
+        existing = {p.name for p in shots_dir.glob("s*.png")}
+    for scene in doc.get("scenes", []):
+        name = f"s{scene['index']}.png"
+        if name in existing:
+            scene["rehearsal_screenshot"] = name
+            linked.append(name)
+        else:
+            scene.pop("rehearsal_screenshot", None)
+    return linked
+
+
+async def _ensure_screenshots(
+    context: Context,
+    session_id: str,
+    shots_dir: Path,
+    findings: dict[str, Any],
+) -> None:
+    """At-least-one screenshot enforcement (the M1 pattern adapted to
+    Phase 4's convergence loop): if the rehearsal verified segments
+    but saved zero shots, spend ONE short corrective turn asking for
+    a minimal screenshot pass — then continue regardless. Thumbnails
+    are presentation, not correctness; this never fails the phase."""
+    has_passing = any(
+        f.get("status") in ("PASS", "WARN")
+        for f in findings.get("segments") or []
+    )
+    has_shots = shots_dir.is_dir() and any(shots_dir.glob("s*.png"))
+    if not has_passing or has_shots:
+        return
+    print("[Phase 4] no rehearsal screenshots saved — one corrective turn")
+    _text, result = await run_query_on_client(
+        context,
+        (
+            "You verified segments but saved no rehearsal screenshots. "
+            "Run one minimal Playwright pass that walks the verified "
+            "plan and saves a screenshot per passing segment as "
+            f"{shots_dir}/s<N>.png (s1.png, s2.png, ...). Do not "
+            "re-verify or change findings — just capture the screens. "
+            "Reply with a one-line confirmation when done."
+        ),
+        session_id=session_id,
+    )
+    if result is None or not (
+        shots_dir.is_dir() and any(shots_dir.glob("s*.png"))
+    ):
+        print(
+            "[Phase 4] WARNING: still no rehearsal screenshots — "
+            "storyboard cards will show placeholders."
+        )
+
+
 async def run(context: Context) -> None:
     if context.client is None:
         raise RuntimeError(
@@ -390,9 +464,26 @@ async def run(context: Context) -> None:
     artifact = context.phase_artifact(4)
     artifact.parent.mkdir(parents=True, exist_ok=True)
 
+    shots_dir = rehearsal_dir(context.state_dir)
+    shots_dir.mkdir(parents=True, exist_ok=True)
+    # Clear stale shots so the gate never shows a prior run's screens.
+    for old in shots_dir.glob("*.png"):
+        old.unlink()
+
     segment_count = len(doc["scenes"])
     iteration_budget = _iteration_budget_s(segment_count)
     session_id = session_id_for_phase(4, context.run_id)
+
+    seen_shots: set[str] = set()
+    watcher: asyncio.Task | None = None
+    emit = context.event_emitter
+    if emit is not None:
+        watcher = asyncio.create_task(
+            watch_screenshots(
+                shots_dir, emit, seen_shots,
+                phase=4, url_prefix=_REHEARSAL_URL_PREFIX,
+            )
+        )
 
     findings: dict[str, Any] | None = None
     overall: str | None = None
@@ -400,73 +491,93 @@ async def run(context: Context) -> None:
     prior_signature: frozenset[tuple[int, str]] | None = None
     final_iteration = 0
 
-    for iteration in range(1, MAX_ITERATIONS + 1):
-        final_iteration = iteration
-        if iteration == 1:
-            prompt = _build_initial_prompt(
-                doc, context.url, str(context.phase_artifact(3))
+    try:
+        for iteration in range(1, MAX_ITERATIONS + 1):
+            final_iteration = iteration
+            if iteration == 1:
+                prompt = _build_initial_prompt(
+                    doc, context.url, str(context.phase_artifact(3)), shots_dir
+                )
+            else:
+                assert findings is not None  # only retry after a parsed iteration
+                prompt = _build_retry_prompt(findings, iteration)
+
+            start_ts = time.monotonic()
+            # Soft ceiling: the SDK call runs to completion. We check
+            # elapsed AFTER the call and only refuse to start iteration
+            # N+1 if N already overran. Mid-call hard cancellation would
+            # discard all in-flight work.
+            verified_text, result = await run_query_on_client(
+                context, prompt, session_id=session_id
             )
-        else:
-            assert findings is not None  # only retry after a parsed iteration
-            prompt = _build_retry_prompt(findings, iteration)
+            elapsed = time.monotonic() - start_ts
 
-        start_ts = time.monotonic()
-        # Soft ceiling: the SDK call runs to completion. We check
-        # elapsed AFTER the call and only refuse to start iteration
-        # N+1 if N already overran. Mid-call hard cancellation would
-        # discard all in-flight work.
-        verified_text, result = await run_query_on_client(
-            context, prompt, session_id=session_id
-        )
-        elapsed = time.monotonic() - start_ts
+            if result is None:
+                raise RuntimeError(
+                    "Phase 4: the Claude Agent SDK did not return a "
+                    f"ResultMessage on iteration {iteration}."
+                )
 
-        if result is None:
-            raise RuntimeError(
-                "Phase 4: the Claude Agent SDK did not return a "
-                f"ResultMessage on iteration {iteration}."
-            )
-
-        # Persist this iteration's text as the artifact (later iterations
-        # overwrite earlier ones — phase4.md always reflects the LAST
-        # rehearsal's report). Record metrics for cost / token tracking.
-        artifact.write_text(verified_text + "\n")
-        record_phase_result(context, 4, result)
-        print(
-            summarize_run(4, artifact, result)
-            + f" [iter {iteration}, {elapsed:.1f}s]"
-        )
-
-        findings = _parse_findings(verified_text)
-        if findings is None:
-            # No parseable findings — defer to legacy directive logic
-            # below. Don't iterate further; structured iteration
-            # requires structured findings.
-            break
-
-        overall = _findings_overall(findings)
-        if overall == "OK":
-            break
-
-        signature = _failure_signature(findings)
-        if signature == prior_signature:
+            # Persist this iteration's text as the artifact (later iterations
+            # overwrite earlier ones — phase4.md always reflects the LAST
+            # rehearsal's report). Record metrics for cost / token tracking.
+            artifact.write_text(verified_text + "\n")
+            record_phase_result(context, 4, result)
             print(
-                f"[Phase 4] iteration {iteration} produced the same "
-                "FAIL signature as the prior iteration — no progress, "
-                "stopping."
+                summarize_run(4, artifact, result)
+                + f" [iter {iteration}, {elapsed:.1f}s]"
             )
-            break
-        prior_signature = signature
 
-        # Soft ceiling check: if this iteration overran its budget,
-        # don't start the next one. The current iteration's work is
-        # preserved (artifact written, cost recorded).
-        if elapsed > iteration_budget:
-            print(
-                f"[Phase 4] iteration {iteration} took {elapsed:.1f}s, "
-                f"exceeding the {iteration_budget:.0f}s soft budget; "
-                "not starting another iteration."
+            findings = _parse_findings(verified_text)
+            if findings is None:
+                # No parseable findings — defer to legacy directive logic
+                # below. Don't iterate further; structured iteration
+                # requires structured findings.
+                break
+
+            overall = _findings_overall(findings)
+            if overall == "OK":
+                break
+
+            signature = _failure_signature(findings)
+            if signature == prior_signature:
+                print(
+                    f"[Phase 4] iteration {iteration} produced the same "
+                    "FAIL signature as the prior iteration — no progress, "
+                    "stopping."
+                )
+                break
+            prior_signature = signature
+
+            # Soft ceiling check: if this iteration overran its budget,
+            # don't start the next one. The current iteration's work is
+            # preserved (artifact written, cost recorded).
+            if elapsed > iteration_budget:
+                print(
+                    f"[Phase 4] iteration {iteration} took {elapsed:.1f}s, "
+                    f"exceeding the {iteration_budget:.0f}s soft budget; "
+                    "not starting another iteration."
+                )
+                break
+
+        # Screenshot enforcement (one corrective turn, never fails the
+        # phase) runs while the watcher is still streaming.
+        if findings is not None:
+            await _ensure_screenshots(
+                context, session_id, shots_dir, findings
             )
-            break
+    finally:
+        if watcher is not None and emit is not None:
+            watcher.cancel()
+            try:
+                await watcher
+            except asyncio.CancelledError:
+                pass
+            # Final scan: shots written inside the last poll interval.
+            for name in new_screenshots(shots_dir, seen_shots):
+                emit(screenshot_event(
+                    name, phase=4, url_prefix=_REHEARSAL_URL_PREFIX,
+                ))
 
     # Persist findings + overall to state.json. Falls back to legacy
     # text directive parsing when the agent emitted no JSON block.
@@ -484,6 +595,8 @@ async def run(context: Context) -> None:
         )
         for warning in merge_warnings:
             print(f"[Phase 4] merge warning: {warning}")
+        linked = link_rehearsal_screenshots(doc, shots_dir)
+        print(f"[Phase 4] rehearsal screenshots linked: {len(linked)}")
         storyboard.save(context.state_dir, doc)
         artifact.write_text(storyboard.render_phase4_view(doc, findings))
 

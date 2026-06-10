@@ -102,6 +102,26 @@ class RunRequest(BaseModel):
     docs: str | None = None
 
 
+def _storyboard_marker(phases: list[int]) -> bool | None:
+    """Storyboard-gate marker semantics (M2). Returns the value to
+    write to state.json's `storyboard_approved`, or None to leave it
+    untouched.
+
+      - any phase >= 5  → True: rendering implies approval (the
+        gate's approve run [5,6], a targeted re-render [6], or a
+        full Regenerate [1..6] which bypasses the gate by design)
+      - else any of 2/3/4 → False: the plan/inspect/rehearse leg
+        produces an UNREVIEWED storyboard (includes a [4]-only
+        re-rehearse — changed scenes need re-review)
+      - else ([1]-only exploration) → None: untouched
+    """
+    if any(p >= 5 for p in phases):
+        return True
+    if any(p in (2, 3, 4) for p in phases):
+        return False
+    return None
+
+
 class RunInfo(BaseModel):
     """Returned from POST /api/runs."""
 
@@ -320,6 +340,11 @@ class RunManager:
                 p >= 2 for p in request.phases
             ):
                 s["intent_confirmed"] = True
+
+            # Storyboard gate marker (M2), mirroring intent_confirmed.
+            marker = _storyboard_marker(request.phases)
+            if marker is not None:
+                s["storyboard_approved"] = marker
 
             run = _Run(run_id=str(uuid.uuid4()), phases=request.phases)
             self.active = run

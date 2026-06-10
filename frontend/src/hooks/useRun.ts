@@ -200,9 +200,11 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
         break
 
       case 'screenshot':
-        // Phase 1 exploration shots (M1) — feed the filmstrip live.
+        // Phase 1 exploration / Phase 4 rehearsal shots — feed the
+        // filmstrip live. Dedupe by URL: an exploration shot and a
+        // rehearsal shot may share a filename across directories.
         setScreenshots((prev) =>
-          prev.some((s) => s.file === event.file)
+          prev.some((s) => s.url === event.url)
             ? prev
             : [...prev, { file: event.file, url: event.url }],
         )

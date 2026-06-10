@@ -87,6 +87,11 @@ class ProjectState(BaseModel):
     # exists and this is false — derived server-side so reloads
     # re-show the card.
     intent_confirmed: bool = False
+    # Storyboard gate (M2): false after the plan/inspect/rehearse leg
+    # ([2,3,4] or any re-rehearse); true once a run including phase 5
+    # or 6 starts (approve / re-render / Regenerate). Gate visibility
+    # derives from this — reload-safe.
+    storyboard_approved: bool = False
 
 
 class ArtifactResponse(BaseModel):
@@ -204,6 +209,7 @@ def get_project() -> ProjectState:
         phases=phases,
         current_run_id=raw.get("current_run_id"),
         intent_confirmed=bool(raw.get("intent_confirmed", False)),
+        storyboard_approved=bool(raw.get("storyboard_approved", False)),
     )
 
 
@@ -335,6 +341,21 @@ def list_exploration() -> dict[str, list[str]]:
             if p.is_file() and _EXPLORATION_FILENAME_RE.match(p.name)
         )
     }
+
+
+@router.get("/project/rehearsal/{filename}")
+def get_rehearsal_shot(filename: str) -> FileResponse:
+    """Serve one Phase 4 rehearsal screenshot (M2 storyboard
+    thumbnails). Same whitelist + containment defenses as the
+    exploration endpoint. No listing endpoint — the storyboard doc
+    carries `rehearsal_screenshot` per scene."""
+    if not _EXPLORATION_FILENAME_RE.match(filename):
+        raise HTTPException(status_code=400, detail="invalid filename")
+    shots_dir = _project_dir() / ".instantdemo" / "rehearsal"
+    path = (shots_dir / filename).resolve()
+    if not path.is_relative_to(shots_dir.resolve()) or not path.exists():
+        raise HTTPException(status_code=404, detail="no such screenshot")
+    return FileResponse(path=str(path), media_type="image/png")
 
 
 @router.get("/project/exploration/{filename}")
