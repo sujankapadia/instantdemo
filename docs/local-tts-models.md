@@ -163,12 +163,18 @@ end-to-end render time, audio alone.
 
 ## Current TTS providers in render.py
 
-| Provider | Quality | Cost | Local? |
-|---|---|---|---|
-| **Kokoro** | Near-human (af_heart) | Free | Yes |
-| **Piper** | Robotic | Free | Yes |
-| **Google Cloud TTS** (WaveNet) | Natural | Free tier (1M chars/mo) | No |
-| **ElevenLabs** | Most natural | Paid (~$5/mo starter) | No |
+| Provider | Quality | Cost | Local? | Cloning |
+|---|---|---|---|---|
+| **Kokoro** | Near-human (af_heart) | Free | Yes | No |
+| **Pocket TTS** | Great (by ear, bake-off) | Free | Yes (CPU) | **Yes** — `--pocket-ref voice.wav`; stock via `--pocket-voice` (default alba) |
+| **Piper** | Robotic | Free | Yes | No |
+| **Google Cloud TTS** (WaveNet) | Natural | Free tier (1M chars/mo) | No | No |
+| **ElevenLabs** | Most natural | Paid (~$5/mo starter) | No | Paid tiers |
+
+Pocket TTS landed 2026-06-10 (branch `feature/pocket-tts-provider`)
+directly from the bake-off verdict below. Not yet surfaced in the GUI
+(the segment audio re-render route still hardcodes Kokoro af_heart) —
+follow-up alongside per-project TTS config.
 
 ## Sources
 
