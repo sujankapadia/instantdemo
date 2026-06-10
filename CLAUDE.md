@@ -253,6 +253,9 @@ self-contained restoration of a prior run.
 - `explore-first-evernote-2026-06-10` — first M1 two-run cold start
   (pre-flight → filmstrip → intent confirmation → demo), user-driven
   in the GUI; $0.58 total; corrected-audio demo.mp4
+- `storyboard-gate-evernote-2026-06-10` — first M2 three-stage run
+  (explore → confirm → live storyboard build → gate approve →
+  render), user-driven; 7/7 rehearsal thumbnails; $0.70 total
 
 To restore: `cp -r fixtures/<name>/. /tmp/restore && instantdemo
 serve --project /tmp/restore --port 8770`.
