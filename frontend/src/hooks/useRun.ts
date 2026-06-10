@@ -65,6 +65,8 @@ export interface UseRunReturn {
   log: LogEntry[]
   cumulativeCost: number
   error: string | null
+  /** Phase 1 exploration screenshots streamed via SSE (M1). */
+  screenshots: { file: string; url: string }[]
   startRun: (req: RunRequest) => Promise<void>
   cancel: () => Promise<void>
   continueRun: () => Promise<void>
@@ -102,6 +104,9 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
   const [log, setLog] = useState<LogEntry[]>([])
   const [cumulativeCost, setCumulativeCost] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  const [screenshots, setScreenshots] = useState<
+    { file: string; url: string }[]
+  >([])
 
   const subscriptionRef = useRef<StreamSubscription | null>(null)
   const runIdRef = useRef<string | null>(null)
@@ -194,6 +199,15 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
         appendLog({ kind: 'error', error: event.error })
         break
 
+      case 'screenshot':
+        // Phase 1 exploration shots (M1) — feed the filmstrip live.
+        setScreenshots((prev) =>
+          prev.some((s) => s.file === event.file)
+            ? prev
+            : [...prev, { file: event.file, url: event.url }],
+        )
+        break
+
       case 'paused':
         setStatus('paused')
         setPausedAfter(event.completed_phase)
@@ -283,6 +297,12 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
       setPausedAfter(null)
       setNextPhase(null)
       setRunId(null)
+      // Only clear the filmstrip when Phase 1 is about to re-explore
+      // (the runner clears the exploration dir then too). A [2..6]
+      // confirm run keeps the strip from the exploration run.
+      if (req.phases.includes(1)) {
+        setScreenshots([])
+      }
       logIdRef.current = 0
 
       try {
@@ -352,6 +372,7 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
     log,
     cumulativeCost,
     error,
+    screenshots,
     startRun: startRunImpl,
     cancel,
     continueRun: continueRunImpl,
@@ -359,7 +380,8 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
 }
 
 function phaseFromSessionId(sessionId: string): number | null {
-  const match = /^phase(\d+)$/.exec(sessionId)
+  // Session ids are "phaseN" (legacy) or "phaseN-<run8>" since #53.
+  const match = /^phase(\d+)(?:-|$)/.exec(sessionId)
   if (!match || !match[1]) return null
   return parseInt(match[1], 10)
 }

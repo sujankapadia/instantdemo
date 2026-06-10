@@ -33,6 +33,9 @@ export interface RunRequest {
   tts?: string
   pause_between_phases?: boolean
   intent?: Intent | null
+  // Optional product one-pager / README excerpt (M1). Persisted to
+  // product-context.md and injected into Phase 1's prompt.
+  docs?: string | null
 }
 
 export interface RunInfo {
@@ -54,6 +57,7 @@ export type RunEvent =
       num_turns: number | null
     }
   | { type: 'phase_error'; phase: number; error: string }
+  | { type: 'screenshot'; phase: number; file: string; url: string }
   | { type: 'paused'; completed_phase: number; next_phase: number }
   | { type: 'resumed'; next_phase: number }
   | { type: 'run_complete'; total_cost_usd: number }
