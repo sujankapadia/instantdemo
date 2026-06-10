@@ -484,6 +484,10 @@ export function Layout() {
           run.status === 'running' ||
           run.status === 'paused'
         }
+        videoExists={data?.phases?.['6']?.status === 'completed'}
+        // The runCompleteToken signal: RightPane refetches segments
+        // and busts the video cache — exactly what a re-voice needs.
+        onReVoiced={() => setRunCompleteToken((t) => t + 1)}
       />
       <NewProjectModal
         open={newProjectOpen}

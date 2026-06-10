@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import {
+  AudioLines,
   Loader2,
   Mic,
   Play,
@@ -8,6 +9,7 @@ import {
   TriangleAlert,
   Upload,
 } from 'lucide-react'
+import { reRenderSegmentAudio } from '@/api/segments'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -35,6 +37,11 @@ interface VoiceDialogProps {
   /** Block config writes while a run is active (server 409s anyway —
    * this just disables the controls with a hint). */
   runActive: boolean
+  /** A rendered demo.mp4 exists — enables "Re-voice video". */
+  videoExists: boolean
+  /** Fired after a successful re-voice so the layout can refresh
+   * segments + bust the video cache (the runCompleteToken signal). */
+  onReVoiced: () => void
 }
 
 /**
@@ -50,6 +57,8 @@ export function VoiceDialog({
   state,
   apply,
   runActive,
+  videoExists,
+  onReVoiced,
 }: VoiceDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -68,14 +77,80 @@ export function VoiceDialog({
         ) : state.status === 'error' ? (
           <p className="py-4 text-sm text-destructive">{state.error}</p>
         ) : (
-          <VoiceDialogBody
-            data={state.data}
-            apply={apply}
-            runActive={runActive}
-          />
+          <>
+            <VoiceDialogBody
+              data={state.data}
+              apply={apply}
+              runActive={runActive}
+            />
+            {videoExists && state.data.pocket_installed ? (
+              <ReVoiceBar runActive={runActive} onReVoiced={onReVoiced} />
+            ) : null}
+          </>
         )}
       </DialogContent>
     </Dialog>
+  )
+}
+
+/**
+ * One-click "apply the current voice to the existing video" — audio
+ * only, no browser re-recording (~30s). Reuses the audio-only
+ * re-render endpoint, which regenerates ALL segment clips with the
+ * project voice and remuxes over demo.mp4.
+ */
+function ReVoiceBar({
+  runActive,
+  onReVoiced,
+}: {
+  runActive: boolean
+  onReVoiced: () => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [done, setDone] = useState(false)
+  return (
+    <div className="flex items-center justify-between gap-3 border-t border-border pt-3">
+      <p className="text-xs text-muted-foreground">
+        {done
+          ? 'Done — the video now uses this voice.'
+          : 'Apply this voice to the existing video (audio only, ~30s).'}
+        {error ? (
+          <span className="block text-destructive">{error}</span>
+        ) : null}
+      </p>
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={busy || runActive}
+        onClick={() => {
+          setBusy(true)
+          setError(null)
+          setDone(false)
+          reRenderSegmentAudio(0)
+            .then(() => {
+              setDone(true)
+              onReVoiced()
+            })
+            .catch((err) =>
+              setError(err instanceof Error ? err.message : String(err)),
+            )
+            .finally(() => setBusy(false))
+        }}
+      >
+        {busy ? (
+          <>
+            <Loader2 className="size-3.5 animate-spin" />
+            Re-voicing…
+          </>
+        ) : (
+          <>
+            <AudioLines className="size-3.5" />
+            Re-voice video
+          </>
+        )}
+      </Button>
+    </div>
   )
 }
 
