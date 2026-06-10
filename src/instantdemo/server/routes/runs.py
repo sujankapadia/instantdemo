@@ -96,6 +96,10 @@ class RunRequest(BaseModel):
     tts: str = "kokoro"
     pause_between_phases: bool = False
     intent: IntentBody | None = None
+    # Optional product one-pager / README excerpt (M1). Stored at
+    # project/product-context.md and injected into Phase 1's prompt
+    # with the trust rule (docs guide vocabulary; live app wins).
+    docs: str | None = None
 
 
 class RunInfo(BaseModel):
@@ -297,6 +301,25 @@ class RunManager:
                     addenda=list(request.intent.addenda),
                 )
                 intent_mod.save(project, intent_obj)
+
+            # Optional product one-pager (M1): persisted for Phase 1's
+            # docs-injection. Absent/blank leaves any existing file
+            # untouched (deletion is a manual operation).
+            if request.docs and request.docs.strip():
+                (project / "product-context.md").write_text(
+                    request.docs.strip() + "\n"
+                )
+
+            # Two-run intent confirmation marker (M1): a phases-[1]-only
+            # run is the exploration half — the proposal isn't confirmed
+            # until a later run with intent + phases >= 2 starts (the
+            # confirm card's run, or a full Regenerate).
+            if request.phases == [1]:
+                s["intent_confirmed"] = False
+            elif request.intent is not None and any(
+                p >= 2 for p in request.phases
+            ):
+                s["intent_confirmed"] = True
 
             run = _Run(run_id=str(uuid.uuid4()), phases=request.phases)
             self.active = run
