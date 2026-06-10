@@ -83,6 +83,10 @@ interface UseRunOptions {
    * canceled, error). Typically used to refetch /api/project to
    * surface the persisted state.json metrics. */
   onComplete?: () => void
+  /** Fires after each individual phase completes (M2). Used to
+   * refetch the storyboard mid-run so the review view updates as
+   * phases 2/3/4 land. */
+  onPhaseComplete?: (phase: number) => void
 }
 
 /**
@@ -92,7 +96,7 @@ interface UseRunOptions {
  * agent text in the drawer, and tick the cost meter.
  */
 export function useRun(options?: UseRunOptions): UseRunReturn {
-  const { onStart, onComplete } = options ?? {}
+  const { onStart, onComplete, onPhaseComplete } = options ?? {}
   const [status, setStatus] = useState<RunStatus>('idle')
   const [runId, setRunId] = useState<string | null>(null)
   const [currentPhase, setCurrentPhase] = useState<number | null>(null)
@@ -121,6 +125,11 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
   useEffect(() => {
     onCompleteRef.current = onComplete
   }, [onComplete])
+
+  const onPhaseCompleteRef = useRef(onPhaseComplete)
+  useEffect(() => {
+    onPhaseCompleteRef.current = onPhaseComplete
+  }, [onPhaseComplete])
 
   const closeSubscription = () => {
     if (subscriptionRef.current) {
@@ -188,6 +197,7 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
           phase_name: event.phase_name,
           cost_usd: event.cost_usd,
         })
+        onPhaseCompleteRef.current?.(event.phase)
         break
 
       case 'phase_error':
@@ -200,9 +210,11 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
         break
 
       case 'screenshot':
-        // Phase 1 exploration shots (M1) — feed the filmstrip live.
+        // Phase 1 exploration / Phase 4 rehearsal shots — feed the
+        // filmstrip live. Dedupe by URL: an exploration shot and a
+        // rehearsal shot may share a filename across directories.
         setScreenshots((prev) =>
-          prev.some((s) => s.file === event.file)
+          prev.some((s) => s.url === event.url)
             ? prev
             : [...prev, { file: event.file, url: event.url }],
         )

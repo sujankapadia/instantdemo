@@ -280,24 +280,31 @@ def new_screenshots(directory: Path, seen: set[str]) -> list[str]:
     return fresh
 
 
-async def _watch_screenshots(
-    directory: Path, emit, seen: set[str], interval: float = 1.0
+async def watch_screenshots(
+    directory: Path,
+    emit,
+    seen: set[str],
+    *,
+    phase: int,
+    url_prefix: str,
+    interval: float = 1.0,
 ) -> None:
-    """Poll the exploration dir while the agent works, emitting one
+    """Poll a screenshot dir while an agent works, emitting one
     `screenshot` SSE event per new PNG. Cancelled by the runner when
-    the query completes (a final scan catches stragglers)."""
+    the query completes (a final scan catches stragglers). Shared by
+    Phase 1 (exploration shots) and Phase 4 (rehearsal shots)."""
     while True:
         for name in new_screenshots(directory, seen):
-            emit(_screenshot_event(name))
+            emit(screenshot_event(name, phase=phase, url_prefix=url_prefix))
         await asyncio.sleep(interval)
 
 
-def _screenshot_event(name: str) -> dict[str, Any]:
+def screenshot_event(name: str, *, phase: int, url_prefix: str) -> dict[str, Any]:
     return {
         "type": "screenshot",
-        "phase": 1,
+        "phase": phase,
         "file": name,
-        "url": f"/api/project/exploration/{name}",
+        "url": f"{url_prefix}/{name}",
     }
 
 
@@ -324,7 +331,10 @@ async def run(context: Context) -> None:
     emit = context.event_emitter
     if emit is not None:
         watcher = asyncio.create_task(
-            _watch_screenshots(exp_dir, emit, seen)
+            watch_screenshots(
+                exp_dir, emit, seen,
+                phase=1, url_prefix="/api/project/exploration",
+            )
         )
     try:
         payload, result = await run_structured_query(
@@ -343,7 +353,9 @@ async def run(context: Context) -> None:
                 pass
             # Final scan: shots written inside the last poll interval.
             for name in new_screenshots(exp_dir, seen):
-                emit(_screenshot_event(name))
+                emit(screenshot_event(
+                    name, phase=1, url_prefix="/api/project/exploration",
+                ))
 
     artifact.write_text(_render_view(payload, context))
     state_mod.record_phase_metrics(

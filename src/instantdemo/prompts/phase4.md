@@ -60,6 +60,21 @@ have Write — Phase 5 (Build) emits the JSON.
    `wait_for_selector` timeout is what genuine missing looks
    like.
 
+   **Rehearsal screenshots (REQUIRED — these become the storyboard
+   thumbnails the user reviews):** immediately after each segment's
+   action settles (its wait resolved and the page is showing what
+   the narration describes), save:
+
+   ```python
+   page.screenshot(path=f"{rehearsal_dir}/s{seg_index}.png")
+   ```
+
+   One PNG per segment, named `s1.png`, `s2.png`, ... by the
+   1-based segment number. Save them on every rehearsal pass —
+   later iterations overwrite earlier files, which is correct
+   (the final passing rehearsal's screens are what the user
+   should see). They also stream live to the user as you work.
+
 2. **Apply Phase 3's listed fallbacks when the primary fails.**
    Phase 3 lists 1-2 fallbacks per segment in the Notes line.
    If the primary's `wait_for_selector` times out, try each

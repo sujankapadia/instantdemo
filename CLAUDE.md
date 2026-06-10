@@ -106,17 +106,31 @@ narrow tool allowlist:
 | 5 | `script` | Build | **Deterministic projection** (no agent): storyboard → `demo-script.json`, validated against `actions.py` | (pure code) |
 | 6 | `render` | Render | Lightweight drift check, then record video + TTS + ffmpeg merge | `Read`, `Bash` |
 
-**The explore-first flow (M1):** the GUI cold start is TWO runs —
-phases `[1]` (exploration: pre-flight screenshot on the New Project
-form, live filmstrip via `screenshot` SSE events, fenced-JSON payload
-with `intent_proposal`/`screens`/`warnings` recorded to state.json),
-then an intent-confirmation card, then phases `[2..6]` with the
-confirmed intent (`intent_confirmed` marker in state.json).
-Regenerate stays a single `[1..6]` run. Source is OPTIONAL
-enrichment; an optional one-pager lives at `product-context.md`. The
-filesystem jail is always on for server runs (CLI keeps the
-`INSTANTDEMO_FS_JAIL` opt-in). Smoke:
-`scripts/smoke_phase1_explore.py` (self-contained fixture site).
+**The three-stage cold start (M1+M2):** the GUI cold start is THREE
+runs gated by user review —
+1. phases `[1]` (exploration: pre-flight screenshot on the New
+   Project form, live filmstrip via `screenshot` SSE events,
+   fenced-JSON payload with `intent_proposal`/`screens`/`warnings`
+   recorded to state.json) → **intent-confirmation card**
+   (`intent_confirmed` marker);
+2. phases `[2,3,4]` (plan/inspect/rehearse; Phase 4 saves
+   `s<N>.png` rehearsal thumbnails to `.instantdemo/rehearsal/`,
+   streamed live) → **the storyboard gate**: StoryboardView renders
+   scene cards (thumbnail, status chip, verification notices,
+   inline narration editing via
+   `PATCH /api/project/storyboard/scenes/{id}` — phase-0 revisions);
+3. approve → phases `[5,6]` (`storyboard_approved` marker —
+   truth table in `runs._storyboard_marker`; any run touching
+   phase ≥5 implies approval, any 2-4 leg resets it).
+
+Regenerate stays a single `[1..6]` run (bypasses both gates by
+design). Source is OPTIONAL enrichment; an optional one-pager lives
+at `product-context.md`. The filesystem jail is always on for server
+runs (CLI keeps the `INSTANTDEMO_FS_JAIL` opt-in). The storyboard is
+UPSTREAM-OF-RENDER truth: gate edits flow into the next render;
+post-render narration fixes go through `/api/segments`. Smoke:
+`scripts/smoke_phase1_explore.py` (self-contained fixture site;
+`--confirm` exercises the full gate flow).
 
 **The storyboard contract (M0):** `.instantdemo/storyboard.json` is
 the canonical structured artifact phases 2–5 read and write
@@ -192,6 +206,8 @@ Each project directory has:
     ├── state.json             # Persistent run state: per-phase status, cost, metrics
     ├── metrics.jsonl          # Append-only per-run-per-phase records
     ├── storyboard.json        # CANONICAL phase 2-5 artifact (scenes, statuses, revisions)
+    ├── exploration/           # Phase 1 screenshots (GUI filmstrip)
+    ├── rehearsal/             # Phase 4 per-scene thumbnails (s<N>.png, storyboard cards)
     ├── phase1.md ... phase6.md  # Phase 1/6: agent output; phases 2-4: rendered VIEWS of storyboard.json
     ├── phase4-diff.md         # Phase 4's per-segment revisions summary
     └── segment-timing.json    # Per-segment time ranges in demo.mp4

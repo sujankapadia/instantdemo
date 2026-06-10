@@ -18,6 +18,8 @@ import { PauseBanner } from './PauseBanner'
 import { PhaseFailureBanner } from './PhaseFailureBanner'
 import { Phase4TriagePanel } from './Phase4TriagePanel'
 import { IntentConfirmCard } from './IntentConfirmCard'
+import { StoryboardView } from './StoryboardView'
+import { useStoryboard } from '@/hooks/useStoryboard'
 import { RunInProgressBanner } from './RunInProgressBanner'
 import { useProject } from '@/hooks/useProject'
 import { useRun } from '@/hooks/useRun'
@@ -35,11 +37,22 @@ export function Layout() {
   // when to refresh segments + video. Cleaner than RightPane trying to
   // detect the transition itself.
   const [runCompleteToken, setRunCompleteToken] = useState(0)
+  const storyboard = useStoryboard()
+  const storyboardRefetch = storyboard.refetch
   const run = useRun({
-    onStart: refetch,
+    onStart: () => {
+      refetch()
+      storyboardRefetch()
+    },
     onComplete: () => {
       refetch()
+      storyboardRefetch()
       setRunCompleteToken((t) => t + 1)
+    },
+    // Live storyboard during the [2,3,4] leg: scenes appear after
+    // phase 2, selectors after 3, verification + thumbnails after 4.
+    onPhaseComplete: (phase) => {
+      if (phase >= 2 && phase <= 4) storyboardRefetch()
     },
   })
   const [selected, setSelected] = useState<number>(1)
@@ -123,8 +136,10 @@ export function Layout() {
     (intent: import('@/api/runs').Intent) => {
       const url = pendingSetup?.url || data?.url
       if (!url) return
+      // M2: the confirm run stops after the rehearsal — rendering
+      // waits for storyboard approval (the gate).
       void run.startRun({
-        phases: [2, 3, 4, 5, 6],
+        phases: [2, 3, 4],
         url,
         describe: intent.goal || undefined,
         source: pendingSetup?.source || data?.source || undefined,
@@ -135,6 +150,20 @@ export function Layout() {
     },
     [pendingSetup, data, run],
   )
+
+  const handleApprove = useCallback(() => {
+    const url = pendingSetup?.url || data?.url
+    if (!url) return
+    // The approve run: deterministic build + render. No intent body —
+    // intent.json is already confirmed; the storyboard_approved
+    // marker flips server-side because phases include 5/6.
+    void run.startRun({
+      phases: [5, 6],
+      url,
+      source: pendingSetup?.source || data?.source || undefined,
+      tts: 'kokoro',
+    })
+  }, [pendingSetup, data, run])
 
   // When the run pauses, auto-select the just-completed phase so the
   // user lands on the artifact they likely want to review. The hook's
@@ -307,9 +336,10 @@ export function Layout() {
         )
       })()}
       {(() => {
-        // Phase 4 triage panel — only when Phase 4 produced blocking
-        // findings (FAIL_SELECTOR or FAIL_NARRATIVE on any segment).
-        // See issue #48.
+        // Phase 4 triage panel — power mode only since M2: in
+        // end-user mode the storyboard view IS the triage surface
+        // (failed scenes carry suggestion notices on their cards).
+        if (!detailsVisible) return null
         const phase4 = data?.phases?.['4']
         const findings = phase4?.explore_findings
         if (!findings || phase4?.explore_overall !== 'BLOCKED') {
@@ -354,6 +384,33 @@ export function Layout() {
         // the onboarding message regardless of the toggle. Once they
         // start a project, the toggle controls visibility normally.
         const showEditor = detailsVisible || empty
+
+        // Storyboard as the end-user-mode center surface (M2): shown
+        // whenever a storyboard exists (or the [2,3,4] leg is
+        // producing one) and the demo hasn't rendered yet. After
+        // render, video+segments take over (storyboard tab is M4).
+        const videoDone = data?.phases?.['6']?.status === 'completed'
+        const sbExists =
+          storyboard.state.status === 'success' &&
+          storyboard.state.data.exists
+        const buildingStoryboard =
+          (run.status === 'starting' || run.status === 'running') &&
+          run.currentPhase !== null &&
+          run.currentPhase >= 2 &&
+          run.currentPhase <= 4
+        const showStoryboard =
+          !showEditor && !videoDone && (sbExists || buildingStoryboard)
+
+        // The approve gate: rehearsed, unreviewed, not yet rendered.
+        const phase4 = data?.phases?.['4']
+        const gateOpen =
+          !videoDone &&
+          !data?.storyboard_approved &&
+          sbExists &&
+          (phase4?.status === 'completed' ||
+            (phase4?.status === 'error' &&
+              phase4?.explore_overall === 'BLOCKED'))
+
         return (
           <main className="flex min-h-0 flex-1">
             {showEditor ? (
@@ -366,7 +423,33 @@ export function Layout() {
                 />
               </div>
             ) : null}
-            <div className={showEditor ? 'flex-[2] min-w-0' : 'flex-1 min-w-0'}>
+            {showStoryboard ? (
+              <div className="flex-[3] min-w-0 border-r border-border">
+                <StoryboardView
+                  state={storyboard.state}
+                  refetch={storyboardRefetch}
+                  runStatus={run.status}
+                  currentPhase={run.currentPhase}
+                  gateOpen={gateOpen}
+                  liveShots={run.screenshots}
+                  onApprove={handleApprove}
+                  onRegenerate={() => setNewProjectOpen(true)}
+                  approving={
+                    (run.status === 'starting' ||
+                      run.status === 'running') &&
+                    run.currentPhase !== null &&
+                    run.currentPhase >= 5
+                  }
+                />
+              </div>
+            ) : null}
+            <div
+              className={
+                showEditor || showStoryboard
+                  ? 'flex-[2] min-w-0'
+                  : 'flex-1 min-w-0'
+              }
+            >
               <RightPane
                 runStatus={run.status}
                 runCompleteToken={runCompleteToken}

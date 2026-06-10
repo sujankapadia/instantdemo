@@ -215,6 +215,7 @@ async def run_smoke(scenario: str) -> int:
             print(f"[smoke] Run id: {run_id}")
 
             event_types: list[str] = []
+            rehearsal_shot_events = 0
             terminal_events = {"run_complete", "run_canceled", "run_error"}
             run_start = time.monotonic()
             async with client.stream(
@@ -232,6 +233,11 @@ async def run_smoke(scenario: str) -> int:
                         evt_type = event.get("type")
                         if evt_type:
                             event_types.append(evt_type)
+                            if (
+                                evt_type == "screenshot"
+                                and event.get("phase") == 4
+                            ):
+                                rehearsal_shot_events += 1
                             if evt_type in terminal_events:
                                 break
             duration_s = time.monotonic() - run_start
@@ -364,6 +370,40 @@ async def run_smoke(scenario: str) -> int:
             diff = state_dir / "phase4-diff.md"
             if not diff.exists():
                 errors.append("phase4-diff.md was not written")
+
+            # M2 rehearsal screenshots: the rehearsal must save
+            # per-segment thumbnails, link them to scenes, and stream
+            # them as phase-4 screenshot SSE events.
+            shots_dir = state_dir / "rehearsal"
+            shots = (
+                sorted(p.name for p in shots_dir.glob("s*.png"))
+                if shots_dir.is_dir() else []
+            )
+            if not shots:
+                errors.append("no rehearsal screenshots (s*.png) saved")
+            if rehearsal_shot_events < 1:
+                errors.append("no phase-4 screenshot SSE events")
+            sb_for_shots = _load_storyboard(state_dir)
+            verified_scenes = [
+                s for s in sb_for_shots["scenes"]
+                if s.get("status") in ("verified", "warn")
+            ]
+            with_refs = [
+                s for s in verified_scenes if s.get("rehearsal_screenshot")
+            ]
+            for s in with_refs:
+                if s["rehearsal_screenshot"] not in shots:
+                    errors.append(
+                        f"scene {s['id']} references missing screenshot "
+                        f"{s['rehearsal_screenshot']}"
+                    )
+            if verified_scenes and with_refs and (
+                len(with_refs) < len(verified_scenes)
+            ):
+                warnings.append(
+                    f"partial screenshot coverage: {len(with_refs)}/"
+                    f"{len(verified_scenes)} verified scenes have thumbnails"
+                )
 
             # M0 storyboard contract: findings must have been merged
             # into the canonical document — scene statuses updated and
