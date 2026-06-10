@@ -73,6 +73,17 @@ Test: `tests/test_storyboard.py`
 | P4 | Envelope fields | title from doc, 1280x720 default, pause carried | Renderer falls back to wrong resolution/title; pacing lost |
 | P5 | Scene with notes/status/verification | None of them appear in segments | Internal bookkeeping leaks into the render contract (and into anything users hand-edit) |
 
+## explore.merge_findings_into_storyboard()
+
+| ID | Scenario | Assertion | Risk if broken |
+|----|----------|-----------|----------------|
+| M1 | Finding with selector_swapped from/to | Scene selector becomes [to]; revision entry type=selector with reason/iteration | Verified selector swap lost — renderer retries the broken selector and the recording fails |
+| M2 | Finding with narration_revised | Scene narration replaced; revision entry type=narration preserves the original text | Regrounded narration lost — the overclaim Phase 4 caught ships in the video |
+| M3 | Finding with updates.wait_for + updates.pause_after_ms | Both applied with revision entries | Level-1 timing fixes silently dropped now that Phase 5 is deterministic (the gap this channel exists to close) |
+| M4 | Statuses PASS/WARN/FAIL_SELECTOR | Scene status verified/warn/failed; verification carries status+reason+suggestion | Triage/Phase 5 gating reads wrong scene state — failed scenes render or clean scenes block |
+| M5 | Finding index 0 / out of range | Warning returned per bad finding; scenes byte-identical before/after (JSON-compared) | Misindexed finding corrupts a neighboring scene's selector |
+| M6 | selector_swapped with empty 'to' | Warning; selector unchanged | Scene left with an empty selector array — unrenderable segment passes validation |
+
 ## render_phase2_view() / render_phase3_view() / render_phase4_view()
 
 | ID | Scenario | Assertion | Risk if broken |

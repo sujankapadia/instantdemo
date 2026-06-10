@@ -7,6 +7,7 @@ docstrings). Live-agent behavior is covered by the smoke scripts
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -228,6 +229,94 @@ class TestProjection:
             assert "notes" not in seg
             assert "status" not in seg
             assert "id" not in seg
+
+
+class TestMergeFindings:
+    """Spec rows M1-M6 (explore.merge_findings_into_storyboard)."""
+
+    def make_doc(self) -> dict:
+        doc = make_doc(selector=["a.orig", "a.fallback"], wait_for=[".w"])
+        for scene in doc["scenes"]:
+            scene["status"] = "hypothesized"
+        return doc
+
+    def merge(self, doc, segments):
+        from instantdemo.phases.explore import merge_findings_into_storyboard
+
+        return merge_findings_into_storyboard(
+            doc, {"segments": segments}, iteration=2
+        )
+
+    def test_selector_swap(self):  # M1
+        doc = self.make_doc()
+        warnings = self.merge(doc, [{
+            "index": 2, "status": "PASS", "reason": "primary timed out",
+            "selector_swapped": True, "from": "a.orig", "to": "a.new",
+        }])
+        scene = doc["scenes"][1]
+        assert warnings == []
+        assert scene["selector"] == ["a.new"]
+        rev = scene["revisions"][-1]
+        assert rev["type"] == "selector"
+        assert rev["reason"] == "primary timed out"
+        assert rev["iteration"] == 2
+
+    def test_narration_reground(self):  # M2
+        doc = self.make_doc()
+        original = doc["scenes"][0]["narration"]
+        self.merge(doc, [{
+            "index": 1, "status": "PASS", "reason": "overclaim",
+            "narration_revised": True, "narration_to": "Grounded text.",
+        }])
+        scene = doc["scenes"][0]
+        assert scene["narration"] == "Grounded text."
+        rev = scene["revisions"][-1]
+        assert rev["type"] == "narration" and rev["from"] == original
+
+    def test_updates_channel(self):  # M3
+        doc = self.make_doc()
+        self.merge(doc, [{
+            "index": 1, "status": "PASS", "reason": "timing",
+            "updates": {"wait_for": [".better"], "pause_after_ms": 2000},
+        }])
+        scene = doc["scenes"][0]
+        assert scene["wait_for"] == [".better"]
+        assert scene["pause_after_ms"] == 2000
+        types = [r["type"] for r in scene["revisions"]]
+        assert "wait_for" in types and "pause_after_ms" in types
+
+    def test_status_mapping(self):  # M4
+        doc = self.make_doc()
+        self.merge(doc, [
+            {"index": 1, "status": "WARN", "reason": "volatile data",
+             "suggestion": None},
+            {"index": 2, "status": "FAIL_SELECTOR", "reason": "not found",
+             "suggestion": "check seed data"},
+        ])
+        assert doc["scenes"][0]["status"] == "warn"
+        assert doc["scenes"][1]["status"] == "failed"
+        v = doc["scenes"][1]["verification"]
+        assert v["status"] == "FAIL_SELECTOR"
+        assert v["suggestion"] == "check seed data"
+
+    def test_out_of_range_index_warns(self):  # M5
+        doc = self.make_doc()
+        before = json.dumps(doc["scenes"])
+        warnings = self.merge(doc, [
+            {"index": 0, "status": "PASS", "reason": ""},
+            {"index": 99, "status": "PASS", "reason": ""},
+        ])
+        assert len(warnings) == 2
+        assert json.dumps(doc["scenes"]) == before
+
+    def test_swap_without_to_warns(self):  # M6
+        doc = self.make_doc()
+        warnings = self.merge(doc, [{
+            "index": 2, "status": "PASS", "reason": "",
+            "selector_swapped": True, "from": "a.orig", "to": "",
+        }])
+        assert any("without 'to'" in w for w in warnings)
+        assert doc["scenes"][1]["selector"] == ["a.orig", "a.fallback"]
 
 
 class TestViews:

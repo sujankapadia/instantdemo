@@ -39,12 +39,11 @@ See DRESS_REHEARSAL_DESIGN.md.
 
 from __future__ import annotations
 
-import json
 import re
 import time
 from typing import Any
 
-from .. import prompts
+from .. import prompts, storyboard
 from .. import state as state_mod
 from ..agent_client import session_id_for_phase
 from . import (
@@ -52,17 +51,6 @@ from . import (
     record_phase_result,
     run_query_on_client,
     summarize_run,
-)
-
-
-# Match the first ```json ... ``` fenced block anywhere in the
-# response. Non-greedy body; tolerates optional language tag.
-# Uses search (not match) so a prose preamble before the JSON
-# block doesn't break parsing — the agent sometimes leads with
-# a one-paragraph summary, and that's fine.
-JSON_BLOCK_RE = re.compile(
-    r"```(?:json)?\s*\n(.*?)\n```",
-    re.DOTALL,
 )
 
 # Legacy fallback: parse the old text directive if no JSON block is
@@ -101,7 +89,10 @@ def _iteration_budget_s(segment_count: int) -> float:
     return max(_PER_ITERATION_FLOOR_S, segment_count * _PER_SEGMENT_BUDGET_S)
 
 
-def _build_initial_prompt(phase3_text: str, url: str, phase3_path: str) -> str:
+def _build_initial_prompt(doc: dict, url: str, phase3_path: str) -> str:
+    """The plan is rendered FROM the storyboard (not read from
+    phase3.md on disk) so the prompt is guaranteed consistent with
+    the canonical document."""
     template = prompts.load("phase4")
     return (
         f"The app being demoed is running at: {url}\n"
@@ -109,10 +100,10 @@ def _build_initial_prompt(phase3_text: str, url: str, phase3_path: str) -> str:
         "\n"
         "The following is the Phase 3 hypothesis plan. Each segment\n"
         "has a primary selector derived from source code and (often)\n"
-        "fallback selectors in its Notes line.\n"
+        "fallback selectors on its 'Selector fallbacks' line.\n"
         "\n"
         "---\n"
-        f"{phase3_text}\n"
+        f"{storyboard.render_phase3_view(doc)}\n"
         "---\n"
         "\n"
         f"{template}"
@@ -145,27 +136,20 @@ def _build_retry_prompt(prior_findings: dict[str, Any], iteration: int) -> str:
         "your findings unchanged — the runner will surface them to the\n"
         "user as BLOCKED with your suggestions.\n"
         "\n"
-        "Emit the same two-part response: JSON findings block, then\n"
-        "the per-segment markdown report."
+        "End your response with the single updated fenced JSON\n"
+        "findings block (the runner renders the human report from it)."
     )
 
 
 def _parse_findings(report_text: str) -> dict[str, Any] | None:
     """Extract the structured findings JSON from the agent's response.
 
-    Searches for the first ```json fenced block anywhere in the text
-    (the agent sometimes leads with a one-paragraph prose summary;
-    that's fine). Returns the parsed dict on success, None when the
-    response has no parseable JSON block. Callers fall back to
+    Delegates to storyboard.extract_json_block: first parseable
+    fenced JSON object anywhere in the text (prose preambles are
+    fine). Returns None when absent; callers fall back to
     LEGACY_DIRECTIVE_RE.
     """
-    match = JSON_BLOCK_RE.search(report_text)
-    if match is None:
-        return None
-    try:
-        return json.loads(match.group(1))
-    except json.JSONDecodeError:
-        return None
+    return storyboard.extract_json_block(report_text)
 
 
 def _findings_overall(findings: dict[str, Any]) -> str:
@@ -214,16 +198,116 @@ def _failure_signature(findings: dict[str, Any]) -> frozenset[tuple[int, str]]:
     return frozenset(sig)
 
 
-def _count_segments_from_phase3(phase3_text: str) -> int:
-    """Best-effort segment count from the Phase 3 markdown. Used to
-    size the per-iteration wall-clock budget before the first
-    rehearsal — we don't have findings yet to count from.
+_FINDING_STATUS_TO_SCENE = {
+    "PASS": "verified",
+    "WARN": "warn",
+    "FAIL_SELECTOR": "failed",
+    "FAIL_NARRATIVE": "failed",
+}
 
-    Falls back to 10 if parsing fails so the budget is reasonable
-    rather than zero.
+
+def merge_findings_into_storyboard(
+    doc: dict, findings: dict[str, Any], *, iteration: int
+) -> list[str]:
+    """Apply the final findings to the storyboard scenes. Pure
+    function (unit-tested); returns human-readable warnings for
+    findings that couldn't be applied (e.g. out-of-range index).
+
+    Findings are index-keyed (1-based, matching scene.index) for
+    GUI/state.json compatibility. Applied per segment:
+      - selector_swapped  → scene.selector = [to] + revision entry
+        (the rehearsal verified exactly ONE selector; stale fallbacks
+        that already failed would only burn renderer timeout budget)
+      - narration_revised → scene.narration = narration_to + revision
+      - updates.wait_for / updates.pause_after_ms → apply + revision
+        (the Level-1 timing channel — without it, refinements would
+        be lost now that Phase 5 is deterministic)
+      - status / verification from the finding status
     """
-    matches = re.findall(r"^###\s+Segment\s+\d+", phase3_text, re.MULTILINE)
-    return len(matches) or 10
+    warnings: list[str] = []
+    scenes = doc.get("scenes", [])
+    for finding in findings.get("segments") or []:
+        idx = finding.get("index")
+        if not isinstance(idx, int) or not (1 <= idx <= len(scenes)):
+            warnings.append(
+                f"finding index {idx!r} out of range (1..{len(scenes)}) — skipped"
+            )
+            continue
+        scene = scenes[idx - 1]
+        revisions = scene.setdefault("revisions", [])
+        reason = finding.get("reason", "")
+
+        if finding.get("selector_swapped"):
+            new_selector = (finding.get("to") or "").strip()
+            if new_selector:
+                revisions.append({
+                    "type": "selector",
+                    "from": finding.get("from", ""),
+                    "to": new_selector,
+                    "reason": reason,
+                    "iteration": iteration,
+                    "phase": 4,
+                })
+                scene["selector"] = [new_selector]
+            else:
+                warnings.append(
+                    f"segment {idx}: selector_swapped without 'to' — skipped"
+                )
+
+        if finding.get("narration_revised"):
+            new_narration = finding.get("narration_to")
+            if isinstance(new_narration, str):
+                revisions.append({
+                    "type": "narration",
+                    "from": scene.get("narration", ""),
+                    "to": new_narration,
+                    "reason": reason,
+                    "iteration": iteration,
+                    "phase": 4,
+                })
+                scene["narration"] = new_narration
+            else:
+                warnings.append(
+                    f"segment {idx}: narration_revised without "
+                    "'narration_to' — skipped"
+                )
+
+        updates = finding.get("updates") or {}
+        if "wait_for" in updates:
+            new_wait = storyboard.normalize_candidates(updates["wait_for"])
+            if new_wait:
+                revisions.append({
+                    "type": "wait_for",
+                    "from": ", ".join(
+                        storyboard.normalize_candidates(scene.get("wait_for"))
+                    ),
+                    "to": ", ".join(new_wait),
+                    "reason": reason,
+                    "iteration": iteration,
+                    "phase": 4,
+                })
+                scene["wait_for"] = new_wait
+        if "pause_after_ms" in updates:
+            pause = updates["pause_after_ms"]
+            if isinstance(pause, int):
+                revisions.append({
+                    "type": "pause_after_ms",
+                    "from": str(scene.get("pause_after_ms", "")),
+                    "to": str(pause),
+                    "reason": reason,
+                    "iteration": iteration,
+                    "phase": 4,
+                })
+                scene["pause_after_ms"] = pause
+
+        status = finding.get("status", "")
+        scene["status"] = _FINDING_STATUS_TO_SCENE.get(status, "failed")
+        scene["verification"] = {
+            "status": status,
+            "reason": reason,
+            "suggestion": finding.get("suggestion"),
+        }
+    return warnings
 
 
 def _write_diff_artifact(
@@ -301,17 +385,12 @@ async def run(context: Context) -> None:
             "responsible for creating and passing through a ClaudeSDKClient."
         )
 
-    phase3 = context.phase_artifact(3)
-    if not phase3.exists():
-        raise RuntimeError(
-            f"Phase 3 artifact missing at {phase3}. Run phase 3 first."
-        )
-    phase3_text = phase3.read_text()
+    doc = storyboard.load(context.state_dir)
 
     artifact = context.phase_artifact(4)
     artifact.parent.mkdir(parents=True, exist_ok=True)
 
-    segment_count = _count_segments_from_phase3(phase3_text)
+    segment_count = len(doc["scenes"])
     iteration_budget = _iteration_budget_s(segment_count)
     session_id = session_id_for_phase(4, context.run_id)
 
@@ -319,10 +398,14 @@ async def run(context: Context) -> None:
     overall: str | None = None
     verified_text = ""
     prior_signature: frozenset[tuple[int, str]] | None = None
+    final_iteration = 0
 
     for iteration in range(1, MAX_ITERATIONS + 1):
+        final_iteration = iteration
         if iteration == 1:
-            prompt = _build_initial_prompt(phase3_text, context.url, str(phase3))
+            prompt = _build_initial_prompt(
+                doc, context.url, str(context.phase_artifact(3))
+            )
         else:
             assert findings is not None  # only retry after a parsed iteration
             prompt = _build_retry_prompt(findings, iteration)
@@ -390,6 +473,20 @@ async def run(context: Context) -> None:
     if findings is not None:
         if overall is None:
             overall = _findings_overall(findings)
+
+        # Merge the FINAL findings into the storyboard — once, after
+        # the convergence loop (findings are cumulative across
+        # iterations), and BEFORE the BLOCKED raise so failure state
+        # is captured in the canonical document. phase4.md becomes
+        # the rendered view of the merged result.
+        merge_warnings = merge_findings_into_storyboard(
+            doc, findings, iteration=final_iteration
+        )
+        for warning in merge_warnings:
+            print(f"[Phase 4] merge warning: {warning}")
+        storyboard.save(context.state_dir, doc)
+        artifact.write_text(storyboard.render_phase4_view(doc, findings))
+
         state_mod.record_phase_metrics(
             context.state_dir,
             4,
