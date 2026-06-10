@@ -24,6 +24,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from instantdemo.actions import CANONICAL_ACTIONS, validate_segments
+
 
 # Injected via context.add_init_script — gives the recorded video a
 # visible cursor that follows mouse moves and pulses on click.
@@ -764,8 +766,13 @@ _ACTION_FIELD_MAP = {
     "evaluate": lambda page, seg: page.evaluate(seg["expression"]),
 }
 
-# Fields that are part of the segment schema, not Playwright method args.
-_RESERVED_FIELDS = {"narration", "action", "pause_after_ms", "wait_for", "url", "selector", "value", "pixels", "key", "expression"}
+# The dispatch table and the shared contract (actions.py) must agree —
+# a new action added to one without the other should fail at import,
+# not at render time.
+assert set(_ACTION_FIELD_MAP) == set(CANONICAL_ACTIONS), (
+    "render._ACTION_FIELD_MAP and actions.CANONICAL_ACTIONS disagree: "
+    f"{set(_ACTION_FIELD_MAP) ^ set(CANONICAL_ACTIONS)}"
+)
 
 
 def _parse_resolution(text: str) -> dict:
@@ -838,23 +845,26 @@ def _action_scroll(page, seg: dict) -> None:
 
 
 def _dispatch_action(page, seg: dict) -> None:
-    """Dispatch a segment's action to the appropriate Playwright method."""
+    """Dispatch a segment's action to the appropriate Playwright method.
+
+    Unknown actions are a hard error. There used to be a fallback
+    that called `getattr(page, action)` with the segment's
+    non-reserved fields as kwargs — but _RESERVED_FIELDS strips
+    exactly the fields (selector, url, value, ...) that such methods
+    require, so the fallback crashed mid-recording for the very
+    actions it existed to support (e.g. an agent-improvised
+    `wait_for_selector`). The action set is closed now; `main()`
+    validates segments up front, so reaching this error means a
+    caller bypassed validation.
+    """
     action = seg["action"]
     handler = _ACTION_FIELD_MAP.get(action)
-    if handler:
-        handler(page, seg)
-    else:
-        # Fallback: try calling the method directly on page
-        method = getattr(page, action, None)
-        if method is None:
-            print(
-                f"  Warning: unknown action '{action}', skipping",
-                file=sys.stderr,
-            )
-            return
-        # Pass non-reserved fields as kwargs
-        kwargs = {k: v for k, v in seg.items() if k not in _RESERVED_FIELDS}
-        method(**kwargs)
+    if handler is None:
+        raise ValueError(
+            f"Unknown action {action!r}; allowed: "
+            f"{', '.join(sorted(_ACTION_FIELD_MAP))}"
+        )
+    handler(page, seg)
 
 
 # ---------------------------------------------------------------------------
@@ -1144,6 +1154,18 @@ def main(argv=None):
 
     script = json.loads(script_path.read_text())
     segments = script["segments"]
+
+    # Validate the action contract before spending anything — a bad
+    # segment caught here costs nothing; caught mid-recording it
+    # costs the whole single-take video (and the TTS run before it).
+    # Phase 5 validates too, but hand-edited scripts come straight
+    # here.
+    problems = validate_segments(segments)
+    if problems:
+        print("Error: demo script failed validation:", file=sys.stderr)
+        for p in problems:
+            print(f"  - {p}", file=sys.stderr)
+        sys.exit(1)
 
     # Resolution priority: --resolution flag > script's "resolution" field > 1920x1080 default
     if args.resolution is not None:

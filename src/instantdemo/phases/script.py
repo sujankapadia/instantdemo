@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 
 from .. import prompts
+from ..actions import validate_segments
 from ..agent_client import session_id_for_phase
 from . import (
     Context,
@@ -40,6 +41,38 @@ def _build_prompt(phase4_text: str, output_path: str) -> str:
         "\n"
         f"{template}"
     )
+
+
+def _validate_script_file(artifact) -> list[str]:
+    """Validate the script file end-to-end; return problems (empty = ok).
+
+    Covers JSON well-formedness, the envelope fields, per-segment
+    required fields, and the canonical action contract
+    (actions.validate_segments). Collected as a list rather than
+    raised so the runner can hand the full set back to the agent in
+    one correction turn.
+    """
+    try:
+        script = json.loads(artifact.read_text())
+    except json.JSONDecodeError as e:
+        return [f"file is not valid JSON: {e}"]
+
+    problems: list[str] = []
+    for required in ("title", "resolution", "segments"):
+        if required not in script:
+            problems.append(f"missing the top-level {required!r} field")
+    segments = script.get("segments")
+    if not isinstance(segments, list) or not segments:
+        problems.append("script has no segments")
+        return problems
+    for i, seg in enumerate(segments, start=1):
+        for required in ("action", "narration"):
+            if required not in seg:
+                problems.append(
+                    f"segment {i} is missing the {required!r} field"
+                )
+    problems.extend(validate_segments(segments))
+    return problems
 
 
 async def run(context: Context) -> None:
@@ -75,30 +108,39 @@ async def run(context: Context) -> None:
             "The agent may have written to a different path."
         )
 
-    # Validate the JSON now rather than at render time.
-    try:
-        script = json.loads(artifact.read_text())
-    except json.JSONDecodeError as e:
-        raise RuntimeError(
-            f"Phase 5 wrote {artifact} but it isn't valid JSON: {e}"
-        ) from e
-
-    # Quick schema spot-check — surfaces obvious problems before Phase 6
-    # tries the drift check against a live app.
-    for required in ("title", "resolution", "segments"):
-        if required not in script:
+    # Validate now rather than at render time — a contract violation
+    # caught here costs seconds; caught mid-recording it costs the
+    # whole take. One corrective round-trip to the agent before
+    # giving up: the session still has the full context, so "fix
+    # these problems" is cheap and usually sufficient.
+    problems = _validate_script_file(artifact)
+    if problems:
+        print(
+            f"\n  Script validation failed ({len(problems)} problem(s)); "
+            "asking the agent to correct it...",
+        )
+        fix_prompt = (
+            f"The demo-script.json you wrote to {artifact} failed "
+            "validation:\n\n"
+            + "\n".join(f"- {p}" for p in problems)
+            + "\n\nRewrite the file at the same path, fixing every "
+            "problem. Keep all valid segments exactly as they are. "
+            "Only use the actions listed in the spec; express "
+            "readiness conditions through the existing fields "
+            "(e.g. goto's wait_for), never by inventing actions."
+        )
+        _fix_text, result = await run_query_on_client(
+            context, fix_prompt,
+            session_id=session_id_for_phase(5, context.run_id),
+        )
+        problems = _validate_script_file(artifact)
+        if problems:
             raise RuntimeError(
-                f"Phase 5 produced a script missing the {required!r} field."
+                "Phase 5 script still invalid after one correction "
+                "attempt:\n" + "\n".join(f"  - {p}" for p in problems)
             )
-    if not isinstance(script["segments"], list) or not script["segments"]:
-        raise RuntimeError("Phase 5 produced a script with no segments.")
-    for i, seg in enumerate(script["segments"], start=1):
-        for required in ("action", "narration"):
-            if required not in seg:
-                raise RuntimeError(
-                    f"Phase 5 segment {i} is missing the {required!r} field."
-                )
 
+    script = json.loads(artifact.read_text())
     record_phase_result(context, 5, result)
     print(summarize_run(5, artifact, result))
     print(f"  ({len(script['segments'])} segments)")
