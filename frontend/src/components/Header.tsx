@@ -27,6 +27,8 @@ interface HeaderProps {
   showNewProject?: boolean
   editorVisible: boolean
   onToggleEditor: () => void
+  /** Opens the Voice & Pronunciation settings dialog (M3). */
+  onOpenSettings: () => void
 }
 
 export function Header({
@@ -41,6 +43,7 @@ export function Header({
   showNewProject = true,
   editorVisible,
   onToggleEditor,
+  onOpenSettings,
 }: HeaderProps) {
   const isActive =
     runStatus === 'running' ||
@@ -132,9 +135,21 @@ export function Header({
             {editorVisible ? 'Hide phase details' : 'Show phase details'}
           </TooltipContent>
         </Tooltip>
-        <Button variant="ghost" size="icon" aria-label="Settings">
-          <Settings />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Voice & pronunciation settings"
+              onClick={onOpenSettings}
+            >
+              <Settings />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            Voice &amp; pronunciation
+          </TooltipContent>
+        </Tooltip>
       </div>
     </header>
   )

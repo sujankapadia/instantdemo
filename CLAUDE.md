@@ -47,21 +47,27 @@ pip install -e ".[gui,dev]"
 playwright install chromium
 brew install ffmpeg
 
-# TTS provider (Kokoro is the default and recommended)
-pip install "kokoro>=0.9.4" soundfile
+# TTS provider (Pocket TTS is the default since M3)
+pip install -e ".[pocket-tts]"            # = pocket-tts + soundfile
 
-# Optional alternative providers
-pip install pocket-tts                    # Pocket TTS (local, CPU, voice cloning)
+# Optional alternative providers (CLI-only; no GUI surface)
+pip install "kokoro>=0.9.4" soundfile     # Kokoro (local, 82M)
 pip install piper-tts pathvalidate        # Piper (local, robotic)
 pip install google-cloud-sdk              # Google Cloud TTS
 # or set ELEVENLABS_API_KEY in .env       # ElevenLabs
 ```
 
-Pocket TTS supports voice cloning: `instantdemo render --tts
-pocket-tts --pocket-ref voice.wav` narrates in a voice cloned from a
-~10s reference recording (`--pocket-voice` picks a stock voice
-instead). Cloning weights are gated — accept terms at
-huggingface.co/kyutai/pocket-tts + HF auth. See
+**Voice is per-project state (M3, #59):** `<project>/tts.json`
+carries provider / stock voice / cloned reference / pronunciation
+respellings. The GUI's Voice & Pronunciation dialog (header gear)
+edits it — 26 pocket stock voices with instant ▶ preview, "My voice"
+cloning upload (consent + duration/silence validation), and
+match→"sounds like" respellings with listen-check. Pronunciations
+are applied to SPEECH TEXT only at synthesis (renderer +
+segment-re-render); display text (storyboard/demo-script/captions)
+is never mutated. Precedence: explicit CLI flags > tts.json >
+defaults (pocket-tts/alba). Cloning weights are HF-gated — accept
+terms at huggingface.co/kyutai/pocket-tts + HF auth. See
 `docs/local-tts-models.md` for the bake-off behind this.
 
 For the GUI's frontend:
@@ -200,6 +206,7 @@ Each project directory has:
 ```
 <project>/
 ├── intent.json                # User-curated input (goal, audience, tone, focus, excludes, ...)
+├── tts.json                   # Per-project voice (provider, stock/cloned voice, pronunciations)
 ├── demo-script.json           # Phase 5 output (consumed by Phase 6)
 ├── demo.mp4                   # Phase 6 output
 └── .instantdemo/

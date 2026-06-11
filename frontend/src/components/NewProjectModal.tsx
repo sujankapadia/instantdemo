@@ -32,6 +32,10 @@ interface NewProjectModalProps {
   title?: string
   defaultValues?: Partial<NewProjectInputs>
   onSubmit: (values: NewProjectInputs) => void
+  /** Current-voice summary + opener for the Voice dialog (M3),
+   *  threaded through to the form's voice row. */
+  voiceSummary?: string
+  onOpenVoiceSettings?: () => void
 }
 
 export function NewProjectModal({
@@ -41,6 +45,8 @@ export function NewProjectModal({
   title = 'New project',
   defaultValues,
   onSubmit,
+  voiceSummary,
+  onOpenVoiceSettings,
 }: NewProjectModalProps) {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const resolverRef = useRef<((value: boolean) => void) | null>(null)
@@ -79,6 +85,8 @@ export function NewProjectModal({
             onSubmit={handleFormSubmit}
             onCancel={() => onOpenChange(false)}
             confirmOverwrite={willOverwrite ? confirmOverwrite : undefined}
+            voiceSummary={voiceSummary}
+            onOpenVoiceSettings={onOpenVoiceSettings}
           />
         </DialogContent>
       </Dialog>

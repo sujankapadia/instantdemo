@@ -10,7 +10,6 @@ export interface NewProjectInputs {
   source: string
   intent: Intent
   docs: string
-  tts: 'kokoro'
   pause_between_phases: boolean
 }
 
@@ -28,6 +27,11 @@ interface NewProjectFormProps {
    * caller decides whether to show a confirmation; if it returns false
    * the submit is aborted. Returns true to proceed. */
   confirmOverwrite?: () => Promise<boolean>
+  /** One-line description of the project's current voice (M3),
+   * e.g. "Alba (stock)" or "My cloned voice". */
+  voiceSummary?: string
+  /** Opens the Voice & Pronunciation dialog. */
+  onOpenVoiceSettings?: () => void
 }
 
 export function NewProjectForm({
@@ -36,6 +40,8 @@ export function NewProjectForm({
   onSubmit,
   onCancel,
   confirmOverwrite,
+  voiceSummary,
+  onOpenVoiceSettings,
 }: NewProjectFormProps) {
   const [url, setUrl] = useState(defaultValues?.url ?? '')
   const [source, setSource] = useState(defaultValues?.source ?? '')
@@ -121,7 +127,6 @@ export function NewProjectForm({
         excludes: cleanList(intent.excludes),
         addenda: cleanList(intent.addenda),
       },
-      tts: 'kokoro',
       pause_between_phases: pauseBetweenPhases,
     })
   }
@@ -232,13 +237,22 @@ export function NewProjectForm({
       />
 
       <div className="flex flex-col gap-1.5">
-        <label className="text-sm font-medium">TTS provider</label>
-        <div className="rounded-md border border-input bg-secondary/30 px-3 py-2 text-sm text-muted-foreground">
-          Kokoro <span className="text-xs">(local, bundled)</span>
+        <label className="text-sm font-medium">Voice</label>
+        <div className="flex items-center justify-between rounded-md border border-input bg-secondary/30 px-3 py-2 text-sm text-muted-foreground">
+          <span>{voiceSummary ?? 'Alba (stock)'}</span>
+          {onOpenVoiceSettings ? (
+            <button
+              type="button"
+              onClick={onOpenVoiceSettings}
+              className="text-xs text-primary hover:underline"
+            >
+              Change…
+            </button>
+          ) : null}
         </div>
         <p className="text-xs text-muted-foreground">
-          Other providers (Google, ElevenLabs, Piper) require additional
-          setup and aren't yet wired into this form.
+          Saved with the project — change it any time, including using
+          your own voice, in Voice settings.
         </p>
       </div>
 
