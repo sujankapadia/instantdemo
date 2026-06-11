@@ -25,7 +25,7 @@ import { useVoice } from '@/hooks/useVoice'
 import { RunInProgressBanner } from './RunInProgressBanner'
 import { useProject } from '@/hooks/useProject'
 import { useRun } from '@/hooks/useRun'
-import { PHASE_NAMES_ORDERED, phaseName } from '@/lib/phases'
+import { PHASE_NAMES_ORDERED } from '@/lib/phases'
 
 const LOADING_PHASES: PhaseInfo[] = PHASE_NUMBERS.map((num) => ({
   num,
@@ -293,7 +293,6 @@ export function Layout() {
             return (
               <PhaseFailureBanner
                 phaseNumber={num}
-                phaseName={phaseName(num)}
                 error={upd.error ?? run.error ?? 'Unknown error'}
                 artifactShown={detailsVisible && selected === num}
               />

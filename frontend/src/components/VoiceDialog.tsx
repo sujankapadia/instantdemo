@@ -165,7 +165,7 @@ function VoiceDialogBody({
 }) {
   if (!data.pocket_installed) {
     return (
-      <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
+      <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-status-warn">
         <TriangleAlert className="mt-0.5 size-4 shrink-0" />
         <span>
           The voice engine isn't installed. Run{' '}
@@ -467,7 +467,7 @@ function CloneTab({
       )}
 
       {error ? (
-        <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-400">
+        <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-status-warn">
           <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
           {error}
         </div>

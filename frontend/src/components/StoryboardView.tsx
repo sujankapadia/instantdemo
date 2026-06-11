@@ -48,7 +48,7 @@ interface StoryboardViewProps {
  * The storyboard — the product's primary review surface (M2).
  * Scenes as cards: rehearsal screenshot, narration (inline-editable
  * at the gate), status, and verification notices. Ends in the
- * approve bar: "Looks good — render the video".
+ * approve bar: "Looks good — record it".
  */
 export function StoryboardView({
   state,
@@ -198,8 +198,8 @@ export function StoryboardView({
               </span>
               {hasFailures ? (
                 <span className="text-xs text-muted-foreground">
-                  Rehearsal found issues — fix them and regenerate before
-                  rendering.
+                  Rehearsal hit problems — revise the brief and regenerate
+                  before recording.
                 </span>
               ) : null}
             </div>
@@ -222,7 +222,7 @@ export function StoryboardView({
                 ) : (
                   <>
                     <Play className="size-4" />
-                    Looks good — render the video
+                    Looks good — record it
                   </>
                 )}
               </Button>
@@ -341,7 +341,7 @@ function SceneCard({
             'border-t px-4 py-2 text-xs',
             scene.status === 'failed'
               ? 'border-destructive/30 bg-destructive/10 text-destructive'
-              : 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400',
+              : 'border-amber-500/30 bg-amber-500/10 text-status-warn',
           )}
         >
           {notice}
@@ -373,12 +373,12 @@ function StatusChip({
   > = {
     verified: {
       label: 'verified',
-      className: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+      className: 'border-emerald-500/40 bg-emerald-500/10 text-status-ok',
       Icon: CircleCheck,
     },
     warn: {
       label: 'warning',
-      className: 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400',
+      className: 'border-amber-500/40 bg-amber-500/10 text-status-warn',
       Icon: CircleAlert,
     },
     failed: {

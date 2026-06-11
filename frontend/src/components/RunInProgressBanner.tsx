@@ -14,14 +14,14 @@ interface RunInProgressBannerProps {
  */
 export function RunInProgressBanner({ runId }: RunInProgressBannerProps) {
   return (
-    <div className="flex items-center gap-3 border-b border-sky-500/30 bg-sky-500/10 px-4 py-2 text-sky-200">
+    <div
+      className="flex items-center gap-3 border-b border-border bg-secondary/40 px-4 py-2 text-foreground/90"
+      data-run-id={runId}
+    >
       <Loader2 className="size-4 shrink-0 animate-spin" />
       <div className="text-sm">
-        A run is in progress (
-        <code className="font-mono text-xs">{runId.slice(0, 8)}…</code>
-        ). The browser was refreshed during the run, so the live
-        agent log isn't visible. Wait for the run to complete and
-        refresh again to see results.
+        The studio was still working when this page reloaded. Give it
+        a minute, then refresh to see where things stand.
       </div>
     </div>
   )

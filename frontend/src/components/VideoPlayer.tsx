@@ -28,9 +28,9 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
       return (
         <div className="flex h-full w-full flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border bg-muted/30 text-muted-foreground">
           <Film className="size-8 opacity-60" />
-          <span className="text-sm">No video rendered yet</span>
+          <span className="text-sm">No film yet</span>
           <span className="text-xs text-muted-foreground/80">
-            Phase 5 produces <code className="font-mono">demo.mp4</code>
+            Your demo appears here once it's recorded.
           </span>
         </div>
       )

@@ -233,9 +233,9 @@ export function RightPane({
 
   const opMessage =
     deletingIndex !== null
-      ? `Deleting segment ${String(deletingIndex + 1).padStart(2, '0')} — re-encoding video and regenerating audio (~20–30s)…`
+      ? `Cutting scene ${String(deletingIndex + 1).padStart(2, '0')} and rebuilding the film (~30 seconds)…`
       : rerenderingIndex !== null
-        ? `Re-rendering audio for segment ${String(rerenderingIndex + 1).padStart(2, '0')} (~20s)…`
+        ? `Re-recording the narration for scene ${String(rerenderingIndex + 1).padStart(2, '0')} (~20 seconds)…`
         : null
 
   return (

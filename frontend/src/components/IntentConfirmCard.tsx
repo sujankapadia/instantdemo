@@ -64,7 +64,7 @@ export function IntentConfirmCard({
         )}
 
         {warnings && warnings.length > 0 && (
-          <ul className="flex list-disc flex-col gap-0.5 pl-5 text-xs text-amber-700 dark:text-amber-400">
+          <ul className="flex list-disc flex-col gap-0.5 pl-5 text-xs text-status-warn">
             {warnings.map((warning) => (
               <li key={warning}>{warning}</li>
             ))}

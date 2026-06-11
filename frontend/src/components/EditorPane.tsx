@@ -49,7 +49,7 @@ function EmptyProjectPane({
             <div className="flex justify-center">
               <Button size="lg" onClick={onNewProject}>
                 <Sparkles className="size-4" />
-                Get started
+                Make my demo
               </Button>
             </div>
           ) : null}

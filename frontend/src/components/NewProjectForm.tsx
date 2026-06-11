@@ -177,7 +177,7 @@ export function NewProjectForm({
           </div>
         )}
         {preflight.status === 'done' && !preflight.result.ok && (
-          <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-400">
+          <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-status-warn">
             <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
             <span>
               {preflight.result.error} You can still continue — the agent
@@ -297,7 +297,7 @@ export function NewProjectForm({
           ) : (
             <>
               <Play className="size-4" />
-              Generate Demo
+              Make my demo
             </>
           )}
         </Button>

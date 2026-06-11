@@ -73,7 +73,7 @@ export function SegmentsList({
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-9 shrink-0 items-center justify-between border-b border-border bg-muted/30 px-4">
         <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Segments
+          Scenes
         </span>
         {state.status === 'success' ? (
           <span className="text-xs text-muted-foreground/80">
@@ -122,10 +122,7 @@ function ListEmpty() {
   return (
     <div className="flex h-full items-center justify-center p-4 text-center">
       <p className="max-w-xs text-sm text-muted-foreground">
-        No script generated yet. Run Phase 4 to produce
-        {' '}
-        <code className="rounded bg-muted px-1 py-0.5 text-xs">demo-script.json</code>
-        .
+        Scenes appear here once your demo is recorded.
       </p>
     </div>
   )
@@ -189,9 +186,9 @@ function SegmentsBody({
 
 function StaleTimingBanner() {
   return (
-    <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-300">
-      Playback timing is stale or missing. Re-render the demo to enable
-      click-to-seek.
+    <div className="border-b border-status-warn/30 bg-status-warn/10 px-4 py-2 text-xs text-status-warn">
+      A scene was edited, so click-to-seek is out of date — re-record
+      the narration to bring it back.
     </div>
   )
 }
@@ -231,16 +228,16 @@ function SegmentRow({
   const editingDisabledReason = isRunActive
     ? 'Wait for the current run to finish'
     : isRerendering
-      ? 'Re-rendering audio…'
+      ? 'Re-recording narration…'
       : anyDeleting
-        ? 'Deleting a segment…'
+        ? 'Cutting a scene…'
         : editing?.editingIndex !== null && editing?.editingIndex !== undefined
-          ? 'Finish editing the current segment first'
+          ? 'Finish editing the current scene first'
           : ''
   const onlySegment = (editing?.totalSegments ?? 0) <= 1
   const deleteDisabled = editingDisabled || isBeingEdited || onlySegment
   const deleteDisabledReason = onlySegment
-    ? "Can't delete the only segment"
+    ? "Can't cut the only scene"
     : editingDisabledReason
 
   // Use a div + role=button rather than a real <button>: when the row
@@ -406,7 +403,7 @@ function DeleteSegmentButton({
             <Trash2 className="size-3.5" />
           )
         }
-        label="Delete segment"
+        label="Cut scene"
         onClick={() => setOpen(true)}
         disabled={disabled || isDeleting}
         disabledReason={disabledReason}
@@ -415,7 +412,7 @@ function DeleteSegmentButton({
       <AlertDialog open={open} onOpenChange={setOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete segment {segmentLabel}?</AlertDialogTitle>
+            <AlertDialogTitle>Cut scene {segmentLabel}?</AlertDialogTitle>
             <AlertDialogDescription className="space-y-2">
               <span className="block italic">"{narrationPreview}"</span>
               <span className="block">
@@ -432,7 +429,7 @@ function DeleteSegmentButton({
               onClick={onConfirm}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Delete segment
+              Cut scene
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

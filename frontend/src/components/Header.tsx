@@ -7,7 +7,7 @@ import {
 } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { formatCostUsd } from '@/lib/format'
-import { phaseName } from '@/lib/phases'
+import { stageSentence } from '@/lib/labels'
 import type { RunStatus } from '@/hooks/useRun'
 
 interface HeaderProps {
@@ -74,12 +74,10 @@ export function Header({
         {showProgress ? (
           <span
             className="flex items-center gap-1.5 text-xs text-muted-foreground"
-            aria-label={`Running phase ${currentPhase} of 6`}
+            aria-label="The studio is working"
           >
             <Loader2 className="size-3 animate-spin text-foreground/80" />
-            <span>
-              Phase {currentPhase} of 6 · {phaseName(currentPhase!)}
-            </span>
+            <span>{stageSentence(currentPhase)}</span>
           </span>
         ) : null}
         {showCost ? (
