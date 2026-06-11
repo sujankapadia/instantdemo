@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { History, Loader2, Undo2 } from 'lucide-react'
+import { History, Loader2, Undo2, Wand2 } from 'lucide-react'
 import { Button } from '../ui/button'
 import { VideoPlayer } from '../VideoPlayer'
 import { SegmentsList, type EditingProps } from '../SegmentsList'
@@ -16,6 +16,7 @@ import {
   reRenderSegmentAudio,
 } from '@/api/segments'
 import { fetchTakes, restoreTake, takeVideoUrl, type Take } from '@/api/takes'
+import { reviseDemo, type ReviseResponse } from '@/api/revise'
 import type { RunStatus } from '@/hooks/useRun'
 
 interface StageFilmProps {
@@ -26,12 +27,18 @@ interface StageFilmProps {
   runCompleteToken: number
   /** Lights-down signal: true while the film plays. */
   onPlayingChange?: (playing: boolean) => void
+  /** Voice-suggestion answers open the Voice dialog. */
+  onOpenVoice?: () => void
+  /** Faster-pacing answers offer a re-record ([6] run). */
+  onRerecord?: () => void
 }
 
 export function StageFilm({
   runStatus,
   runCompleteToken,
   onPlayingChange,
+  onOpenVoice,
+  onRerecord,
 }: StageFilmProps) {
   const segmentsState = useSegments()
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -250,8 +257,59 @@ export function StageFilm({
 
   const listState = mapSegmentsListState(segmentsState.state)
 
-  const opMessage =
-    deletingIndex !== null
+  // The style/pace pass (M4): one instruction about the whole film.
+  const [styleText, setStyleText] = useState('')
+  const [styleBusy, setStyleBusy] = useState(false)
+  const [styleResult, setStyleResult] = useState<ReviseResponse | null>(null)
+  const [styleError, setStyleError] = useState<string | null>(null)
+
+  const handleStyleSubmit = async () => {
+    const instruction = styleText.trim()
+    if (!instruction || styleBusy) return
+    setStyleBusy(true)
+    setStyleError(null)
+    setStyleResult(null)
+    try {
+      const result = await reviseDemo(instruction)
+      setStyleResult(result)
+      if (
+        result.kind === 'rewrite' ||
+        (result.kind === 'pace' && !result.needs_rerecord)
+      ) {
+        setStyleText('')
+        setViewingTake(null)
+        setVideoVersion(Date.now())
+        segmentsRefetch()
+        fetchTakes().then(setAllTakes).catch(() => {})
+        // The change is felt, not reported: seek to the first
+        // changed scene and play it once timing refetches.
+        const target = result.first_changed_index
+        if (target !== null) {
+          setTimeout(() => {
+            const seg =
+              segmentsState.state.status === 'success'
+                ? segmentsState.state.data.segments.find(
+                    (s) => s.index === target,
+                  )
+                : undefined
+            const video = videoRef.current
+            if (video && seg?.start_s != null) {
+              video.currentTime = seg.start_s
+              void video.play()
+            }
+          }, 800)
+        }
+      }
+    } catch (err) {
+      setStyleError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setStyleBusy(false)
+    }
+  }
+
+  const opMessage = styleBusy
+    ? 'Revising the whole film — rewording and re-recording the narration (about a minute)…'
+    : deletingIndex !== null
       ? `Cutting scene ${String(deletingIndex + 1).padStart(2, '0')} and rebuilding the film (~30 seconds)…`
       : rerenderingIndex !== null
         ? `Re-recording the narration for scene ${String(rerenderingIndex + 1).padStart(2, '0')} (~20 seconds)…`
@@ -279,70 +337,128 @@ export function StageFilm({
       <ResizablePanelGroup orientation="vertical">
         <ResizablePanel defaultSize={55} minSize={20}>
           <div className="flex h-full flex-col border-b border-border bg-muted/10 p-4">
-            {playableTakes.length > 0 ? (
-              <div className="stage-chrome mb-2 flex shrink-0 items-center justify-end gap-2 text-xs">
-                {takeError ? (
-                  <span className="text-destructive">{takeError}</span>
-                ) : null}
-                {viewingTake !== null ? (
-                  <>
-                    <span className="text-muted-foreground">
-                      Viewing version {viewingTake} — your current cut is
-                      kept
-                    </span>
-                    <Button
-                      size="xs"
-                      variant="outline"
-                      disabled={restoring}
-                      onClick={() => void handleRestore(viewingTake)}
-                    >
-                      {restoring ? (
-                        <Loader2 className="size-3 animate-spin" />
-                      ) : (
-                        <Undo2 className="size-3" />
-                      )}
-                      Restore this version
-                    </Button>
-                    <Button
-                      size="xs"
-                      variant="ghost"
-                      onClick={() => setViewingTake(null)}
-                    >
-                      Back to current
-                    </Button>
-                  </>
+            <div className="stage-chrome mb-2 flex shrink-0 items-center gap-2 text-xs">
+              <input
+                value={styleText}
+                onChange={(e) => setStyleText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void handleStyleSubmit()
+                }}
+                placeholder={'Adjust the whole demo — "less jargon", "slower", "warmer"…'}
+                disabled={styleBusy}
+                aria-label="Adjust the whole demo"
+                className="min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 py-1.5 text-xs placeholder:text-muted-foreground/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+              />
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={styleBusy || !styleText.trim()}
+                onClick={() => void handleStyleSubmit()}
+              >
+                {styleBusy ? (
+                  <Loader2 className="size-3 animate-spin" />
                 ) : (
-                  <>
-                    {playableTakes.length > 1 ? (
-                      <select
-                        aria-label="Choose a previous version"
-                        className="rounded-md border border-input bg-background px-1.5 py-1 text-xs text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        value=""
-                        onChange={(e) => {
-                          const n = parseInt(e.target.value, 10)
-                          if (!Number.isNaN(n)) setViewingTake(n)
-                        }}
-                      >
-                        <option value="" disabled>
-                          older…
-                        </option>
-                        {playableTakes.slice(1).map((t) => (
-                          <option key={t.n} value={t.n}>
-                            v{t.n} · {t.label}
-                          </option>
-                        ))}
-                      </select>
-                    ) : null}
-                    <Button
-                      size="xs"
-                      variant="ghost"
-                      onClick={() => setViewingTake(playableTakes[0]!.n)}
-                    >
-                      <History className="size-3" />
-                      Previous version
-                    </Button>
-                  </>
+                  <Wand2 className="size-3" />
                 )}
+                Adjust
+              </Button>
+              {takeError ? (
+                <span className="text-destructive">{takeError}</span>
+              ) : null}
+              {playableTakes.length > 0 && viewingTake !== null ? (
+                <>
+                  <span className="text-muted-foreground">
+                    Viewing version {viewingTake} — your current cut is kept
+                  </span>
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    disabled={restoring}
+                    onClick={() => void handleRestore(viewingTake)}
+                  >
+                    {restoring ? (
+                      <Loader2 className="size-3 animate-spin" />
+                    ) : (
+                      <Undo2 className="size-3" />
+                    )}
+                    Restore this version
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => setViewingTake(null)}
+                  >
+                    Back to current
+                  </Button>
+                </>
+              ) : playableTakes.length > 0 ? (
+                <>
+                  {playableTakes.length > 1 ? (
+                    <select
+                      aria-label="Choose a previous version"
+                      className="rounded-md border border-input bg-background px-1.5 py-1 text-xs text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      value=""
+                      onChange={(e) => {
+                        const n = parseInt(e.target.value, 10)
+                        if (!Number.isNaN(n)) setViewingTake(n)
+                      }}
+                    >
+                      <option value="" disabled>
+                        older…
+                      </option>
+                      {playableTakes.slice(1).map((t) => (
+                        <option key={t.n} value={t.n}>
+                          v{t.n} · {t.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => setViewingTake(playableTakes[0]!.n)}
+                  >
+                    <History className="size-3" />
+                    Previous version
+                  </Button>
+                </>
+              ) : null}
+            </div>
+            {styleError ? (
+              <p className="mb-2 shrink-0 text-xs text-destructive">
+                {styleError}
+              </p>
+            ) : null}
+            {styleResult ? (
+              <div className="studio-voice mb-2 flex shrink-0 flex-wrap items-center gap-2 rounded-md border border-border bg-secondary/20 px-3 py-2 text-sm">
+                <span className="min-w-0 flex-1">
+                  {styleResult.explanation}
+                </span>
+                {styleResult.kind === 'voice' && onOpenVoice ? (
+                  <Button size="xs" variant="outline" onClick={onOpenVoice}>
+                    Open Voice settings
+                  </Button>
+                ) : null}
+                {styleResult.needs_rerecord && onRerecord ? (
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    onClick={() => {
+                      setStyleResult(null)
+                      onRerecord()
+                    }}
+                  >
+                    Re-record to apply (~2 min)
+                  </Button>
+                ) : null}
+                <button
+                  type="button"
+                  aria-label="Dismiss"
+                  className="text-muted-foreground hover:text-foreground"
+                  onClick={() => setStyleResult(null)}
+                >
+                  ×
+                </button>
               </div>
             ) : null}
             <div className="min-h-0 flex-1">

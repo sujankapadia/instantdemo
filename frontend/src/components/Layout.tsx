@@ -346,6 +346,8 @@ export function Layout() {
               onApprove={handleApprove}
               onRegenerate={() => setNewProjectOpen(true)}
               onPlayingChange={setLightsDown}
+              onOpenVoice={() => setVoiceOpen(true)}
+              onRerecord={() => handleRunPhase(6)}
             />
           </main>
         )
