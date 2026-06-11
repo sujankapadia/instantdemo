@@ -385,7 +385,12 @@ def render_phase2_view(doc: dict, answers: dict[str, str]) -> str:
     if doc.get("summary"):
         lines += [f"**Flow:** {doc['summary']}", ""]
     lines.append("---")
+    current_section: str | None = None
     for scene in doc.get("scenes", []):
+        section = scene.get("section")
+        if isinstance(section, str) and section.strip() and section != current_section:
+            lines += ["", f"## {section}"]
+            current_section = section
         lines += [
             "",
             _scene_heading(scene),
