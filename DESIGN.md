@@ -28,12 +28,25 @@ is apparatus, and apparatus must recede.
    → playable film — is ONE surface continuously transforming. Every
    hard transition between "screens" is a cut, and cuts spend trust.
 
-3. **Ask one thing, show understanding, then ask the next.** The
-   truthful minimum to begin is the app's address. Show the app
-   (pre-flight) before asking what to film. Background reading,
-   source code, audience, tone are the studio's follow-up questions
-   — offered progressively — never an intake form's fields. The
-   agent asks for what it's missing after it has looked.
+3. **Welcome the brief; never impose the schema.** The user knows
+   their product — audience, tone, what to cover is THEIR expertise,
+   and the intake receives it fluently: the app's address plus one
+   free-text brief box, written in their words at whatever length
+   they have. Discoverability lives in three places, not in labeled
+   blanks: a worked-example ghost text that demonstrates every lever
+   in use ("This is for prospective customers — not technical.
+   Friendly tone. Focus on the export flow; skip settings. Never
+   show real customer names."); one muted hint line naming what can
+   be mentioned; and the confirm card's structured readback, which
+   teaches what a brief CAN say by showing what this one DID say.
+   The schema is internal filing the agent derives — extraction
+   follows the verbatim-rule (every brief sentence lands somewhere;
+   when unsure, addenda verbatim — omission structurally
+   impossible) and is always played back for confirmation before
+   anything is spent. Follow-up questions are reserved for what the
+   user didn't say and the studio discovered it needs after looking
+   ("I couldn't get past the login") — evidence-based, in context,
+   with the reason attached.
 
 4. **Two audiences, two surfaces.** The maker persona gets the
    default window with zero machinery. The developer's apparatus
@@ -75,6 +88,17 @@ is apparatus, and apparatus must recede.
     staged as such: centered, unhurried, concluding naturally in the
     proposal.
 
+11. **Accept only commitments you honor measurably.** Every input
+    the product offers is a promise that the input matters. A field
+    consumed as a mere prompt-hint with no downstream check is a
+    false promise — remove it or close the loop. Precedent: the
+    intent `length` field was removed (2026-06-11) because nothing
+    measured the rendered duration against it; if a length contract
+    returns, it returns WITH its measurement (content-math estimate
+    at the gate, actual-vs-target check post-render — output
+    duration is content math, not a machine-dependent prediction,
+    so principle 6 permits it).
+
 ## The consolidation backlog (the "one object" pass)
 
 Concrete gaps between today's product and the principles above,
@@ -87,12 +111,15 @@ belong on the unified surface).
    register. Stage labels (Understand/Plan/Inspect/Explore/Build/
    Render) become studio language in the default window; "Segment N"
    becomes "Scene N" post-render to match the storyboard.
-2. **One-field start (M).** The New Project modal collapses: URL →
-   pre-flight ("I see it") → one question ("What should the demo
-   show?") → go. Source/docs become progressive offers; the intent
-   schema remains the PROPOSAL'S editable output (M1 already proved
-   this), not an input form. Pause-between-phases moves to the
-   inspector.
+2. **Brief-box start (M).** The New Project modal collapses to URL
+   + pre-flight ("I see it") + ONE free-text brief box that welcomes
+   everything the user already knows (audience, tone, coverage, in
+   their own words; a paragraph or a single line — both first-class).
+   The agent derives the structured intent from the brief; the
+   proposal plays it back for confirmation/refinement (M1's
+   yes-and). Source/docs become evidence-based offers when
+   exploration finds it needs them. Pause-between-phases moves to
+   the inspector.
 3. **Kill the mode toggle (M).** Details mode (phase rail, artifact
    editor, log drawer, cost meter) moves to a distinct inspector
    surface; the default window has no toggle and no running invoice.
