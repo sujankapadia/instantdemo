@@ -60,6 +60,13 @@ have Write — Phase 5 (Build) emits the JSON.
    `wait_for_selector` timeout is what genuine missing looks
    like.
 
+   **Never use a wait_for that targets an `<option>` element** (or
+   anything else inside a closed `<select>`): Playwright's
+   visibility model treats them as hidden, so the renderer's
+   visible-wait can never resolve — even if your rehearsal read
+   them successfully. Wait on a visible consequence instead (a
+   count label, a list item, the select element itself).
+
    **Rehearsal screenshots (REQUIRED — these become the storyboard
    thumbnails the user reviews):** immediately after each segment's
    action settles (its wait resolved and the page is showing what
