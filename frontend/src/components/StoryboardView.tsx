@@ -142,18 +142,6 @@ export function StoryboardView({
     }
   }
 
-  const progressLabel = runActive
-    ? currentPhase === 2
-      ? 'Planning scenes…'
-      : currentPhase === 3
-        ? 'Finding selectors…'
-        : currentPhase === 4
-          ? 'Rehearsing against your app…'
-          : currentPhase !== null && currentPhase >= 5
-            ? 'Rendering your video…'
-            : 'Working…'
-    : null
-
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border bg-muted/30 px-4">
@@ -164,12 +152,9 @@ export function StoryboardView({
             — {doc.summary}
           </span>
         ) : null}
-        {progressLabel ? (
-          <span className="ml-auto flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-            <Loader2 className="size-3 animate-spin" />
-            {progressLabel}
-          </span>
-        ) : null}
+        {/* No progress line here — the header sentence is the one
+            global status (L5: it showed in three places at once).
+            The in-list pulsing frame below marks WHERE work lands. */}
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-3">
@@ -200,15 +185,12 @@ export function StoryboardView({
             />
           ))}
           {runActive ? (
-            <div className="flex h-24 animate-pulse items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground">
-              {currentPhase === 2
-                ? 'Planning scenes…'
-                : currentPhase === 3
-                  ? 'Finding selectors…'
-                  : currentPhase === 4
-                    ? 'Rehearsing against your app…'
-                    : 'Working…'}
-            </div>
+            // Wordless: the pulsing frame marks where the next scene
+            // lands; the header sentence carries the status.
+            <div
+              className="h-24 animate-pulse rounded-lg border border-dashed border-border"
+              aria-hidden="true"
+            />
           ) : null}
         </motion.div>
       </div>
