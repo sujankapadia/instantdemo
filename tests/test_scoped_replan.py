@@ -101,6 +101,59 @@ class TestScopedValidator:
         assert any("too many" in p for p in v({"scenes": too_many}))
 
 
+class TestScopedPhases:
+    def make_hypothesized(self) -> dict:
+        doc = make_doc()
+        for s in doc["scenes"]:
+            s["selector"] = [".x"]
+            s["wait_for"] = [".y"]
+            s["pause_after_ms"] = 500
+            s["status"] = "verified"
+        return doc
+
+    def test_scoped_gather_validator(self):  # G1
+        from instantdemo.phases.gather import _make_validator
+
+        doc = self.make_hypothesized()
+        scope_ids = ["s3", "s4"]  # chapter B
+        v = _make_validator(doc, scope_ids)
+        enrich = {"selector": [".new"], "wait_for": [".w"],
+                  "pause_after_ms": 800}
+        assert v({"scenes": [
+            {"id": "s3", **enrich}, {"id": "s4", **enrich},
+        ]}) == []
+        # Full-doc payload: out-of-scope ids are unknown
+        problems = v({"scenes": [
+            {"id": i, **enrich} for i in ("s1", "s3", "s4")
+        ]})
+        assert any("unknown scene ids" in p for p in problems)
+        # Missing one chapter id
+        problems = v({"scenes": [{"id": "s3", **enrich}]})
+        assert any("missing scene ids: s4" in p for p in problems)
+
+    def test_scoped_findings_guard(self):  # E1
+        from instantdemo.phases.explore import (
+            merge_findings_into_storyboard,
+        )
+
+        doc = self.make_hypothesized()
+        out_of_scope_before = json.dumps(doc["scenes"][0], sort_keys=True)
+        warnings = merge_findings_into_storyboard(
+            doc,
+            {"segments": [
+                {"index": 3, "status": "PASS", "reason": "ok",
+                 "selector_swapped": True, "from": ".x", "to": ".swapped"},
+                {"index": 1, "status": "PASS", "reason": "sneaky",
+                 "narration_revised": True, "narration_to": "CHANGED"},
+            ]},
+            iteration=1,
+            scope_indices={3, 4},
+        )
+        assert doc["scenes"][2]["selector"] == [".swapped"]
+        assert json.dumps(doc["scenes"][0], sort_keys=True) == out_of_scope_before
+        assert any("outside the revised chapter" in w for w in warnings)
+
+
 class TestPendingScopeLifecycle:
     @pytest.fixture()
     def client(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

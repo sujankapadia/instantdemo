@@ -9,6 +9,14 @@ Test: `tests/test_scoped_replan.py`
 |---|---|
 | `_build_scoped_prompt` | Prompt-text assembly; quality verified by the live scoped smoke |
 | `_run_scoped` end-to-end | Needs the SDK; the route/pure pieces below are its load-bearing parts, and the live smoke covers the rest |
+| explore.run scoped shot-clearing | Inline in the runner (keeps pngs whose stem is a live scene id); exercised by the live scoped smoke |
+
+## Scoped phases 3+4
+
+| ID | Scenario | Assertion | Risk if broken |
+|----|----------|-----------|----------------|
+| G1 | gather._make_validator with scope_ids | Payload covering exactly the chapter ids passes; full-doc payload rejected (unknown ids); missing chapter id rejected | Phase 3 silently re-enriches verified scenes — or skips the new ones |
+| E1 | merge_findings_into_storyboard with scope_indices | In-scope finding applies; out-of-scope finding warned + scene untouched | The rehearsal rewrites verified, recorded scenes outside its authority |
 
 ## replace_chapter_scenes()
 
