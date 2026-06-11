@@ -99,13 +99,55 @@ is apparatus, and apparatus must recede.
     duration is content math, not a machine-dependent prediction,
     so principle 6 permits it).
 
+## Craft — how it looks, moves, and feels
+
+The principles above govern structure and voice; these govern the
+pixels. Diagnosis (2026-06-11): a developer-tool skin on a
+creative-tool soul — competent shadcn defaults, anonymous. The
+interface should belong to the same world as what it makes.
+
+12. **The material is a screening room.** Deep warm-neutral dark
+    (video and screenshots are the brightest things on screen;
+    chrome sits in shadow). ONE signature accent, used like a tally
+    light — only on the action that matters per screen (approve,
+    record, make-these-changes). Status marks are quiet dot+label,
+    not saturated pills; saturation is earned by importance.
+
+13. **Two typographic registers.** Chrome speaks small and neutral;
+    THE STUDIO speaks — proposal, gate summary, answers — in a
+    distinct, more generous register. When the product talks to the
+    user it should look like a voice, not a label that grew.
+
+14. **The stage is sacred.** On play, lights down: surrounding UI
+    dims, controls fade, the film is alone. Storyboard cards are
+    FRAMES — true 16:9 thumbnails, narration as caption, filmstrip
+    visual language — not admin cards with images attached.
+
+15. **Motion explains causality; nothing else moves.** Shared-
+    element continuity is the teaching tool: exploration frames
+    BECOME storyboard cards; cards BECOME the player timeline on
+    approve. One easing family, ~250ms, springs. Hard budget: a
+    motion that doesn't explain where something came from doesn't
+    ship. (React conditionals popping in/out are not transitions.)
+
+16. **Show the medium.** A voice product's interface visibly
+    contains audio: previews draw a small waveform as they play;
+    re-voicing pulses like a meter, not a generic spinner.
+
+17. **Sweat the unglamorous states.** Skeletons match real layout;
+    the empty state is the most-designed screen in the app (it's
+    the front door — the URL field is the hero); blur-up thumbnails;
+    consistent focus rings; hover lift; errors keep their layout.
+
 ## The consolidation backlog (the "one object" pass)
 
 Concrete gaps between today's product and the principles above,
 ordered by cost. Items 1–3 are cheap and can precede the next
-feature milestone; item 4 is the core project and should land BEFORE
-M4-rescoped/M5 build their UI (takes toggle, style box, chapters all
-belong on the unified surface).
+feature milestone; items 4–5 are the core project and should land
+BEFORE M4-rescoped/M5 build their UI (takes toggle, style box,
+chapters all belong on the unified surface). Structure (4) and skin
+(5) are ONE milestone — both rebuild the same surfaces; doing them
+separately means restyling twice.
 
 1. **Vocabulary commit (S).** User-facing copy sweeps to the film
    register. Stage labels (Understand/Plan/Inspect/Explore/Build/
@@ -131,6 +173,12 @@ belong on the unified surface).
    approval turns the same cards into the playable film. The video
    player is the storyboard, finished. Absorbs the
    signature-moment staging (10).
+5. **The craft layer (L, concurrent with 4).** Design tokens
+   (screening-room palette, type scale with the two registers,
+   spacing); motion system (one easing family + the continuity
+   transitions of principle 15); frame-styled scene cards;
+   lights-down stage treatment; waveform audio affordances; the
+   unglamorous-states audit (17).
 
 ## Already aligned (don't regress)
 
