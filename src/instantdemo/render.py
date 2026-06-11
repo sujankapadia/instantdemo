@@ -1401,8 +1401,19 @@ def combine_audio_video(
     # concatenates them, and encodes to H.264 exactly once.
     print("  Trimming segments and merging with audio...")
     filter_parts = []
-    for i, (seg_start, seg_end) in enumerate(timestamps):
-        duration = seg_end - seg_start
+    for i, (seg_start, _seg_end) in enumerate(timestamps):
+        # Trim each segment to EXACTLY its slot — the same arithmetic
+        # the audio track and segment-timing.json use. The recording
+        # always waited at least the slot (sleep), so the frames
+        # exist; the wall-clock surplus (sleep/scheduler jitter,
+        # ~0.3s/segment) is held frame we drop. Before this, video
+        # used wall-clock while audio/timing used slots — films
+        # accumulated a/v drift (~4s over a dozen segments), seek
+        # positions ran progressively late, and the M5b splice cut
+        # the old film mid-narration (the "repeated phrase" L5 bug).
+        duration = _slot_seconds(
+            clip_durations[i], segments[i].get("pause_after_ms")
+        )
         filter_parts.append(
             f"[0:v]trim=start={seg_start:.3f}:duration={duration:.3f},"
             f"setpts=PTS-STARTPTS[v{i}]"
@@ -1739,7 +1750,14 @@ def main(argv=None):
         if args.state_dir
         else script_path.parent / ".instantdemo"
     )
-    recorded_durations = [end - start for (start, end) in timestamps]
+    # What's IN the film per segment is now exactly the slot (the
+    # video trim above) — record that, not the raw wall-clock, so
+    # timing rows match the real frame layout (seek + splice
+    # accuracy both depend on it).
+    recorded_durations = [
+        _slot_seconds(clip_durations[i], seg.get("pause_after_ms"))
+        for i, seg in enumerate(segments)
+    ]
     _write_segment_timing(
         state_dir, segments, clip_durations, output_path.name,
         recorded_durations_s=recorded_durations,
