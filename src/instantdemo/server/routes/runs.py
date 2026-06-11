@@ -57,7 +57,6 @@ class IntentBody(BaseModel):
     goal: str = ""
     audience: str | None = None
     tone: str | None = None
-    length: str | None = None
     focus: list[str] = []
     excludes: list[str] = []
     addenda: list[str] = []
@@ -318,7 +317,6 @@ class RunManager:
                     goal=request.intent.goal,
                     audience=request.intent.audience,
                     tone=request.intent.tone,
-                    length=request.intent.length,
                     focus=list(request.intent.focus),
                     excludes=list(request.intent.excludes),
                     addenda=list(request.intent.addenda),
