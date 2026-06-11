@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Loader2 } from 'lucide-react'
+import { History, Loader2, Undo2 } from 'lucide-react'
+import { Button } from '../ui/button'
 import { VideoPlayer } from '../VideoPlayer'
 import { SegmentsList, type EditingProps } from '../SegmentsList'
 import {
@@ -14,6 +15,7 @@ import {
   patchSegmentNarration,
   reRenderSegmentAudio,
 } from '@/api/segments'
+import { fetchTakes, restoreTake, takeVideoUrl, type Take } from '@/api/takes'
 import type { RunStatus } from '@/hooks/useRun'
 
 interface StageFilmProps {
@@ -47,6 +49,34 @@ export function StageFilm({
     segmentsRefetch()
     setVideoVersion(Date.now())
   }, [runCompleteToken, segmentsRefetch])
+
+  // Versioned takes (M4): "your previous version is kept." Viewing a
+  // prior take swaps the player's src — comparison by watching;
+  // restore underneath (DESIGN.md principle 7).
+  const [allTakes, setAllTakes] = useState<Take[]>([])
+  const [viewingTake, setViewingTake] = useState<number | null>(null)
+  const [restoring, setRestoring] = useState(false)
+  const [takeError, setTakeError] = useState<string | null>(null)
+  useEffect(() => {
+    fetchTakes().then(setAllTakes).catch(() => setAllTakes([]))
+  }, [runCompleteToken])
+  const playableTakes = allTakes.filter((t) => t.video_exists)
+
+  const handleRestore = async (n: number) => {
+    setRestoring(true)
+    setTakeError(null)
+    try {
+      await restoreTake(n)
+      setViewingTake(null)
+      setVideoVersion(Date.now())
+      segmentsRefetch()
+      fetchTakes().then(setAllTakes).catch(() => {})
+    } catch (err) {
+      setTakeError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRestoring(false)
+    }
+  }
 
   // Editing state — kept here so RightPane can coordinate with the
   // segments hook (refetch after re-render) and the video element
@@ -248,13 +278,85 @@ export function StageFilm({
       ) : null}
       <ResizablePanelGroup orientation="vertical">
         <ResizablePanel defaultSize={55} minSize={20}>
-          <div className="h-full border-b border-border bg-muted/10 p-4">
-            <VideoPlayer
-              ref={videoRef}
-              src={`/api/project/video?v=${videoVersion}`}
-              onTimeUpdate={setCurrentTimeS}
-              onPlayingChange={onPlayingChange}
-            />
+          <div className="flex h-full flex-col border-b border-border bg-muted/10 p-4">
+            {playableTakes.length > 0 ? (
+              <div className="stage-chrome mb-2 flex shrink-0 items-center justify-end gap-2 text-xs">
+                {takeError ? (
+                  <span className="text-destructive">{takeError}</span>
+                ) : null}
+                {viewingTake !== null ? (
+                  <>
+                    <span className="text-muted-foreground">
+                      Viewing version {viewingTake} — your current cut is
+                      kept
+                    </span>
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      disabled={restoring}
+                      onClick={() => void handleRestore(viewingTake)}
+                    >
+                      {restoring ? (
+                        <Loader2 className="size-3 animate-spin" />
+                      ) : (
+                        <Undo2 className="size-3" />
+                      )}
+                      Restore this version
+                    </Button>
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      onClick={() => setViewingTake(null)}
+                    >
+                      Back to current
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    {playableTakes.length > 1 ? (
+                      <select
+                        aria-label="Choose a previous version"
+                        className="rounded-md border border-input bg-background px-1.5 py-1 text-xs text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        value=""
+                        onChange={(e) => {
+                          const n = parseInt(e.target.value, 10)
+                          if (!Number.isNaN(n)) setViewingTake(n)
+                        }}
+                      >
+                        <option value="" disabled>
+                          older…
+                        </option>
+                        {playableTakes.slice(1).map((t) => (
+                          <option key={t.n} value={t.n}>
+                            v{t.n} · {t.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : null}
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      onClick={() => setViewingTake(playableTakes[0]!.n)}
+                    >
+                      <History className="size-3" />
+                      Previous version
+                    </Button>
+                  </>
+                )}
+              </div>
+            ) : null}
+            <div className="min-h-0 flex-1">
+              <VideoPlayer
+                ref={videoRef}
+                src={
+                  viewingTake !== null
+                    ? takeVideoUrl(viewingTake)
+                    : `/api/project/video?v=${videoVersion}`
+                }
+                onTimeUpdate={setCurrentTimeS}
+                onPlayingChange={onPlayingChange}
+              />
+            </div>
           </div>
         </ResizablePanel>
         <ResizableHandle withHandle />
