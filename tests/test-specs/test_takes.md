@@ -18,6 +18,7 @@ Test: `tests/test_takes.py`
 | T3 | Three snapshots → numbering | v1, v2, v3; next_take_number scans dirs (no counter file) | Take numbers collide after manual dir deletion — restore overwrites the wrong take |
 | T4 | Five snapshots with videos | Only the newest 3 keep demo.mp4; ALL five keep JSON + meta; prune returns the pruned numbers | Disk fills with videos, or text history lost with the video |
 | T5 | list_takes ordering + fields | Newest first; {n, label, created_at, video_exists} correct incl. pruned takes (video_exists false) | The Previous-version toggle shows wrong/unplayable takes |
+| T9 | is_current flag | A post-render snapshot (video byte-copy of current demo.mp4) has is_current=true; after the project's film changes, is_current=false | "Previous version" offers a no-op comparison between identical videos right after a render |
 
 ## restore
 

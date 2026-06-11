@@ -5,6 +5,8 @@ export interface Take {
   label: string
   created_at: string | null
   video_exists: boolean
+  /** This take's video IS the current film — not a previous version. */
+  is_current: boolean
 }
 
 export async function fetchTakes(): Promise<Take[]> {

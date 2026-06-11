@@ -89,7 +89,18 @@ def prune_videos(project: Path, *, keep: int = KEEP_VIDEOS) -> list[int]:
 
 
 def list_takes(project: Path) -> list[dict]:
-    """Newest first: {n, label, created_at, video_exists}."""
+    """Newest first: {n, label, created_at, video_exists, is_current}.
+
+    `is_current` marks a take whose video IS the current film (a
+    post-render snapshot before any revision) — offering it as a
+    "previous version" would be a no-op comparison. copy2 preserves
+    size+mtime, so matching both against the project's demo.mp4
+    identifies it cheaply."""
+    current = project / "demo.mp4"
+    current_sig: tuple[int, float] | None = None
+    if current.exists():
+        stat = current.stat()
+        current_sig = (stat.st_size, stat.st_mtime)
     out: list[dict] = []
     for n, path in reversed(_take_dirs(project)):
         meta: dict = {"n": n, "label": "", "created_at": None}
@@ -99,7 +110,13 @@ def list_takes(project: Path) -> list[dict]:
                 meta.update(json.loads(meta_path.read_text()))
             except (json.JSONDecodeError, OSError):
                 pass
-        meta["video_exists"] = (path / "demo.mp4").exists()
+        video = path / "demo.mp4"
+        meta["video_exists"] = video.exists()
+        is_current = False
+        if meta["video_exists"] and current_sig is not None:
+            vstat = video.stat()
+            is_current = (vstat.st_size, vstat.st_mtime) == current_sig
+        meta["is_current"] = is_current
         out.append(meta)
     return out
 

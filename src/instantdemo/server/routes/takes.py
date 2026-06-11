@@ -21,6 +21,9 @@ class Take(BaseModel):
     label: str = ""
     created_at: str | None = None
     video_exists: bool = False
+    # True when this take's video IS the current film (post-render
+    # snapshot, nothing revised since) — not a "previous" version.
+    is_current: bool = False
 
 
 class TakesResponse(BaseModel):

@@ -72,6 +72,15 @@ class TestSnapshot:
         assert listing[0]["video_exists"] is True
         assert listing[0]["created_at"]
 
+    def test_is_current_flag(self, tmp_path: Path):  # T9
+        project = make_project(tmp_path)
+        takes.snapshot(project, "render")
+        # Fresh post-render snapshot IS the current film
+        assert takes.list_takes(project)[0]["is_current"] is True
+        # After the film changes, it's a genuine previous version
+        (project / "demo.mp4").write_bytes(b"FILM-v1-different")
+        assert takes.list_takes(project)[0]["is_current"] is False
+
 
 class TestRestore:
     def test_round_trip(self, tmp_path: Path):  # T6

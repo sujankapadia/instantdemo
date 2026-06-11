@@ -67,7 +67,12 @@ export function StageFilm({
   useEffect(() => {
     fetchTakes().then(setAllTakes).catch(() => setAllTakes([]))
   }, [runCompleteToken])
-  const playableTakes = allTakes.filter((t) => t.video_exists)
+  // A take is only a "previous version" if it differs from the
+  // current film — a fresh post-render snapshot is excluded so the
+  // toggle never offers a no-op comparison.
+  const playableTakes = allTakes.filter(
+    (t) => t.video_exists && !t.is_current,
+  )
 
   const handleRestore = async (n: number) => {
     setRestoring(true)
