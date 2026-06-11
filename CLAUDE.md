@@ -219,6 +219,7 @@ Each project directory has:
     ├── storyboard.json        # CANONICAL phase 2-5 artifact (scenes, statuses, revisions)
     ├── exploration/           # Phase 1 screenshots (GUI filmstrip)
     ├── rehearsal/             # Phase 4 per-scene thumbnails (s<N>.png, storyboard cards)
+    ├── takes/v<N>/            # Versioned takes (M4): film + 3 JSONs + meta; newest 3 keep video
     ├── phase1.md ... phase6.md  # Phase 1/6: agent output; phases 2-4: rendered VIEWS of storyboard.json
     ├── phase4-diff.md         # Phase 4's per-segment revisions summary
     └── segment-timing.json    # Per-segment time ranges in demo.mp4
