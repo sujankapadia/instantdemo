@@ -1,0 +1,19 @@
+# Dependabot: version-update PRs + the alerting backstop between
+# weekly security.yml runs. Covers the optional TTS extras (torch
+# tree) that CI deliberately skips installing.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
