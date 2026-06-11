@@ -123,14 +123,13 @@ export function Layout() {
         // tts.json (edited via the Voice dialog).
         pause_between_phases: values.pause_between_phases,
       }
-      if (data?.exists) {
-        // Regenerate: intent is already curated — full single run.
-        void run.startRun({ phases: [1, 2, 3, 4, 5, 6], ...common })
-        return
-      }
-      // Cold start (M1 two-run flow): explore first; phases 2-6 run
-      // after the user confirms the proposed intent. Stash the form
-      // values so the confirm step can reuse url/source/tts.
+      // Cold start AND Regenerate take the same staged flow (M5a,
+      // #82 stage 1): explore → intent confirm → plan/rehearse →
+      // storyboard gate → record. Regenerate used to fire a blind
+      // [1..6] run — re-planning everything nondeterministically
+      // with no review before the spend. Now even a whole-demo
+      // re-plan is inspected first, and the previous film survives
+      // as a take regardless.
       setPendingSetup(values)
       void run.startRun({ phases: [1], ...common })
     },
