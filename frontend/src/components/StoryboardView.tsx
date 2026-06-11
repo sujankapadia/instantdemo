@@ -136,14 +136,15 @@ export function StoryboardView({
     }
   }
 
-  // In-flight rehearsal shots by scene index: "s3.png" → 3. Used as
-  // optimistic thumbnails while Phase 4 runs (the canonical refs land
-  // in the doc when the phase completes).
-  const liveShotByIndex = new Map<number, string>()
+  // In-flight rehearsal shots by SCENE ID: "s3.png" → "s3" (M5b —
+  // thumbnails are named by stable scene id, not list position).
+  // Used as optimistic thumbnails while Phase 4 runs (the canonical
+  // refs land in the doc when the phase completes).
+  const liveShotById = new Map<string, string>()
   for (const shot of liveShots) {
-    const match = /^s(\d+)\.png$/.exec(shot.file)
+    const match = /^(s\d+)\.png$/.exec(shot.file)
     if (match && shot.url.includes('/rehearsal/')) {
-      liveShotByIndex.set(parseInt(match[1]!, 10), shot.url)
+      liveShotById.set(match[1]!, shot.url)
     }
   }
 
@@ -197,7 +198,7 @@ export function StoryboardView({
                 ) : null}
                 <SceneCard
                   scene={scene}
-                  liveShotUrl={liveShotByIndex.get(scene.index) ?? null}
+                  liveShotUrl={liveShotById.get(scene.id) ?? null}
                   editing={editingId === scene.id}
                   editError={editingId === scene.id ? editError : null}
                   canEdit={gateOpen && !runActive && editingId === null}

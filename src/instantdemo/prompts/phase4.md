@@ -73,14 +73,16 @@ have Write — Phase 5 (Build) emits the JSON.
    the narration describes), save:
 
    ```python
-   page.screenshot(path=f"{rehearsal_dir}/s{seg_index}.png")
+   page.screenshot(path=f"{rehearsal_dir}/{scene_id}.png")
    ```
 
-   One PNG per segment, named `s1.png`, `s2.png`, ... by the
-   1-based segment number. Save them on every rehearsal pass —
-   later iterations overwrite earlier files, which is correct
-   (the final passing rehearsal's screens are what the user
-   should see). They also stream live to the user as you work.
+   One PNG per segment, named by the segment's scene id exactly as
+   listed in the plan (`s1.png`, `s7.png`, `s12.png`, ...) — use
+   the id shown for each segment, NOT its position in the list.
+   Save them on every rehearsal pass — later iterations overwrite
+   earlier files, which is correct (the final passing rehearsal's
+   screens are what the user should see). They also stream live to
+   the user as you work.
 
 2. **Apply Phase 3's listed fallbacks when the primary fails.**
    Phase 3 lists 1-2 fallbacks per segment in the Notes line.

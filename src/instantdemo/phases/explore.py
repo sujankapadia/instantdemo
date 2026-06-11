@@ -445,17 +445,19 @@ def _write_diff_artifact(
 
 
 def link_rehearsal_screenshots(doc: dict, shots_dir: Path) -> list[str]:
-    """Join rehearsal screenshots to scenes by segment-index naming
-    (`s<index>.png`). Pure function (unit-tested). Sets each scene's
-    `rehearsal_screenshot` when the file exists and POPS it when it
-    doesn't — a prior run's storyboard must not carry stale refs into
-    the gate. Returns the linked filenames."""
+    """Join rehearsal screenshots to scenes by SCENE-ID naming
+    (`<id>.png`, e.g. s12.png — M5b). Ids are stable and never
+    reused, so a scoped re-plan can't collide thumbnails the way
+    shifting indices would. Pure function (unit-tested). Sets each
+    scene's `rehearsal_screenshot` when the file exists and POPS it
+    when it doesn't — a prior run's storyboard must not carry stale
+    refs into the gate. Returns the linked filenames."""
     linked: list[str] = []
     existing: set[str] = set()
     if shots_dir.is_dir():
         existing = {p.name for p in shots_dir.glob("s*.png")}
     for scene in doc.get("scenes", []):
-        name = f"s{scene['index']}.png"
+        name = f"{scene['id']}.png"
         if name in existing:
             scene["rehearsal_screenshot"] = name
             linked.append(name)
