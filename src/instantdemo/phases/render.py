@@ -152,6 +152,20 @@ async def run(context: Context) -> None:
     # offload pattern is safe there too. See issue #33.
     loop = asyncio.get_running_loop()
     try:
+        # Before overwriting an existing film, make sure its CURRENT
+        # state is a take (M5a). Renders snapshot AFTER rendering and
+        # revisions BEFORE mutating — so a film edited since its
+        # render exists in no take, and a regenerate would destroy it
+        # despite the gated-regenerate copy's promise. Skipped when
+        # the newest take already IS the current film (is_current).
+        try:
+            if context.output.exists():
+                listing = takes.list_takes(context.project)
+                if not (listing and listing[0].get("is_current")):
+                    n = takes.snapshot(context.project, label="edited cut")
+                    print(f"[Phase 6] Kept your current film as version {n}")
+        except OSError as exc:
+            print(f"[Phase 6] WARNING: pre-render take failed: {exc}")
         await loop.run_in_executor(None, _invoke_renderer, context)
         # Versioned take after every successful render (M4): the
         # film just made becomes restorable history. A snapshot

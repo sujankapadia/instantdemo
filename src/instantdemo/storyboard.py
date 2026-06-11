@@ -144,6 +144,24 @@ def add_scene(
     return scene
 
 
+def chapters(doc: dict) -> list[dict]:
+    """Derive the chapter list from contiguous runs of scene.section
+    (M5a). Chapters are never stored separately — scene order IS the
+    chapter order, so there's nothing to keep in sync. Returns
+    [{name, scene_ids}] in film order; [] when the storyboard is
+    sectionless (pre-M5 projects)."""
+    out: list[dict] = []
+    for scene in doc.get("scenes", []):
+        name = scene.get("section")
+        if not isinstance(name, str) or not name.strip():
+            continue
+        if out and out[-1]["name"] == name:
+            out[-1]["scene_ids"].append(scene["id"])
+        else:
+            out.append({"name": name, "scene_ids": [scene["id"]]})
+    return out
+
+
 def normalize_candidates(value: Any) -> list[str]:
     """Coerce a selector-ish value (string or list) to the canonical
     candidate-list form: non-empty strings, primary first."""
@@ -245,6 +263,38 @@ def validate_storyboard(doc: dict, *, stage: str) -> list[str]:
                 "scene must be verified or warn before Phase 5"
             )
 
+    # Chapters (M5a): optional — a sectionless storyboard (pre-M5
+    # projects) is fully valid. But when sections appear, they must
+    # be coherent: every scene sectioned, and each section one
+    # contiguous run (a chapter that appears, vanishes, and returns
+    # can't be scoped or displayed as an arc).
+    def _section_of(s: dict) -> str | None:
+        name = s.get("section")
+        return name if isinstance(name, str) and name.strip() else None
+
+    sectioned = [s for s in scenes if _section_of(s)]
+    if sectioned and len(sectioned) != len(scenes):
+        missing = [
+            f"scene {i} ({s.get('id', '?')})"
+            for i, s in enumerate(scenes, start=1)
+            if not _section_of(s)
+        ]
+        problems.append(
+            "sections are all-or-nothing: missing on " + ", ".join(missing)
+        )
+    if sectioned:
+        seen_sections: list[str] = []
+        for s in sectioned:
+            name = s["section"]
+            if seen_sections and seen_sections[-1] == name:
+                continue
+            if name in seen_sections:
+                problems.append(
+                    f"section {name!r} is not contiguous — its scenes "
+                    "must form one unbroken run"
+                )
+            seen_sections.append(name)
+
     return problems
 
 
@@ -335,7 +385,12 @@ def render_phase2_view(doc: dict, answers: dict[str, str]) -> str:
     if doc.get("summary"):
         lines += [f"**Flow:** {doc['summary']}", ""]
     lines.append("---")
+    current_section: str | None = None
     for scene in doc.get("scenes", []):
+        section = scene.get("section")
+        if isinstance(section, str) and section.strip() and section != current_section:
+            lines += ["", f"## {section}"]
+            current_section = section
         lines += [
             "",
             _scene_heading(scene),
