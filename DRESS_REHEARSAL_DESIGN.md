@@ -124,8 +124,13 @@ Three categories of fix, in increasing assertiveness:
 - Selector swap (already done today)
 - Timing adjustment (`pause_after_ms`, `wait_for` timeout)
 - Wait-condition refinement (e.g., wait for specific content,
-  not just element presence)
-- Adding a missing intermediate wait between segments
+  not just element presence). Refined waits must be VISIBLE-
+  waitable — `<option>` elements inside a closed `<select>` are
+  hidden in Playwright's model and are refused by the merge (#67)
+- Action-KIND change on the same UI element when the scene's
+  purpose is unchanged (e.g. click → press-Escape to clear a
+  search) — validated against the canonical action contract
+  (#67; structural changes to WHAT a scene does remain Level 3)
 
 These are deterministic fixes from observed timing/behavior.
 No user judgment needed. PASS outcome.
