@@ -34,6 +34,7 @@ import time
 from .. import prompts, takes
 from ..agent_client import session_id_for_phase
 from ..render import main as render_main
+from ..render import render_section_main
 from . import (
     Context,
     record_phase_result,
@@ -89,11 +90,87 @@ async def _run_drift_check(context: Context) -> tuple[str, "object | None"]:
     )
 
 
+def _section_render_plan(context: Context) -> tuple[int, int, int] | None:
+    """Decide whether a scoped chapter render is possible (M5b):
+    returns (start_idx, end_idx, old_chapter_len) — 0-based segment
+    span in the NEW script plus the chapter's length in the OLD
+    timing — or None to fall back to a full record.
+
+    Requirements: an existing film + timing with recorded durations;
+    the storyboard's scoped chapter projecting onto a contiguous
+    script span; prefix/tail counts consistent between old timing
+    and the new script (out-of-scope scenes are untouched by a
+    scoped re-plan, so their counts must match — anything else means
+    the project drifted and a full record is the safe path)."""
+    import json
+
+    from instantdemo import storyboard
+
+    section = context.section_scope
+    if not section:
+        return None
+    timing_path = context.state_dir / "segment-timing.json"
+    if not (context.output.exists() and timing_path.exists()):
+        print("[Phase 6] Scoped render unavailable (no film/timing) — full record")
+        return None
+    try:
+        doc = storyboard.load(context.state_dir)
+    except RuntimeError:
+        return None
+    flags = [s.get("section") == section for s in doc.get("scenes", [])]
+    if not any(flags):
+        print(f"[Phase 6] No chapter {section!r} — full record")
+        return None
+    start_idx = flags.index(True)
+    chapter_len = sum(flags)
+    if any(flags[start_idx + chapter_len :]):
+        print("[Phase 6] Chapter not contiguous — full record")
+        return None
+    script = json.loads(context.script_path.read_text())
+    n_new = len(script.get("segments") or [])
+    if n_new != len(flags):
+        print("[Phase 6] Script/storyboard counts diverge — full record")
+        return None
+    old_rows = (
+        json.loads(timing_path.read_text()).get("segments") or []
+    )
+    tail_len = n_new - start_idx - chapter_len
+    old_chapter_len = len(old_rows) - start_idx - tail_len
+    if old_chapter_len < 1 or any(
+        "recorded_clean_duration_s" not in r
+        for r in old_rows[:start_idx]
+    ):
+        print("[Phase 6] Old timing unusable for splice — full record")
+        return None
+    return start_idx, start_idx + chapter_len - 1, old_chapter_len
+
+
 def _invoke_renderer(context: Context) -> None:
     """Call the bundled renderer in-process. The project's tts.json
     carries the voice (provider/stock voice/cloned reference/
     pronunciations); an explicit Context.tts (CLI --tts) overrides
-    the config's provider."""
+    the config's provider. A scoped chapter revision (M5b) records
+    and splices only the chapter when the project's film/timing
+    allow it."""
+    plan = _section_render_plan(context)
+    if plan is not None:
+        start_idx, end_idx, old_chapter_len = plan
+        print(
+            f"\n[Phase 6] Drift check passed — scoped render of "
+            f"chapter {context.section_scope!r} "
+            f"(segments {start_idx}..{end_idx})\n"
+        )
+        render_section_main(
+            context.script_path,
+            context.output,
+            context.state_dir,
+            start_idx,
+            end_idx,
+            old_chapter_len,
+            tts_config_path=context.project / "tts.json",
+            tts_override=context.tts,
+        )
+        return
     argv = [
         str(context.script_path),
         "--tts-config",

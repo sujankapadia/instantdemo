@@ -154,6 +154,131 @@ class TestScopedPhases:
         assert any("outside the revised chapter" in w for w in warnings)
 
 
+class TestSectionTiming:
+    OLD = {
+        "video": "demo.mp4",
+        "total_duration_s": 30.0,
+        "segments": [
+            {"index": i, "start_s": i * 5.0, "end_s": (i + 1) * 5.0,
+             "audio_duration_s": 4.0, "recorded_clean_duration_s": 5.0}
+            for i in range(6)
+        ],
+    }
+
+    def test_middle_chapter_rebuild(self):  # T1
+        from instantdemo.render import rebuild_section_timing
+
+        # Old chapter = segments 2..3 (2 rows); new chapter = 1 segment
+        out = rebuild_section_timing(
+            self.OLD, new_segments=[{}] * 5, start_idx=2, end_idx=2,
+            old_chapter_len=2, section_slots_s=[3.0],
+            section_recorded_s=[3.1], section_audio_s=[2.5],
+            output_filename="demo.mp4",
+        )
+        rows = out["segments"]
+        assert len(rows) == 5
+        assert rows[:2] == self.OLD["segments"][:2]
+        ch = rows[2]
+        assert (ch["start_s"], ch["end_s"]) == (10.0, 13.0)
+        assert ch["audio_duration_s"] == 2.5
+        assert ch["recorded_clean_duration_s"] == 3.1
+        # Tail: old rows 4,5 shifted by delta (-7.0), re-indexed 3,4
+        assert [r["index"] for r in rows[3:]] == [3, 4]
+        assert rows[3]["start_s"] == 13.0 and rows[3]["end_s"] == 18.0
+        assert rows[4]["end_s"] == 23.0
+        assert out["total_duration_s"] == 23.0
+
+    def test_boundary_chapters(self):  # T2
+        from instantdemo.render import rebuild_section_timing
+
+        opening = rebuild_section_timing(
+            self.OLD, [{}] * 5, start_idx=0, end_idx=0,
+            old_chapter_len=2, section_slots_s=[4.0],
+            section_recorded_s=[4.0], section_audio_s=[3.0],
+            output_filename="demo.mp4",
+        )
+        assert opening["segments"][0]["start_s"] == 0.0
+        assert opening["segments"][1]["start_s"] == 4.0  # old row 2 shifted
+        closing = rebuild_section_timing(
+            self.OLD, [{}] * 5, start_idx=4, end_idx=4,
+            old_chapter_len=2, section_slots_s=[4.0],
+            section_recorded_s=[4.0], section_audio_s=[3.0],
+            output_filename="demo.mp4",
+        )
+        assert len(closing["segments"]) == 5
+        assert closing["segments"][-1]["end_s"] == 24.0
+        assert closing["total_duration_s"] == 24.0
+
+
+class TestSectionRenderPlan:
+    def make_context(self, tmp_path: Path, *, scenes, script_n, timing_n,
+                     scope="B"):
+        from instantdemo.phases import Context
+
+        state_dir = tmp_path / ".instantdemo"
+        state_dir.mkdir(exist_ok=True)
+        doc = storyboard.new_document(title="t", url="u")
+        for name in scenes:
+            storyboard.add_scene(
+                doc, title=name, narration="x", action="wait", section=name,
+            )
+        storyboard.save(state_dir, doc)
+        (tmp_path / "demo-script.json").write_text(json.dumps({
+            "segments": [{"action": "wait"}] * script_n
+        }))
+        (tmp_path / "demo.mp4").write_bytes(b"F")
+        (state_dir / "segment-timing.json").write_text(json.dumps({
+            "segments": [
+                {"index": i, "start_s": float(i), "end_s": i + 1.0,
+                 "recorded_clean_duration_s": 1.0}
+                for i in range(timing_n)
+            ],
+        }))
+        return Context(
+            url="u", source=tmp_path, project=tmp_path, describe=None,
+            state_dir=state_dir, output=tmp_path / "demo.mp4", tts=None,
+            no_edit=True, section_scope=scope,
+        )
+
+    def test_aligned_plan(self, tmp_path: Path):  # P4
+        from instantdemo.phases.render import _section_render_plan
+
+        # A,B,B,C: chapter B = segments 1..2; old film had B of len 2
+        ctx = self.make_context(
+            tmp_path, scenes=["A", "B", "B", "C"], script_n=4, timing_n=4,
+        )
+        assert _section_render_plan(ctx) == (1, 2, 2)
+
+    def test_misaligned_counts(self, tmp_path: Path):  # P5
+        from instantdemo.phases.render import _section_render_plan
+
+        # New film 4 segments (prefix 1, tail 1) but old timing has
+        # only 2 rows → old_chapter_len = 0 → fallback.
+        ctx = self.make_context(
+            tmp_path, scenes=["A", "B", "B", "C"], script_n=4, timing_n=2,
+        )
+        assert _section_render_plan(ctx) is None
+
+    def test_unavailable_cases(self, tmp_path: Path):  # P6
+        from instantdemo.phases.render import _section_render_plan
+
+        ctx = self.make_context(
+            tmp_path, scenes=["A", "B", "B", "C"], script_n=4, timing_n=4,
+            scope="Z",
+        )
+        assert _section_render_plan(ctx) is None
+        ctx2 = self.make_context(
+            tmp_path, scenes=["A", "B", "B", "C"], script_n=4, timing_n=4,
+            scope=None,
+        )
+        assert _section_render_plan(ctx2) is None
+        ctx3 = self.make_context(
+            tmp_path, scenes=["A", "B", "B", "C"], script_n=4, timing_n=4,
+        )
+        (tmp_path / "demo.mp4").unlink()
+        assert _section_render_plan(ctx3) is None
+
+
 class TestPendingScopeLifecycle:
     @pytest.fixture()
     def client(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

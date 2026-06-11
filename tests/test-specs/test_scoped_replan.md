@@ -37,6 +37,16 @@ Test: `tests/test_scoped_replan.py`
 | SV2 | A scene with section != scope | Problem naming the rule | The agent quietly rewrites a different chapter |
 | SV3 | Unknown action / missing title / >10 scenes | Problems | Garbage scenes reach the storyboard |
 
+## Scoped record + splice (render layer, pure parts)
+
+| ID | Scenario | Assertion | Risk if broken |
+|----|----------|-----------|----------------|
+| T1 | rebuild_section_timing: middle chapter, new shorter than old | Pre rows byte-equal; chapter rows fresh (slots cumulative from pre end, audio + recorded durations); tail rows keep durations, shift by delta, re-index; total = cursor | Click-to-seek and future splices land mid-frame everywhere after the chapter |
+| T2 | rebuild_section_timing: opening chapter (no pre) and closing chapter (no tail) | Cursor starts at 0 / no tail rows; totals correct | Boundary chapters corrupt the timeline |
+| P4 | _section_render_plan: aligned project (counts match, contiguous chapter, recorded durations) | Returns (start, end, old_len) | Scoped renders never happen — every revision is a full re-record |
+| P5 | _section_render_plan: prefix/tail counts diverge from old timing (the m5b-scoped live case) | None (full-record fallback), no raise | Splice against a mismatched film corrupts the demo |
+| P6 | _section_render_plan: no film/timing, unknown chapter, scoped flag absent | None each | Same as P5 |
+
 ## pending_scope lifecycle (route level)
 
 | ID | Scenario | Assertion | Risk if broken |
