@@ -313,6 +313,9 @@ serve --project /tmp/restore --port 8770`.
 
 ## Documentation index
 
+- `DESIGN.md` — the standing design philosophy for the user-facing
+  product ("a small film studio"); every milestone's UI work is held
+  to it, plus the "one object" consolidation backlog
 - `ARCHITECTURE.md` — current-state architecture reference (this is
   the doc that succeeds this file in depth)
 - `ARCHITECTURE_RETHINK.md` — the question of whether to invert to an
