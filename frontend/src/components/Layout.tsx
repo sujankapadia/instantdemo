@@ -7,16 +7,13 @@ import {
   type PhaseInfo,
 } from './PhaseRail'
 import { Inspector } from './Inspector'
-import { RightPane } from './RightPane'
 import { ErrorBanner } from './ErrorBanner'
 import { NewProjectModal } from './NewProjectModal'
 import type { NewProjectInputs } from './NewProjectForm'
 import { emptyIntent } from '@/api/runs'
 import { PauseBanner } from './PauseBanner'
 import { PhaseFailureBanner } from './PhaseFailureBanner'
-import { IntentConfirmCard } from './IntentConfirmCard'
-import { StageEmpty } from './stage/StageEmpty'
-import { StoryboardView } from './StoryboardView'
+import { Stage } from './stage/Stage'
 import { useStoryboard } from '@/hooks/useStoryboard'
 import { VoiceDialog } from './VoiceDialog'
 import { useVoice } from '@/hooks/useVoice'
@@ -33,8 +30,8 @@ const LOADING_PHASES: PhaseInfo[] = PHASE_NUMBERS.map((num) => ({
 
 export function Layout() {
   const { state, refetch } = useProject()
-  // Bumped each time a run terminates — RightPane watches this to know
-  // when to refresh segments + video. Cleaner than RightPane trying to
+  // Bumped each time a run terminates — the film stage watches this to
+  // know when to refresh scenes + video. Cleaner than the stage trying
   // detect the transition itself.
   const [runCompleteToken, setRunCompleteToken] = useState(0)
   const storyboard = useStoryboard()
@@ -309,65 +306,13 @@ export function Layout() {
         />
       ) : null}
       {(() => {
-        // Intent confirmation card (M1 two-run flow): exploration
-        // finished, proposal recorded, not yet confirmed. Derived
-        // from /api/project so a reload mid-flow re-shows it.
-        const phase1 = data?.phases?.['1']
-        const runActive =
-          run.status === 'starting' || run.status === 'running'
-        if (
-          runActive ||
-          data?.intent_confirmed ||
-          phase1?.status !== 'completed' ||
-          !phase1?.intent_proposal
-        ) {
-          return null
-        }
-        return (
-          <IntentConfirmCard
-            proposal={phase1.intent_proposal}
-            userIntent={pendingSetup?.intent ?? data?.intent ?? null}
-            screens={phase1.screens}
-            warnings={phase1.warnings}
-            busy={false}
-            onConfirm={handleIntentConfirm}
-          />
-        )
-      })()}
-      {(() => {
-        // Empty project → the front door IS the stage (one-object
-        // pass): hero URL + brief box, full width. Once a run starts
-        // (or a project exists) the normal surfaces take over.
-        const runActive =
-          run.status === 'starting' || run.status === 'running'
-        if (empty && !runActive) {
-          return (
-            <main className="flex min-h-0 flex-1">
-              <StageEmpty
-                projectDir={projectDir}
-                submitting={run.status === 'starting'}
-                onSubmit={handleNewProjectSubmit}
-              />
-            </main>
-          )
-        }
-
-        // Storyboard as the center surface (M2): shown whenever a
-        // storyboard exists (or the [2,3,4] leg is producing one)
-        // and the demo hasn't rendered yet. After render,
-        // video+segments take over (storyboard tab is M4).
+        // THE one object: the Stage owns the whole center, deriving
+        // its face (front door / exploring / proposal / storyboard /
+        // film) from server state — reload-safe at every step.
         const videoDone = data?.phases?.['6']?.status === 'completed'
         const sbExists =
           storyboard.state.status === 'success' &&
           storyboard.state.data.exists
-        const buildingStoryboard =
-          (run.status === 'starting' || run.status === 'running') &&
-          run.currentPhase !== null &&
-          run.currentPhase >= 2 &&
-          run.currentPhase <= 4
-        const showStoryboard =
-          !videoDone && (sbExists || buildingStoryboard)
-
         // The approve gate: rehearsed, unreviewed, not yet rendered.
         const phase4 = data?.phases?.['4']
         const gateOpen =
@@ -380,38 +325,22 @@ export function Layout() {
 
         return (
           <main className="flex min-h-0 flex-1">
-            {showStoryboard ? (
-              <div className="flex-[3] min-w-0 border-r border-border">
-                <StoryboardView
-                  state={storyboard.state}
-                  refetch={storyboardRefetch}
-                  runStatus={run.status}
-                  currentPhase={run.currentPhase}
-                  gateOpen={gateOpen}
-                  liveShots={run.screenshots}
-                  onApprove={handleApprove}
-                  onRegenerate={() => setNewProjectOpen(true)}
-                  approving={
-                    (run.status === 'starting' ||
-                      run.status === 'running') &&
-                    run.currentPhase !== null &&
-                    run.currentPhase >= 5
-                  }
-                />
-              </div>
-            ) : null}
-            <div
-              className={
-                showStoryboard ? 'flex-[2] min-w-0' : 'flex-1 min-w-0'
-              }
-            >
-              <RightPane
-                runStatus={run.status}
-                runCompleteToken={runCompleteToken}
-                screenshots={run.screenshots}
-                exploring={run.currentPhase === 1}
-              />
-            </div>
+            <Stage
+              data={data}
+              runStatus={run.status}
+              currentPhase={run.currentPhase}
+              pendingSetup={pendingSetup}
+              screenshots={run.screenshots}
+              storyboard={storyboard.state}
+              storyboardRefetch={storyboardRefetch}
+              runCompleteToken={runCompleteToken}
+              gateOpen={gateOpen}
+              projectDir={projectDir}
+              onColdStart={handleNewProjectSubmit}
+              onConfirmIntent={handleIntentConfirm}
+              onApprove={handleApprove}
+              onRegenerate={() => setNewProjectOpen(true)}
+            />
           </main>
         )
       })()}
@@ -455,7 +384,7 @@ export function Layout() {
           run.status === 'paused'
         }
         videoExists={data?.phases?.['6']?.status === 'completed'}
-        // The runCompleteToken signal: RightPane refetches segments
+        // The runCompleteToken signal: the film stage refetches scenes
         // and busts the video cache — exactly what a re-voice needs.
         onReVoiced={() => setRunCompleteToken((t) => t + 1)}
       />
