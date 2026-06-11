@@ -1,9 +1,11 @@
+import { AnimatePresence, LayoutGroup, motion } from 'motion/react'
 import { StageEmpty } from './StageEmpty'
 import { StageExploring } from './StageExploring'
 import { StageProposal } from './StageProposal'
 import { StageFilm } from './StageFilm'
 import { StoryboardView } from '../StoryboardView'
 import { deriveStage } from '@/lib/stageState'
+import { FACE_TRANSITION, FACE_VARIANTS } from '@/lib/motion'
 import type { ProjectState } from '@/api/project'
 import type { Intent } from '@/api/runs'
 import type { NewProjectInputs } from '../NewProjectForm'
@@ -25,6 +27,8 @@ interface StageProps {
   onConfirmIntent: (intent: Intent) => void
   onApprove: () => void
   onRegenerate: () => void
+  /** Lights-down signal from the film face. */
+  onPlayingChange?: (playing: boolean) => void
 }
 
 /**
@@ -61,38 +65,38 @@ export function Stage(props: StageProps) {
     storyboardExists,
   })
 
-  switch (stage) {
-    case 'empty':
-      return (
-        <StageEmpty
-          projectDir={projectDir}
-          submitting={runStatus === 'starting'}
-          onSubmit={onColdStart}
-        />
-      )
-    case 'exploring':
-      return (
-        <StageExploring
-          screenshots={screenshots}
-          exploring={runStatus === 'starting' || runStatus === 'running'}
-        />
-      )
-    case 'proposal': {
-      const phase1 = data?.phases?.['1']
-      if (!phase1?.intent_proposal) return null
-      return (
-        <StageProposal
-          proposal={phase1.intent_proposal as Intent}
-          userIntent={pendingSetup?.intent ?? data?.intent ?? null}
-          screens={phase1.screens}
-          warnings={phase1.warnings}
-          onConfirm={onConfirmIntent}
-        />
-      )
-    }
-    case 'storyboarding':
-      return (
-        <div className="h-full w-full flex-1">
+  const face = (() => {
+    switch (stage) {
+      case 'empty':
+        return (
+          <StageEmpty
+            projectDir={projectDir}
+            submitting={runStatus === 'starting'}
+            onSubmit={onColdStart}
+          />
+        )
+      case 'exploring':
+        return (
+          <StageExploring
+            screenshots={screenshots}
+            exploring={runStatus === 'starting' || runStatus === 'running'}
+          />
+        )
+      case 'proposal': {
+        const phase1 = data?.phases?.['1']
+        if (!phase1?.intent_proposal) return null
+        return (
+          <StageProposal
+            proposal={phase1.intent_proposal as Intent}
+            userIntent={pendingSetup?.intent ?? data?.intent ?? null}
+            screens={phase1.screens}
+            warnings={phase1.warnings}
+            onConfirm={onConfirmIntent}
+          />
+        )
+      }
+      case 'storyboarding':
+        return (
           <StoryboardView
             state={storyboard}
             refetch={storyboardRefetch}
@@ -108,16 +112,36 @@ export function Stage(props: StageProps) {
               currentPhase >= 5
             }
           />
-        </div>
-      )
-    case 'film':
-      return (
-        <div className="h-full w-full flex-1">
+        )
+      case 'film':
+        return (
           <StageFilm
             runStatus={runStatus}
             runCompleteToken={runCompleteToken}
+            onPlayingChange={props.onPlayingChange}
           />
-        </div>
-      )
-  }
+        )
+    }
+  })()
+
+  // One object, continuously transforming (motion budget item 1):
+  // faces crossfade with a slight rise; the LayoutGroup lets the
+  // exploration-frames container persist into the storyboard.
+  return (
+    <LayoutGroup>
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={stage}
+          className="flex h-full w-full min-h-0 flex-1 flex-col"
+          variants={FACE_VARIANTS}
+          initial="initial"
+          animate="animate"
+          exit="exit"
+          transition={FACE_TRANSITION}
+        >
+          {face}
+        </motion.div>
+      </AnimatePresence>
+    </LayoutGroup>
+  )
 }

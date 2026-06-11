@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { motion } from 'motion/react'
 import {
   CircleCheck,
   CircleAlert,
@@ -149,7 +150,13 @@ export function StoryboardView({
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-3">
-        <div className="mx-auto flex max-w-2xl flex-col gap-3">
+        {/* layoutId pairs with StageExploring's frame container —
+            exploration frames visibly become the storyboard (motion
+            budget item 2). */}
+        <motion.div
+          layoutId="stage-frames"
+          className="mx-auto flex max-w-2xl flex-col gap-3"
+        >
           {scenes.map((scene) => (
             <SceneCard
               key={scene.id}
@@ -180,7 +187,7 @@ export function StoryboardView({
                     : 'Working…'}
             </div>
           ) : null}
-        </div>
+        </motion.div>
       </div>
 
       {gateOpen ? (

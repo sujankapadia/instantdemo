@@ -4,6 +4,9 @@ import { Film } from 'lucide-react'
 interface VideoPlayerProps {
   src: string
   onTimeUpdate?: (currentTimeS: number) => void
+  /** Lights-down signal (DESIGN.md principle 14): true while the
+   *  film is playing, so the chrome can recede. */
+  onPlayingChange?: (playing: boolean) => void
 }
 
 /**
@@ -13,7 +16,7 @@ interface VideoPlayerProps {
  * video yet).
  */
 export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
-  function VideoPlayer({ src, onTimeUpdate }, ref) {
+  function VideoPlayer({ src, onTimeUpdate, onPlayingChange }, ref) {
     const [errored, setErrored] = useState(false)
 
     // Reset the error state when `src` changes — otherwise once the
@@ -47,6 +50,9 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
         // when the panel is wider than the video.
         className="h-full w-full object-contain mx-auto rounded-md bg-black"
         onError={() => setErrored(true)}
+        onPlay={() => onPlayingChange?.(true)}
+        onPause={() => onPlayingChange?.(false)}
+        onEnded={() => onPlayingChange?.(false)}
         onTimeUpdate={(event) => {
           if (onTimeUpdate) {
             onTimeUpdate(event.currentTarget.currentTime)

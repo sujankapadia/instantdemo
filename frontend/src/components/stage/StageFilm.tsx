@@ -19,14 +19,17 @@ import type { RunStatus } from '@/hooks/useRun'
 interface StageFilmProps {
   runStatus: RunStatus
   /** Incremented by Layout each time a run finishes (via useRun.onComplete).
-   *  RightPane reacts to the token bump by refetching segments and busting
-   *  the video cache — one-way signal, no transition heuristics. */
+   *  The film stage reacts to the token bump by refetching scenes and
+   *  busting the video cache — one-way signal, no transition heuristics. */
   runCompleteToken: number
+  /** Lights-down signal: true while the film plays. */
+  onPlayingChange?: (playing: boolean) => void
 }
 
 export function StageFilm({
   runStatus,
   runCompleteToken,
+  onPlayingChange,
 }: StageFilmProps) {
   const segmentsState = useSegments()
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -250,6 +253,7 @@ export function StageFilm({
               ref={videoRef}
               src={`/api/project/video?v=${videoVersion}`}
               onTimeUpdate={setCurrentTimeS}
+              onPlayingChange={onPlayingChange}
             />
           </div>
         </ResizablePanel>

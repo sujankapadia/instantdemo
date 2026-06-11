@@ -76,6 +76,9 @@ export function Layout() {
   // from the cold-start form); applies to the next confirm/approve
   // runs started from the stage.
   const [pausePreference, setPausePreference] = useState(false)
+  // Lights-down (DESIGN.md principle 14): while the film plays, the
+  // chrome (.stage-chrome elements) recedes via a root class.
+  const [lightsDown, setLightsDown] = useState(false)
   const wasRunningRef = useRef(false)
 
   const isLoading = state.status === 'loading'
@@ -247,7 +250,9 @@ export function Layout() {
     : Math.max(stateCost, run.cumulativeCost)
 
   return (
-    <div className="flex h-screen flex-col bg-background text-foreground">
+    <div
+      className={`flex h-screen flex-col bg-background text-foreground${lightsDown ? ' lights-down' : ''}`}
+    >
       <Header
         projectName={projectName}
         url={url}
@@ -340,6 +345,7 @@ export function Layout() {
               onConfirmIntent={handleIntentConfirm}
               onApprove={handleApprove}
               onRegenerate={() => setNewProjectOpen(true)}
+              onPlayingChange={setLightsDown}
             />
           </main>
         )

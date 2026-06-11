@@ -1,4 +1,5 @@
 import { Loader2 } from 'lucide-react'
+import { motion } from 'motion/react'
 import { Filmstrip } from '../Filmstrip'
 
 /**
@@ -18,9 +19,11 @@ export function StageExploring({
         <Loader2 className="size-4 animate-spin text-primary" />
         Watching your app — screens appear as they're visited.
       </div>
-      <div className="w-full max-w-5xl">
+      {/* layoutId carries this frame container into the storyboard's
+          card list (motion budget item 2) — the same object, rearranged. */}
+      <motion.div layoutId="stage-frames" className="w-full max-w-5xl">
         <Filmstrip live={screenshots} exploring={exploring} />
-      </div>
+      </motion.div>
     </div>
   )
 }
