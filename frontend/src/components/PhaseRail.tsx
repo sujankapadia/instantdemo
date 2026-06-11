@@ -93,7 +93,7 @@ export function PhaseRail({
     runStatus === 'paused'
 
   return (
-    <nav className="flex h-12 items-center gap-1 border-b border-border bg-background px-3">
+    <nav className="flex h-12 shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-background px-3">
       {phases.map((phase) => {
         const isSelected = phase.num === selected
         const isCurrentlyRunning = isRunActive && currentPhase === phase.num
@@ -105,7 +105,7 @@ export function PhaseRail({
             onClick={() => onSelect(phase.num)}
             disabled={loading}
             className={cn(
-              'group flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer relative',
+              'group flex shrink-0 items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer relative',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               isSelected
                 ? 'bg-secondary text-secondary-foreground'
@@ -144,7 +144,7 @@ export function PhaseRail({
                   }
                 }}
                 className={cn(
-                  'ml-1 inline-flex size-5 items-center justify-center rounded text-muted-foreground/60 opacity-0 transition-opacity hover:bg-secondary hover:text-foreground group-hover:opacity-100',
+                  'ml-1 inline-flex size-5 items-center justify-center rounded text-muted-foreground/60 opacity-50 transition-opacity hover:bg-secondary hover:text-foreground group-hover:opacity-100',
                   isRunActive && 'pointer-events-none cursor-not-allowed group-hover:opacity-30',
                 )}
               >
