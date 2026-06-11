@@ -79,6 +79,12 @@ with exactly ONE fenced ```json block:
   the user to confirm or edit. If the user supplied a goal above,
   REFINE it with what you observed (name the concrete screens and
   data worth showing) — don't replace it. Lead with the payoff.
+  **Write `goal` as you'd pitch the film to a client, not as a
+  run-sheet**: flowing prose about what the demo shows and why it
+  lands, naming real things by their on-screen names. The reader is
+  a product or marketing person — never use words like phase,
+  pipeline, selector, segment, DOM, or element; never enumerate
+  steps as a numbered checklist.
   Populate `audience` / `tone` only when you have a
   basis for them; otherwise null. Use `excludes` for things a demo
   should avoid (e.g. data-mutating buttons, screens with sensitive
