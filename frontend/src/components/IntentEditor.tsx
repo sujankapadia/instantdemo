@@ -15,6 +15,10 @@ interface IntentEditorProps {
   goalLabel?: string
   goalPlaceholder?: string
   goalHelp?: string
+  /** Hide the goal field entirely — for hosts that render their own
+   *  brief box and only want the style/scope readback (one-object
+   *  Regenerate form). */
+  hideGoal?: boolean
 }
 
 /**
@@ -32,6 +36,7 @@ export function IntentEditor({
   goalLabel = 'What to demo',
   goalPlaceholder = 'Show the bookmarks page and how a user can save a message…',
   goalHelp = 'Free-form description of the flow you want demoed. Leave blank to let the agent pick.',
+  hideGoal,
 }: IntentEditorProps) {
   const [advancedOpen, setAdvancedOpen] = useState(!!advancedExpanded)
 
@@ -48,22 +53,24 @@ export function IntentEditor({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1.5">
-        <label htmlFor="intent-goal" className="text-sm font-medium">
-          {goalLabel}{' '}
-          <span className="text-muted-foreground">(optional)</span>
-        </label>
-        <textarea
-          id="intent-goal"
-          rows={3}
-          value={value.goal}
-          onChange={(e) => update({ goal: e.target.value })}
-          placeholder={goalPlaceholder}
-          disabled={disabled}
-          className="rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 resize-y"
-        />
-        <p className="text-xs text-muted-foreground">{goalHelp}</p>
-      </div>
+      {!hideGoal ? (
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="intent-goal" className="text-sm font-medium">
+            {goalLabel}{' '}
+            <span className="text-muted-foreground">(optional)</span>
+          </label>
+          <textarea
+            id="intent-goal"
+            rows={3}
+            value={value.goal}
+            onChange={(e) => update({ goal: e.target.value })}
+            placeholder={goalPlaceholder}
+            disabled={disabled}
+            className="rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 resize-y"
+          />
+          <p className="text-xs text-muted-foreground">{goalHelp}</p>
+        </div>
+      ) : null}
 
       <button
         type="button"

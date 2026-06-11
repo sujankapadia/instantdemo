@@ -1,13 +1,11 @@
-import { Loader2, PanelLeftClose, PanelLeftOpen, RefreshCw, Settings, Square } from 'lucide-react'
+import { Loader2, RefreshCw, Settings, Square, Wrench } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { cn } from '@/lib/utils'
-import { formatCostUsd } from '@/lib/format'
-import { phaseName } from '@/lib/phases'
+import { stageSentence } from '@/lib/labels'
 import type { RunStatus } from '@/hooks/useRun'
 
 interface HeaderProps {
@@ -15,48 +13,47 @@ interface HeaderProps {
   url?: string | null
   loading?: boolean
   runStatus: RunStatus
-  /** Currently-executing phase (1-6). Null when no phase is in flight.
-   *  Used to render the compact "Phase N of 6 · Name" progress
-   *  indicator during active runs. */
+  /** Currently-executing phase (1-6). Null when no phase is in
+   *  flight. Rendered as a film-register sentence, never a number. */
   currentPhase: number | null
-  cumulativeCost: number
   onCancel: () => void
   onNewProject: () => void
-  /** Hide the "New project" button when the empty-state CTA is the
+  /** Hide the "Regenerate" button when the front door is the
    *  primary entry point (no project yet). */
   showNewProject?: boolean
-  editorVisible: boolean
-  onToggleEditor: () => void
+  inspectorOpen: boolean
+  onToggleInspector: () => void
   /** Opens the Voice & Pronunciation settings dialog (M3). */
   onOpenSettings: () => void
 }
 
+/**
+ * Quiet chrome (one-object pass): wordmark, project, a progress
+ * SENTENCE during runs, Stop/Regenerate, and two thresholds —
+ * Inspector (wrench) and Voice (gear). No cost meter (it lives in
+ * the Inspector), no mode toggle, no phase numbers.
+ */
 export function Header({
   projectName,
   url,
   loading,
   runStatus,
   currentPhase,
-  cumulativeCost,
   onCancel,
   onNewProject,
   showNewProject = true,
-  editorVisible,
-  onToggleEditor,
+  inspectorOpen,
+  onToggleInspector,
   onOpenSettings,
 }: HeaderProps) {
   const isActive =
     runStatus === 'running' ||
     runStatus === 'starting' ||
     runStatus === 'paused'
-  // Cost persists after a run completes (previously hidden once
-  // status returned to idle). Users want to remember what the
-  // demo they just watched actually cost.
-  const showCost = cumulativeCost > 0 || isActive
   const showProgress = isActive && currentPhase !== null
 
   return (
-    <header className="flex h-14 items-center justify-between border-b border-border bg-background px-4">
+    <header className="stage-chrome flex h-14 items-center justify-between border-b border-border bg-background px-4">
       <div className="flex items-baseline gap-3">
         <span className="text-base font-semibold">InstantDemo</span>
         {loading ? (
@@ -74,23 +71,10 @@ export function Header({
         {showProgress ? (
           <span
             className="flex items-center gap-1.5 text-xs text-muted-foreground"
-            aria-label={`Running phase ${currentPhase} of 6`}
+            aria-label="The studio is working"
           >
             <Loader2 className="size-3 animate-spin text-foreground/80" />
-            <span>
-              Phase {currentPhase} of 6 · {phaseName(currentPhase!)}
-            </span>
-          </span>
-        ) : null}
-        {showCost ? (
-          <span
-            className={cn(
-              'rounded-md border border-border bg-secondary/40 px-2 py-1 font-mono text-xs',
-              isActive ? 'text-foreground' : 'text-muted-foreground',
-            )}
-            aria-label="Cumulative run cost"
-          >
-            {formatCostUsd(cumulativeCost)}
+            <span>{stageSentence(currentPhase)}</span>
           </span>
         ) : null}
         {isActive ? (
@@ -104,12 +88,6 @@ export function Header({
             Stop
           </Button>
         ) : showNewProject ? (
-          // When a project exists, this button opens the same modal as
-          // "Get started" but with current intent values prefilled,
-          // so users can tweak tone / focus / etc. and re-run the full
-          // pipeline. Labeled "Regenerate" to match the user mental
-          // model. The empty-state CTA ("Get started") covers cold-
-          // start; this never shows on empty.
           <Button
             size="sm"
             variant="secondary"
@@ -125,15 +103,13 @@ export function Header({
             <Button
               variant="ghost"
               size="icon"
-              aria-label={editorVisible ? 'Hide phase details' : 'Show phase details'}
-              onClick={onToggleEditor}
+              aria-label={inspectorOpen ? 'Close inspector' : 'Open inspector'}
+              onClick={onToggleInspector}
             >
-              {editorVisible ? <PanelLeftClose /> : <PanelLeftOpen />}
+              <Wrench />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="bottom">
-            {editorVisible ? 'Hide phase details' : 'Show phase details'}
-          </TooltipContent>
+          <TooltipContent side="bottom">Inspector</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>

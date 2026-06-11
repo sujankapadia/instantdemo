@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
-import { VideoPlayer } from './VideoPlayer'
-import { Filmstrip } from './Filmstrip'
-import { SegmentsList, type EditingProps } from './SegmentsList'
+import { VideoPlayer } from '../VideoPlayer'
+import { SegmentsList, type EditingProps } from '../SegmentsList'
 import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
-} from './ui/resizable'
+} from '../ui/resizable'
 import { useSegments } from '@/hooks/useSegments'
 import type { Segment } from '@/api/project'
 import {
@@ -17,24 +16,21 @@ import {
 } from '@/api/segments'
 import type { RunStatus } from '@/hooks/useRun'
 
-interface RightPaneProps {
+interface StageFilmProps {
   runStatus: RunStatus
   /** Incremented by Layout each time a run finishes (via useRun.onComplete).
-   *  RightPane reacts to the token bump by refetching segments and busting
-   *  the video cache — one-way signal, no transition heuristics. */
+   *  The film stage reacts to the token bump by refetching scenes and
+   *  busting the video cache — one-way signal, no transition heuristics. */
   runCompleteToken: number
-  /** Phase 1 exploration screenshots streamed via SSE (M1). */
-  screenshots?: { file: string; url: string }[]
-  /** True while Phase 1 is actively exploring. */
-  exploring?: boolean
+  /** Lights-down signal: true while the film plays. */
+  onPlayingChange?: (playing: boolean) => void
 }
 
-export function RightPane({
+export function StageFilm({
   runStatus,
   runCompleteToken,
-  screenshots = [],
-  exploring = false,
-}: RightPaneProps) {
+  onPlayingChange,
+}: StageFilmProps) {
   const segmentsState = useSegments()
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const [currentTimeS, setCurrentTimeS] = useState(0)
@@ -224,18 +220,11 @@ export function RightPane({
 
   const listState = mapSegmentsListState(segmentsState.state)
 
-  // M1: while Phase 1 explores (or before any demo exists, when
-  // exploration shots are present) the video panel hosts the
-  // filmstrip instead of the player. Once a demo-script/video exists
-  // the player always wins.
-  const showFilmstrip =
-    exploring || (listState.status === 'empty' && screenshots.length > 0)
-
   const opMessage =
     deletingIndex !== null
-      ? `Deleting segment ${String(deletingIndex + 1).padStart(2, '0')} — re-encoding video and regenerating audio (~20–30s)…`
+      ? `Cutting scene ${String(deletingIndex + 1).padStart(2, '0')} and rebuilding the film (~30 seconds)…`
       : rerenderingIndex !== null
-        ? `Re-rendering audio for segment ${String(rerenderingIndex + 1).padStart(2, '0')} (~20s)…`
+        ? `Re-recording the narration for scene ${String(rerenderingIndex + 1).padStart(2, '0')} (~20 seconds)…`
         : null
 
   return (
@@ -260,15 +249,12 @@ export function RightPane({
       <ResizablePanelGroup orientation="vertical">
         <ResizablePanel defaultSize={55} minSize={20}>
           <div className="h-full border-b border-border bg-muted/10 p-4">
-            {showFilmstrip ? (
-              <Filmstrip live={screenshots} exploring={exploring} />
-            ) : (
-              <VideoPlayer
-                ref={videoRef}
-                src={`/api/project/video?v=${videoVersion}`}
-                onTimeUpdate={setCurrentTimeS}
-              />
-            )}
+            <VideoPlayer
+              ref={videoRef}
+              src={`/api/project/video?v=${videoVersion}`}
+              onTimeUpdate={setCurrentTimeS}
+              onPlayingChange={onPlayingChange}
+            />
           </div>
         </ResizablePanel>
         <ResizableHandle withHandle />

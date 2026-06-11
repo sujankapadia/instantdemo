@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { motion } from 'motion/react'
 import {
   CircleCheck,
   CircleAlert,
@@ -20,6 +21,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { NarrationEditor } from './NarrationEditor'
+import { FadeImg } from './FadeImg'
 import {
   patchSceneNarration,
   type SceneStatus,
@@ -48,7 +50,7 @@ interface StoryboardViewProps {
  * The storyboard — the product's primary review surface (M2).
  * Scenes as cards: rehearsal screenshot, narration (inline-editable
  * at the gate), status, and verification notices. Ends in the
- * approve bar: "Looks good — render the video".
+ * approve bar: "Looks good — record it".
  */
 export function StoryboardView({
   state,
@@ -67,7 +69,29 @@ export function StoryboardView({
   const runActive = runStatus === 'starting' || runStatus === 'running'
 
   if (state.status === 'loading') {
-    return <CenteredNote icon="spinner" text="Loading storyboard…" />
+    // Frame-shaped skeletons match the real card layout (principle
+    // 17) — no centered spinner.
+    return (
+      <div className="flex-1 overflow-y-auto px-4 py-3">
+        <div className="mx-auto flex max-w-2xl flex-col gap-3">
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              className="animate-pulse overflow-hidden rounded-xl border border-border"
+            >
+              <div className="h-9 border-b border-border bg-muted/40" />
+              <div className="flex gap-3 px-4 py-3">
+                <div className="h-24 w-36 shrink-0 rounded-md bg-muted" />
+                <div className="flex flex-1 flex-col gap-2 py-1">
+                  <div className="h-3 w-3/4 rounded bg-muted" />
+                  <div className="h-3 w-1/2 rounded bg-muted" />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
   }
   if (state.status === 'error') {
     return <CenteredNote icon="none" text={`Storyboard error: ${state.error}`} />
@@ -118,18 +142,6 @@ export function StoryboardView({
     }
   }
 
-  const progressLabel = runActive
-    ? currentPhase === 2
-      ? 'Planning scenes…'
-      : currentPhase === 3
-        ? 'Finding selectors…'
-        : currentPhase === 4
-          ? 'Rehearsing against your app…'
-          : currentPhase !== null && currentPhase >= 5
-            ? 'Rendering your video…'
-            : 'Working…'
-    : null
-
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border bg-muted/30 px-4">
@@ -140,16 +152,19 @@ export function StoryboardView({
             — {doc.summary}
           </span>
         ) : null}
-        {progressLabel ? (
-          <span className="ml-auto flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-            <Loader2 className="size-3 animate-spin" />
-            {progressLabel}
-          </span>
-        ) : null}
+        {/* No progress line here — the header sentence is the one
+            global status (L5: it showed in three places at once).
+            The in-list pulsing frame below marks WHERE work lands. */}
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-3">
-        <div className="mx-auto flex max-w-2xl flex-col gap-3">
+        {/* layoutId pairs with StageExploring's frame container —
+            exploration frames visibly become the storyboard (motion
+            budget item 2). */}
+        <motion.div
+          layoutId="stage-frames"
+          className="mx-auto flex max-w-2xl flex-col gap-3"
+        >
           {scenes.map((scene) => (
             <SceneCard
               key={scene.id}
@@ -170,17 +185,14 @@ export function StoryboardView({
             />
           ))}
           {runActive ? (
-            <div className="flex h-24 animate-pulse items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground">
-              {currentPhase === 2
-                ? 'Planning scenes…'
-                : currentPhase === 3
-                  ? 'Finding selectors…'
-                  : currentPhase === 4
-                    ? 'Rehearsing against your app…'
-                    : 'Working…'}
-            </div>
+            // Wordless: the pulsing frame marks where the next scene
+            // lands; the header sentence carries the status.
+            <div
+              className="h-24 animate-pulse rounded-lg border border-dashed border-border"
+              aria-hidden="true"
+            />
           ) : null}
-        </div>
+        </motion.div>
       </div>
 
       {gateOpen ? (
@@ -198,8 +210,8 @@ export function StoryboardView({
               </span>
               {hasFailures ? (
                 <span className="text-xs text-muted-foreground">
-                  Rehearsal found issues — fix them and regenerate before
-                  rendering.
+                  Rehearsal hit problems — revise the brief and regenerate
+                  before recording.
                 </span>
               ) : null}
             </div>
@@ -222,7 +234,7 @@ export function StoryboardView({
                 ) : (
                   <>
                     <Play className="size-4" />
-                    Looks good — render the video
+                    Looks good — record it
                   </>
                 )}
               </Button>
@@ -261,7 +273,7 @@ function SceneCard({
   const revisions = scene.revisions ?? []
 
   return (
-    <Card className="gap-0 overflow-hidden p-0">
+    <Card className="gap-0 overflow-hidden p-0 transition-all hover:-translate-y-0.5 hover:shadow-lg">
       <div className="flex items-center gap-2 border-b border-border bg-muted/20 px-4 py-2">
         <span className="font-mono text-xs text-muted-foreground">
           {String(scene.index).padStart(2, '0')}
@@ -277,7 +289,7 @@ function SceneCard({
 
       <div className="flex gap-3 px-4 py-3">
         {scene.rehearsal_screenshot || liveShotUrl ? (
-          <img
+          <FadeImg
             src={
               scene.rehearsal_screenshot
                 ? `/api/project/rehearsal/${scene.rehearsal_screenshot}`
@@ -341,7 +353,7 @@ function SceneCard({
             'border-t px-4 py-2 text-xs',
             scene.status === 'failed'
               ? 'border-destructive/30 bg-destructive/10 text-destructive'
-              : 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400',
+              : 'border-amber-500/30 bg-amber-500/10 text-status-warn',
           )}
         >
           {notice}
@@ -373,12 +385,12 @@ function StatusChip({
   > = {
     verified: {
       label: 'verified',
-      className: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+      className: 'border-emerald-500/40 bg-emerald-500/10 text-status-ok',
       Icon: CircleCheck,
     },
     warn: {
       label: 'warning',
-      className: 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400',
+      className: 'border-amber-500/40 bg-amber-500/10 text-status-warn',
       Icon: CircleAlert,
     },
     failed: {

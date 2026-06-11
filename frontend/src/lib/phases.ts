@@ -1,15 +1,15 @@
-// User-facing names for the 5-phase pipeline. The backend identifiers
-// stay lowercase (analyze / narrate / gather / script / validate)
-// since they're embedded in artifact filenames, agent prompts, and the
-// CLI surface. These display names are GUI-only.
+// INSPECTOR-ONLY phase names (DESIGN.md principle 5): the canonical
+// engineering identifiers, matching artifact filenames (phase2.md ↔
+// narrate), prompts, and the CLI. The default window never shows
+// these — it speaks the film register from lib/labels.ts.
 
 export const PHASE_NAMES: Record<number, string> = {
-  1: 'Understand',
-  2: 'Plan',
-  3: 'Inspect',
-  4: 'Explore',
-  5: 'Build',
-  6: 'Render',
+  1: 'analyze',
+  2: 'narrate',
+  3: 'gather',
+  4: 'explore',
+  5: 'script',
+  6: 'render',
 }
 
 export const PHASE_NAMES_ORDERED = [
@@ -22,5 +22,5 @@ export const PHASE_NAMES_ORDERED = [
 ] as const
 
 export function phaseName(num: number): string {
-  return PHASE_NAMES[num] ?? `Phase ${num}`
+  return PHASE_NAMES[num] ?? `phase ${num}`
 }

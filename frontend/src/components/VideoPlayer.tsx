@@ -4,6 +4,9 @@ import { Film } from 'lucide-react'
 interface VideoPlayerProps {
   src: string
   onTimeUpdate?: (currentTimeS: number) => void
+  /** Lights-down signal (DESIGN.md principle 14): true while the
+   *  film is playing, so the chrome can recede. */
+  onPlayingChange?: (playing: boolean) => void
 }
 
 /**
@@ -13,7 +16,7 @@ interface VideoPlayerProps {
  * video yet).
  */
 export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
-  function VideoPlayer({ src, onTimeUpdate }, ref) {
+  function VideoPlayer({ src, onTimeUpdate, onPlayingChange }, ref) {
     const [errored, setErrored] = useState(false)
 
     // Reset the error state when `src` changes — otherwise once the
@@ -28,9 +31,9 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
       return (
         <div className="flex h-full w-full flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border bg-muted/30 text-muted-foreground">
           <Film className="size-8 opacity-60" />
-          <span className="text-sm">No video rendered yet</span>
+          <span className="text-sm">No film yet</span>
           <span className="text-xs text-muted-foreground/80">
-            Phase 5 produces <code className="font-mono">demo.mp4</code>
+            Your demo appears here once it's recorded.
           </span>
         </div>
       )
@@ -47,6 +50,9 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
         // when the panel is wider than the video.
         className="h-full w-full object-contain mx-auto rounded-md bg-black"
         onError={() => setErrored(true)}
+        onPlay={() => onPlayingChange?.(true)}
+        onPause={() => onPlayingChange?.(false)}
+        onEnded={() => onPlayingChange?.(false)}
         onTimeUpdate={(event) => {
           if (onTimeUpdate) {
             onTimeUpdate(event.currentTarget.currentTime)

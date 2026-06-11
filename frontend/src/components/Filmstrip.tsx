@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Camera } from 'lucide-react'
+import { FadeImg } from './FadeImg'
 import { fetchExplorationShots } from '@/api/project'
 
 interface FilmstripProps {
@@ -68,10 +69,10 @@ export function Filmstrip({ live, exploring }: FilmstripProps) {
       >
         {shots.map((shot) => (
           <figure key={shot.file} className="shrink-0">
-            <img
+            <FadeImg
               src={shot.url}
               alt={shot.file}
-              className="h-40 rounded-md border border-border object-cover shadow-sm"
+              className="h-40 rounded-md border border-border object-cover shadow-sm transition-transform hover:-translate-y-0.5"
               loading="lazy"
             />
             <figcaption className="mt-1 max-w-56 truncate text-xs text-muted-foreground">
