@@ -97,6 +97,15 @@ class Context:
     # threading) — None falls back to the legacy bare "phaseN" form.
     run_id: str | None = None
 
+    # Scoped chapter revision (M5b): when section_scope names a
+    # chapter, phases 2-4 operate ONLY on that chapter's scenes
+    # (phase 2 re-plans them in place; 3 enriches them; 4 replays
+    # the prefix as setup and verifies them) and phase 6 records
+    # just that span and splices it into the existing film.
+    # section_instruction carries the user's revision ask verbatim.
+    section_scope: str | None = None
+    section_instruction: str | None = None
+
     @property
     def script_path(self) -> Path:
         """Path to the user-facing demo-script.json (Phase 4 output).
