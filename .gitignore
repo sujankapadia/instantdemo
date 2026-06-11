@@ -30,3 +30,8 @@ src/instantdemo/server/web/
 fixtures/
 scripts/explore/out/tts-bakeoff/
 frontend/.vite/
+
+# Session/scratch files — never commit (see PR #65 postmortem)
+.claude/plans/
+BLOG_IDEAS.md
+CONTENT_PLAN.md
