@@ -15,7 +15,7 @@ Test: `tests/test_phase1_explore.py`
 
 | ID | Scenario | Assertion | Risk if broken |
 |----|----------|-----------|----------------|
-| PV1 | Well-formed payload (app_model, proposal with goal, screens, warnings) | No problems | Valid exploration rejected — every Phase 1 run fails |
+| PV1 | Well-formed payload (app_model, proposal with goal, screens, warnings; no `length` field since 2026-06-11 — DESIGN.md principle 11) | No problems | Valid exploration rejected — every Phase 1 run fails |
 | PV2 | Empty/missing app_model | Problem naming app_model | Empty app model flows to Phase 2, which plans from nothing |
 | PV3 | Missing proposed_intent.goal | Problem naming goal | Confirmation card renders with an empty goal — the product's centerpiece blank |
 | PV4 | focus as a string instead of list | Problem naming the field | Malformed intent crashes IntentEditor / intent.json round-trip |
@@ -35,7 +35,7 @@ Test: `tests/test_phase1_explore.py`
 
 | ID | Scenario | Assertion | Risk if broken |
 |----|----------|-----------|----------------|
-| RV1 | User goal present in context | ANSWER block parses via checkpoints.parse_answer_block; flow == user goal (not the proposal) | CLI/narrate fallback chain breaks; user's stated goal silently replaced by the agent's |
+| RV1 (proposal dicts carry no `length` key since 2026-06-11) | User goal present in context | ANSWER block parses via checkpoints.parse_answer_block; flow == user goal (not the proposal) | CLI/narrate fallback chain breaks; user's stated goal silently replaced by the agent's |
 | RV2 | No user goal | flow falls back to proposal goal | Empty flow line gives Phase 2 nothing on legacy CLI path |
 | RV3 | Payload with screens + warnings | View contains screen bullet with route + screenshot ref, and warnings section | GUI artifact view loses the exploration evidence humans review |
 

@@ -7,7 +7,6 @@ export interface Intent {
   goal: string
   audience: string | null
   tone: string | null
-  length: string | null
   focus: string[]
   excludes: string[]
   addenda: string[]
@@ -18,7 +17,6 @@ export function emptyIntent(): Intent {
     goal: '',
     audience: null,
     tone: null,
-    length: null,
     focus: [],
     excludes: [],
     addenda: [],

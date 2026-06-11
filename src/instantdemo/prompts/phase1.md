@@ -64,7 +64,6 @@ with exactly ONE fenced ```json block:
     "goal": "One or two sentences: the demo YOU would make for this app.",
     "audience": "non-technical end users",
     "tone": null,
-    "length": null,
     "focus": [],
     "excludes": [],
     "addenda": []
@@ -80,7 +79,7 @@ with exactly ONE fenced ```json block:
   the user to confirm or edit. If the user supplied a goal above,
   REFINE it with what you observed (name the concrete screens and
   data worth showing) — don't replace it. Lead with the payoff.
-  Populate `audience` / `tone` / `length` only when you have a
+  Populate `audience` / `tone` only when you have a
   basis for them; otherwise null. Use `excludes` for things a demo
   should avoid (e.g. data-mutating buttons, screens with sensitive
   content you observed).

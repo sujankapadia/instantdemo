@@ -199,7 +199,6 @@ def get_project() -> ProjectState:
             "goal": intent_obj.goal,
             "audience": intent_obj.audience,
             "tone": intent_obj.tone,
-            "length": intent_obj.length,
             "focus": intent_obj.focus,
             "excludes": intent_obj.excludes,
             "addenda": intent_obj.addenda,

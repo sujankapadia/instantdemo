@@ -122,7 +122,6 @@ export function NewProjectForm({
         goal: intent.goal.trim(),
         audience: intent.audience?.trim() || null,
         tone: intent.tone?.trim() || null,
-        length: intent.length?.trim() || null,
         focus: cleanList(intent.focus),
         excludes: cleanList(intent.excludes),
         addenda: cleanList(intent.addenda),

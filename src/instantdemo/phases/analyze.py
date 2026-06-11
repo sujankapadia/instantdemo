@@ -135,7 +135,7 @@ def _validate_payload(payload: dict, exp_dir: Path | None = None) -> list[str]:
     else:
         if not isinstance(proposal.get("goal"), str) or not proposal["goal"].strip():
             problems.append("'proposed_intent.goal' must be a non-empty string")
-        for field in ("audience", "tone", "length"):
+        for field in ("audience", "tone"):
             value = proposal.get(field)
             if value is not None and not isinstance(value, str):
                 problems.append(
@@ -213,7 +213,6 @@ def _normalized_proposal(payload: dict) -> dict[str, Any]:
         "goal": proposal.get("goal", "").strip(),
         "audience": proposal.get("audience"),
         "tone": proposal.get("tone"),
-        "length": proposal.get("length"),
         "focus": list(proposal.get("focus") or []),
         "excludes": list(proposal.get("excludes") or []),
         "addenda": list(proposal.get("addenda") or []),
@@ -250,7 +249,7 @@ def _render_view(payload: dict, context: Context) -> str:
             lines.append(entry)
     lines += ["", "## Proposed demo intent", "", f"- **Goal:** {proposal['goal']}"]
     for label, key in (
-        ("Audience", "audience"), ("Tone", "tone"), ("Length", "length"),
+        ("Audience", "audience"), ("Tone", "tone"),
     ):
         if proposal.get(key):
             lines.append(f"- **{label}:** {proposal[key]}")
