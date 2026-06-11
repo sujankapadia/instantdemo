@@ -430,6 +430,10 @@ def merge_findings_into_storyboard(
             "status": status,
             "reason": reason,
             "suggestion": finding.get("suggestion"),
+            # Persona register (same rehearsal call, one more field):
+            # what this means for the film, in the maker's language.
+            # The gate shows THIS inline; `reason` moves to hover.
+            "note_for_user": finding.get("note_for_user"),
         }
     return warnings
 

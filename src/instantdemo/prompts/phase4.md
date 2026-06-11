@@ -186,6 +186,7 @@ You may summarize observations in prose before the block.
       "index": <segment number, 1-based>,
       "status": "PASS" | "FAIL_SELECTOR" | "FAIL_NARRATIVE" | "WARN",
       "reason": "<technical observation — what you found on the live app, written for a developer reviewing the report>",
+      "note_for_user": "<for WARN and FAIL_*: ONE plain sentence for the demo's maker — what this means for their film and what you did about it. First person, no engineering vocabulary (no selectors, waits, pixels, DOM). Example: \"Every export file holds exactly 100 notes, so I dropped the line about the count changing each time.\" Omit for PASS.>",
       "suggestion": "<for FAIL_*: USER-FACING fix — see Suggestion rules below; omit for PASS/WARN>",
       "selector_swapped": <true if you replaced Phase 3's primary; omit if not>,
       "from": "<Phase 3's original primary; only when selector_swapped>",

@@ -378,9 +378,20 @@ function SceneCard({
   onSave: (narration: string) => Promise<void>
 }) {
   const verification = scene.verification
+  // Persona-first notice (M5b): the rehearsal's note_for_user (one
+  // plain sentence) shows inline; the technical reason rides the
+  // status chip's hover and the Inspector. Pre-note_for_user
+  // storyboards fall back to suggestion/reason so old gates stay
+  // informative.
+  const noteForUser =
+    typeof verification?.note_for_user === 'string'
+      ? verification.note_for_user.trim()
+      : ''
   const notice =
     scene.status === 'failed' || scene.status === 'warn'
-      ? verification?.suggestion?.trim() || verification?.reason?.trim()
+      ? noteForUser ||
+        verification?.suggestion?.trim() ||
+        verification?.reason?.trim()
       : null
   const revisions = scene.revisions ?? []
 
