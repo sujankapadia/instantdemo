@@ -24,10 +24,14 @@ and a Claude Code skill.
 InstantDemo runs in two surfaces:
 
 1. **GUI** (primary surface) — `instantdemo serve` spawns a local
-   FastAPI + React app at `http://127.0.0.1:8770` (or
-   user-specified port). Cold-start the pipeline via New Project,
-   watch phases stream live, inline-edit segment narration, re-render
-   audio without re-rendering visuals.
+   FastAPI + React app at `http://127.0.0.1:8770` (or user-specified
+   port). Since the one-object pass (2026-06-11, DESIGN.md) the GUI
+   is ONE maturing center surface — the Stage (front door w/ brief
+   box → live filmstrip → proposal → storyboard gate → film) —
+   speaking the film register, with ALL developer apparatus (phase
+   rail w/ canonical names, artifacts, agent log, costs, pause
+   toggle) behind the Inspector (header wrench). Scene narration is
+   inline-editable; audio re-renders without re-recording visuals.
 2. **CLI** — `instantdemo generate` (full pipeline) and `instantdemo
    phase N` (one phase). Older surface; still maintained.
 

@@ -149,11 +149,11 @@ chapters all belong on the unified surface). Structure (4) and skin
 (5) are ONE milestone — both rebuild the same surfaces; doing them
 separately means restyling twice.
 
-1. **Vocabulary commit (S).** User-facing copy sweeps to the film
+1. ✅ 2026-06-11 **Vocabulary commit (S).** User-facing copy sweeps to the film
    register. Stage labels (Understand/Plan/Inspect/Explore/Build/
    Render) become studio language in the default window; "Segment N"
    becomes "Scene N" post-render to match the storyboard.
-2. **Brief-box start (M).** The New Project modal collapses to URL
+2. ✅ 2026-06-11 **Brief-box start (M).** The New Project modal collapses to URL
    + pre-flight ("I see it") + ONE free-text brief box that welcomes
    everything the user already knows (audience, tone, coverage, in
    their own words; a paragraph or a single line — both first-class).
@@ -162,18 +162,18 @@ separately means restyling twice.
    yes-and). Source/docs become evidence-based offers when
    exploration finds it needs them. Pause-between-phases moves to
    the inspector.
-3. **Kill the mode toggle (M).** Details mode (phase rail, artifact
+3. ✅ 2026-06-11 **Kill the mode toggle (M).** Details mode (phase rail, artifact
    editor, log drawer, cost meter) moves to a distinct inspector
    surface; the default window has no toggle and no running invoice.
    Costs surface at decision moments and in the inspector.
-4. **One maturing surface (L).** Merge filmstrip → proposal →
+4. ✅ 2026-06-11 **One maturing surface (L).** Merge filmstrip → proposal →
    storyboard → player into the single center-stage object:
    exploration fills empty frames with screenshots; the proposal
    annotates; rehearsal verifies scene by scene (chips, thumbnails);
    approval turns the same cards into the playable film. The video
    player is the storyboard, finished. Absorbs the
    signature-moment staging (10).
-5. **The craft layer (L, concurrent with 4).** Design tokens
+5. ✅ 2026-06-11 (scene→chapter morph deferred — see lib/motion.ts budget note) **The craft layer (L, concurrent with 4).** Design tokens
    (screening-room palette, type scale with the two registers,
    spacing); motion system (one easing family + the continuity
    transitions of principle 15); frame-styled scene cards;

@@ -10,6 +10,7 @@ import {
   Upload,
 } from 'lucide-react'
 import { reRenderSegmentAudio } from '@/api/segments'
+import { WaveformBars } from './Waveform'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -140,7 +141,12 @@ function ReVoiceBar({
       >
         {busy ? (
           <>
-            <Loader2 className="size-3.5 animate-spin" />
+            <span className="meter-pulse" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+              <span />
+            </span>
             Re-voicing…
           </>
         ) : (
@@ -165,7 +171,7 @@ function VoiceDialogBody({
 }) {
   if (!data.pocket_installed) {
     return (
-      <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
+      <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-status-warn">
         <TriangleAlert className="mt-0.5 size-4 shrink-0" />
         <span>
           The voice engine isn't installed. Run{' '}
@@ -204,11 +210,13 @@ function VoiceDialogBody({
 }
 
 /** Play a preview Blob; returns when playback starts. */
-function playBlob(blob: Blob) {
+function playBlob(blob: Blob): HTMLAudioElement {
   const url = URL.createObjectURL(blob)
   const audio = new Audio(url)
+  audio.crossOrigin = 'anonymous'
   audio.addEventListener('ended', () => URL.revokeObjectURL(url))
   void audio.play()
+  return audio
 }
 
 function PreviewButton({
@@ -224,6 +232,9 @@ function PreviewButton({
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // The playing Audio element — while set, the waveform draws it
+  // (the interface visibly contains audio, principle 16).
+  const [playing, setPlaying] = useState<HTMLAudioElement | null>(null)
   return (
     <span className="inline-flex items-center gap-1.5">
       <Button
@@ -234,7 +245,12 @@ function PreviewButton({
           setBusy(true)
           setError(null)
           previewVoice(request)
-            .then(playBlob)
+            .then((blob) => {
+              const audio = playBlob(blob)
+              setPlaying(audio)
+              audio.addEventListener('ended', () => setPlaying(null))
+              audio.addEventListener('pause', () => setPlaying(null))
+            })
             .catch((err) =>
               setError(err instanceof Error ? err.message : String(err)),
             )
@@ -248,6 +264,7 @@ function PreviewButton({
         )}
         {label}
       </Button>
+      {playing ? <WaveformBars audio={playing} /> : null}
       {error ? (
         <span className="max-w-48 truncate text-xs text-destructive" title={error}>
           {error}
@@ -467,7 +484,7 @@ function CloneTab({
       )}
 
       {error ? (
-        <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-400">
+        <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-status-warn">
           <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
           {error}
         </div>
