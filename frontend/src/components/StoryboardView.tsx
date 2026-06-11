@@ -21,6 +21,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { NarrationEditor } from './NarrationEditor'
+import { FadeImg } from './FadeImg'
 import {
   patchSceneNarration,
   type SceneStatus,
@@ -68,7 +69,29 @@ export function StoryboardView({
   const runActive = runStatus === 'starting' || runStatus === 'running'
 
   if (state.status === 'loading') {
-    return <CenteredNote icon="spinner" text="Loading storyboard…" />
+    // Frame-shaped skeletons match the real card layout (principle
+    // 17) — no centered spinner.
+    return (
+      <div className="flex-1 overflow-y-auto px-4 py-3">
+        <div className="mx-auto flex max-w-2xl flex-col gap-3">
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              className="animate-pulse overflow-hidden rounded-xl border border-border"
+            >
+              <div className="h-9 border-b border-border bg-muted/40" />
+              <div className="flex gap-3 px-4 py-3">
+                <div className="h-24 w-36 shrink-0 rounded-md bg-muted" />
+                <div className="flex flex-1 flex-col gap-2 py-1">
+                  <div className="h-3 w-3/4 rounded bg-muted" />
+                  <div className="h-3 w-1/2 rounded bg-muted" />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
   }
   if (state.status === 'error') {
     return <CenteredNote icon="none" text={`Storyboard error: ${state.error}`} />
@@ -268,7 +291,7 @@ function SceneCard({
   const revisions = scene.revisions ?? []
 
   return (
-    <Card className="gap-0 overflow-hidden p-0">
+    <Card className="gap-0 overflow-hidden p-0 transition-all hover:-translate-y-0.5 hover:shadow-lg">
       <div className="flex items-center gap-2 border-b border-border bg-muted/20 px-4 py-2">
         <span className="font-mono text-xs text-muted-foreground">
           {String(scene.index).padStart(2, '0')}
@@ -284,7 +307,7 @@ function SceneCard({
 
       <div className="flex gap-3 px-4 py-3">
         {scene.rehearsal_screenshot || liveShotUrl ? (
-          <img
+          <FadeImg
             src={
               scene.rehearsal_screenshot
                 ? `/api/project/rehearsal/${scene.rehearsal_screenshot}`
