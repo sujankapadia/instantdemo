@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from .routes import preflight, project, runs, segments, storyboard, takes, voice
+from .routes import preflight, project, revise, runs, segments, storyboard, takes, voice
 
 
 _NOT_BUILT_HTML = """\
@@ -88,6 +88,7 @@ def create_app() -> FastAPI:
     app.include_router(runs.router)
     app.include_router(segments.router)
     app.include_router(storyboard.router)
+    app.include_router(revise.router)
     app.include_router(takes.router)
     app.include_router(voice.router)
 

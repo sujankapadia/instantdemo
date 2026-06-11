@@ -439,8 +439,11 @@ def _do_re_render_audio(
     segments: list[dict[str, Any]],
     segment_index: int,
     video_path: Path,
+    take_label: str | None = "re-record",
 ) -> ReRenderResult:
-    """Synchronous worker for the re-render-audio endpoint."""
+    """Synchronous worker for the re-render-audio endpoint. Callers
+    that already snapshotted a take (the style pass does, BEFORE
+    mutating the script) pass take_label=None."""
     from instantdemo.render import (
         _write_segment_timing,
         get_audio_duration,
@@ -456,7 +459,8 @@ def _do_re_render_audio(
     # from scratch, so we need to re-pass them. See issue #19.
     recorded_durations = _load_recorded_durations(state_dir, len(segments))
 
-    _snapshot_take_safely(project, "re-record")
+    if take_label is not None:
+        _snapshot_take_safely(project, take_label)
 
     tmp_dir = Path(tempfile.mkdtemp(prefix="instantdemo-re-render-"))
     try:
