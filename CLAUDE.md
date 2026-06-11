@@ -110,7 +110,7 @@ narrow tool allowlist:
 | # | Internal name | User-facing label | Purpose | Tools |
 |---|---|---|---|---|
 | 1 | `analyze` | Understand | **Explore-first (M1)**: drive the LIVE APP with Playwright (screenshots stream to the GUI), optionally enriched by source + a product one-pager; proposes the demo intent for user confirmation | `Bash`, `Read`, `Glob`, `Grep` |
-| 2 | `narrate` | Plan | Create `storyboard.json` (scenes: title/narration/action/target_hint) from Phase 1 + `intent.json` | (none) |
+| 2 | `narrate` | Plan | Create `storyboard.json` (scenes grouped into 2-6 named chapters; title/narration/action/target_hint/section) from Phase 1 + `intent.json` | (none) |
 | 3 | `gather` | Inspect | Enrich scenes with selectors (+fallback arrays), wait conditions, pacing — merged by stable scene id | `Read`, `Glob`, `Grep` |
 | 4 | `explore` | Explore | Dress-rehearsal: walk the plan in headless Playwright, verify selectors, reground narration; findings merge back into the storyboard as revisions | `Read`, `Bash` |
 | 5 | `script` | Build | **Deterministic projection** (no agent): storyboard → `demo-script.json`, validated against `actions.py` | (pure code) |
@@ -133,8 +133,10 @@ runs gated by user review —
    truth table in `runs._storyboard_marker`; any run touching
    phase ≥5 implies approval, any 2-4 leg resets it).
 
-Regenerate stays a single `[1..6]` run (bypasses both gates by
-design). Source is OPTIONAL enrichment; an optional one-pager lives
+Regenerate takes the SAME staged flow since M5a (#82 stage 1) — no
+blind `[1..6]` runs; phase 6 snapshots the existing film as a take
+before overwriting when it isn't already one. Source is OPTIONAL
+enrichment; an optional one-pager lives
 at `product-context.md`. The filesystem jail is always on for server
 runs (CLI keeps the `INSTANTDEMO_FS_JAIL` opt-in). The storyboard is
 UPSTREAM-OF-RENDER truth: gate edits flow into the next render;

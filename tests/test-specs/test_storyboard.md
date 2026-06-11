@@ -73,6 +73,17 @@ Test: `tests/test_storyboard.py`
 | P4 | Envelope fields | title from doc, 1280x720 default, pause carried | Renderer falls back to wrong resolution/title; pacing lost |
 | P5 | Scene with notes/status/verification | None of them appear in segments | Internal bookkeeping leaks into the render contract (and into anything users hand-edit) |
 
+## chapters() + section validation (M5a)
+
+| ID | Scenario | Assertion | Risk if broken |
+|----|----------|-----------|----------------|
+| C1 | chapters() on a doc with contiguous sections (A,A,B,C,C) | [{A,[s1,s2]},{B,[s3]},{C,[s4,s5]}] in order | Chapter headers/scoping group the wrong scenes |
+| C2 | chapters() on a sectionless doc | [] — and the doc still validates at every stage | Pre-M5 projects break on load or display |
+| C3 | validate: every scene sectioned + contiguous | No problems | Valid chaptered plans burn the corrective retry |
+| C4 | validate: section reappears after a gap (A,B,A) | Problem naming the non-contiguous section | A chapter that vanishes and returns can't be displayed as an arc or scoped (M5b) |
+| C5 | validate: some scenes sectioned, some not | Problem listing the missing scenes | Half-chaptered storyboards render half-grouped |
+| C6 | to_demo_script on a sectioned doc | Segments carry NO section key (projection whitelist) | demo-script.json shape changes under the renderer/actions contract |
+
 ## explore.merge_findings_into_storyboard()
 
 | ID | Scenario | Assertion | Risk if broken |

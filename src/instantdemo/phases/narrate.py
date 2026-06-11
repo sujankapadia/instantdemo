@@ -132,6 +132,31 @@ def _validate_payload(payload: dict) -> list[str]:
                 f"scene {i}: unknown action {scene.get('action')!r}; "
                 f"allowed: {', '.join(sorted(CANONICAL_ACTIONS))}"
             )
+        if not isinstance(scene.get("section"), str) or not scene["section"].strip():
+            problems.append(
+                f"scene {i}: missing 'section' (the chapter this scene "
+                "belongs to)"
+            )
+
+    # Chapter coherence (M5a): each chapter is one contiguous run.
+    seen_sections: list[str] = []
+    for scene in scenes:
+        name = scene.get("section")
+        if not isinstance(name, str) or not name.strip():
+            continue
+        if seen_sections and seen_sections[-1] == name:
+            continue
+        if name in seen_sections:
+            problems.append(
+                f"section {name!r} reappears after another chapter began — "
+                "each chapter must be one contiguous run of scenes"
+            )
+        seen_sections.append(name)
+    if len(seen_sections) > 8:
+        problems.append(
+            f"{len(seen_sections)} chapters is too many — group the story "
+            "into 2-6 beats"
+        )
     return problems
 
 
@@ -183,6 +208,7 @@ async def run(context: Context) -> None:
             narration=scene.get("narration", ""),
             action=scene["action"],
             target_hint=scene.get("target_hint", ""),
+            section=scene.get("section"),
         )
     storyboard.save(context.state_dir, doc)
 

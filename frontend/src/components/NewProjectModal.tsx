@@ -76,8 +76,8 @@ export function NewProjectModal({
           <DialogHeader>
             <DialogTitle>{title}</DialogTitle>
             <DialogDescription>
-              Generate a narrated demo video of a running web app. Phases 1–5
-              run in sequence; you'll see live progress in the agent log.
+              The studio watches your app, proposes a plan, and you review
+              the storyboard before anything is recorded.
             </DialogDescription>
           </DialogHeader>
           <NewProjectForm
@@ -105,11 +105,12 @@ export function NewProjectModal({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Overwrite existing project?</AlertDialogTitle>
+            <AlertDialogTitle>Plan a new version of this demo?</AlertDialogTitle>
             <AlertDialogDescription>
-              This directory already has an InstantDemo project. Generating
-              a new one will overwrite the existing artifacts and re-run all
-              phases. Re-rendered video will replace <code>demo.mp4</code>.
+              The studio re-explores your app and proposes a fresh plan —
+              you'll confirm it and review the new storyboard before
+              anything is re-recorded. Your current film is kept as a
+              version you can flip back to.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -117,7 +118,7 @@ export function NewProjectModal({
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction onClick={() => resolveConfirm(true)}>
-              Overwrite and generate
+              Plan the new version
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

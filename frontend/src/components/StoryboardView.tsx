@@ -113,6 +113,11 @@ export function StoryboardView({
   }
 
   const scenes = doc.scenes
+  const chapterCount = scenes.reduce((n, s, i) => {
+    const sec = typeof s.section === 'string' && s.section.trim() ? s.section : null
+    const prev = i > 0 ? scenes[i - 1]!.section : null
+    return sec && sec !== prev ? n + 1 : n
+  }, 0)
   const counts = {
     verified: scenes.filter((s) => s.status === 'verified').length,
     warn: scenes.filter((s) => s.status === 'warn').length,
@@ -165,25 +170,50 @@ export function StoryboardView({
           layoutId="stage-frames"
           className="mx-auto flex max-w-2xl flex-col gap-3"
         >
-          {scenes.map((scene) => (
-            <SceneCard
-              key={scene.id}
-              scene={scene}
-              liveShotUrl={liveShotByIndex.get(scene.index) ?? null}
-              editing={editingId === scene.id}
-              editError={editingId === scene.id ? editError : null}
-              canEdit={gateOpen && !runActive && editingId === null}
-              onBeginEdit={() => {
-                setEditError(null)
-                setEditingId(scene.id)
-              }}
-              onCancelEdit={() => {
-                setEditError(null)
-                setEditingId(null)
-              }}
-              onSave={(text) => handleSave(scene, text)}
-            />
-          ))}
+          {scenes.map((scene, i) => {
+            // Chapters (M5a): a header opens each contiguous run of
+            // scene.section. Sectionless storyboards (pre-M5) render
+            // the flat list unchanged.
+            const section =
+              typeof scene.section === 'string' && scene.section.trim()
+                ? scene.section
+                : null
+            const prev = i > 0 ? scenes[i - 1]! : null
+            const prevSection =
+              prev && typeof prev.section === 'string' && prev.section.trim()
+                ? prev.section
+                : null
+            const opensChapter = section !== null && section !== prevSection
+            const chapterScenes = section
+              ? scenes.filter((s) => s.section === section)
+              : []
+            return (
+              <div key={scene.id} className="flex flex-col gap-3">
+                {opensChapter ? (
+                  <ChapterHeader
+                    name={section!}
+                    scenes={chapterScenes}
+                  />
+                ) : null}
+                <SceneCard
+                  scene={scene}
+                  liveShotUrl={liveShotByIndex.get(scene.index) ?? null}
+                  editing={editingId === scene.id}
+                  editError={editingId === scene.id ? editError : null}
+                  canEdit={gateOpen && !runActive && editingId === null}
+                  onBeginEdit={() => {
+                    setEditError(null)
+                    setEditingId(scene.id)
+                  }}
+                  onCancelEdit={() => {
+                    setEditError(null)
+                    setEditingId(null)
+                  }}
+                  onSave={(text) => handleSave(scene, text)}
+                />
+              </div>
+            )
+          })}
           {runActive ? (
             // Wordless: the pulsing frame marks where the next scene
             // lands; the header sentence carries the status.
@@ -200,6 +230,7 @@ export function StoryboardView({
           <div className="mx-auto flex max-w-2xl items-center justify-between gap-3">
             <div className="flex flex-col gap-0.5">
               <span className="text-sm">
+                {chapterCount > 0 ? `${chapterCount} chapters · ` : ''}
                 {scenes.length} scenes · {counts.verified} verified
                 {counts.warn > 0 ? ` · ${counts.warn} warning${counts.warn > 1 ? 's' : ''}` : ''}
                 {counts.failed > 0 ? (
@@ -242,6 +273,48 @@ export function StoryboardView({
           </div>
         </div>
       ) : null}
+    </div>
+  )
+}
+
+/**
+ * Chapter header (M5a): names a contiguous run of scenes — the
+ * film's arc made visible. The status dot rolls up the chapter's
+ * worst scene status. M5b hangs "Revise this chapter" here.
+ */
+function ChapterHeader({
+  name,
+  scenes,
+}: {
+  name: string
+  scenes: StoryboardScene[]
+}) {
+  const worst = scenes.some((s) => s.status === 'failed')
+    ? 'failed'
+    : scenes.some((s) => s.status === 'warn')
+      ? 'warn'
+      : scenes.every((s) => s.status === 'verified')
+        ? 'verified'
+        : null
+  return (
+    <div className="mt-2 flex items-baseline gap-2 first:mt-0">
+      <span
+        className={cn(
+          'size-1.5 shrink-0 self-center rounded-full',
+          worst === 'failed'
+            ? 'bg-status-fail'
+            : worst === 'warn'
+              ? 'bg-status-warn'
+              : worst === 'verified'
+                ? 'bg-status-ok'
+                : 'bg-muted-foreground/40',
+        )}
+        aria-hidden="true"
+      />
+      <h3 className="studio-voice text-sm font-medium">{name}</h3>
+      <span className="text-xs text-muted-foreground">
+        {scenes.length} scene{scenes.length === 1 ? '' : 's'}
+      </span>
     </div>
   )
 }
