@@ -198,6 +198,10 @@ class RunManager:
         # keep the previous run's jail.
         self._client_key: tuple[str, tuple[str, ...]] | None = None
         self.active: _Run | None = None
+        # The style/pace pass (M4) shares the long-lived client; the
+        # dispatcher's current_phase is unguarded shared state, so
+        # runs and revisions exclude each other bidirectionally.
+        self.revise_busy: bool = False
         self._lock = asyncio.Lock()
 
     async def _ensure_client(
@@ -253,6 +257,11 @@ class RunManager:
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail=f"phase {phase_num} out of range (1..{len(PHASES)})",
                 )
+        if self.revise_busy:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="a revision is in progress; wait for it to finish",
+            )
 
         if request.source:
             source_path = Path(request.source).expanduser()

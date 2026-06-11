@@ -260,6 +260,18 @@ async def delete_segment_endpoint(
     )
 
 
+def _snapshot_take_safely(project: Path, label: str) -> None:
+    """Versioned take BEFORE a mutating revision (M4): the current
+    film becomes restorable history. Never fails the operation."""
+    from instantdemo import takes
+
+    try:
+        n = takes.snapshot(project, label)
+        print(f"[segments] Saved version {n} before {label}")
+    except OSError as exc:
+        print(f"[segments] WARNING: take snapshot failed: {exc}")
+
+
 def _generate_project_audio(
     project: Path, segments: list[dict[str, Any]], tmp_dir: Path
 ) -> list[Path]:
@@ -331,6 +343,8 @@ def _do_delete_segment(
 
     state_dir = project / ".instantdemo"
     state_dir.mkdir(parents=True, exist_ok=True)
+
+    _snapshot_take_safely(project, "cut")
 
     tmp_dir = Path(tempfile.mkdtemp(prefix="instantdemo-delete-"))
     try:
@@ -425,8 +439,11 @@ def _do_re_render_audio(
     segments: list[dict[str, Any]],
     segment_index: int,
     video_path: Path,
+    take_label: str | None = "re-record",
 ) -> ReRenderResult:
-    """Synchronous worker for the re-render-audio endpoint."""
+    """Synchronous worker for the re-render-audio endpoint. Callers
+    that already snapshotted a take (the style pass does, BEFORE
+    mutating the script) pass take_label=None."""
     from instantdemo.render import (
         _write_segment_timing,
         get_audio_duration,
@@ -441,6 +458,9 @@ def _do_re_render_audio(
     # haven't changed — but _write_segment_timing rebuilds the file
     # from scratch, so we need to re-pass them. See issue #19.
     recorded_durations = _load_recorded_durations(state_dir, len(segments))
+
+    if take_label is not None:
+        _snapshot_take_safely(project, take_label)
 
     tmp_dir = Path(tempfile.mkdtemp(prefix="instantdemo-re-render-"))
     try:

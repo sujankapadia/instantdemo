@@ -29,6 +29,10 @@ interface StageProps {
   onRegenerate: () => void
   /** Lights-down signal from the film face. */
   onPlayingChange?: (playing: boolean) => void
+  /** Style-pass voice answers open the Voice dialog. */
+  onOpenVoice?: () => void
+  /** Faster-pacing answers offer a re-record ([6] run). */
+  onRerecord?: () => void
 }
 
 /**
@@ -119,6 +123,8 @@ export function Stage(props: StageProps) {
             runStatus={runStatus}
             runCompleteToken={runCompleteToken}
             onPlayingChange={props.onPlayingChange}
+            onOpenVoice={props.onOpenVoice}
+            onRerecord={props.onRerecord}
           />
         )
     }

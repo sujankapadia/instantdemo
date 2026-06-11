@@ -6,7 +6,7 @@ from __future__ import annotations
 from argparse import Namespace
 from pathlib import Path
 
-from instantdemo.render import _resolve_tts
+from instantdemo.render import BREATH_S, _resolve_tts, _slot_seconds
 from instantdemo.tts_config import PronunciationEntry, TTSConfig
 
 
@@ -73,3 +73,15 @@ def test_pronunciations_survive_provider_override():  # T7
     )
     r = _resolve_tts(make_args(tts="kokoro"), config, None)
     assert r.pronunciations == config.pronunciations
+
+
+def test_breath_when_audio_fills_slot():  # B1
+    assert _slot_seconds(3.0, 800) == 3.0 + BREATH_S
+
+
+def test_pause_still_wins_when_longer():  # B2
+    assert _slot_seconds(1.0, 5000) == 5.0
+
+
+def test_missing_pause_is_safe():  # B3
+    assert _slot_seconds(2.0, None) == 2.0 + BREATH_S
