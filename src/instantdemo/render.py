@@ -464,6 +464,20 @@ def _write_segment_timing(
     )
 
 
+# Minimum inter-segment breath (#68): without it, a segment whose
+# narration fills its slot runs straight into the next sentence.
+# Every slot is at least audio + BREATH_S; pause_after_ms still wins
+# when longer. Applied identically at recording time and both audio
+# concat paths so full renders, re-records, and re-voices agree.
+BREATH_S = 0.4
+
+
+def _slot_seconds(audio_s: float, pause_ms: object) -> float:
+    """One segment's timeline slot: max(audio + breath, pause)."""
+    pause_s = (pause_ms if isinstance(pause_ms, (int, float)) else 0) / 1000
+    return max(audio_s + BREATH_S, pause_s)
+
+
 def _build_combined_audio(
     audio_clips: list[Path],
     clip_durations: list[float],
@@ -480,7 +494,9 @@ def _build_combined_audio(
         audio_files.append(wav)
         pause_ms = segments[i].get("pause_after_ms", 0)
         audio_ms = clip_durations[i] * 1000
-        gap_ms = max(0, max(audio_ms, pause_ms) - audio_ms)
+        gap_ms = max(
+            0, _slot_seconds(clip_durations[i], pause_ms) * 1000 - audio_ms
+        )
         if gap_ms > 0:
             gap_silence = tmp_dir / f"silence_{i}.wav"
             subprocess.run(  # nosec B607
@@ -595,9 +611,11 @@ def remux_audio_only(
     )
 
     # Compute per-segment slot durations (matches _build_combined_audio's
-    # logic: each segment occupies max(audio, pause) of the timeline).
+    # logic: each segment occupies max(audio + breath, pause)).
     slot_durations_s = [
-        max(clip_durations[i], (segments[i].get("pause_after_ms") or 0) / 1000)
+        _slot_seconds(
+            clip_durations[i], segments[i].get("pause_after_ms")
+        )
         for i in range(len(segments))
     ]
 
@@ -978,8 +996,7 @@ def record_browser_video(
         for i, seg in enumerate(segments):
             action = seg["action"]
             pause_ms = seg.get("pause_after_ms", 0)
-            audio_duration_ms = clip_durations[i] * 1000
-            wait_ms = max(audio_duration_ms, pause_ms)
+            wait_ms = _slot_seconds(clip_durations[i], pause_ms) * 1000
 
             print(f"  Segment {i}: action={action}, wait={wait_ms:.0f}ms")
 
@@ -1036,7 +1053,9 @@ def combine_audio_video(
         audio_files.append(wav)
         pause_ms = segments[i].get("pause_after_ms", 0)
         audio_ms = clip_durations[i] * 1000
-        gap_ms = max(0, max(audio_ms, pause_ms) - audio_ms)
+        gap_ms = max(
+            0, _slot_seconds(clip_durations[i], pause_ms) * 1000 - audio_ms
+        )
         if gap_ms > 0:
             gap_silence = tmp_dir / f"silence_{i}.wav"
             subprocess.run(  # nosec B607

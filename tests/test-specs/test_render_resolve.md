@@ -1,7 +1,17 @@
 # test_render_resolve.py Spec
 
-Source: `src/instantdemo/render.py` (`_resolve_tts`, `ResolvedTTS` — M3)
+Source: `src/instantdemo/render.py` (`_resolve_tts`, `ResolvedTTS` — M3; `_slot_seconds` — M4/#68)
 Test: `tests/test_render_resolve.py`
+
+## _slot_seconds (#68 — the inter-segment breath)
+
+| ID | Scenario | Assertion | Risk if broken |
+|----|----------|-----------|----------------|
+| B1 | Audio fills the slot (audio 3.0s, pause 800ms) | slot = 3.4 (audio + BREATH_S) | Sentences run into each other — the #68 complaint |
+| B2 | Pause dominates (audio 1.0s, pause 5000ms) | slot = 5.0 (pause still wins when longer) | Long deliberate pauses silently shortened |
+| B3 | pause_after_ms missing/None | slot = audio + BREATH_S, no crash | Segments without pauses crash the renderer |
+
+(B1–B3 implemented as module-level tests alongside T1–T7.)
 
 ## Methods not tested (and why)
 

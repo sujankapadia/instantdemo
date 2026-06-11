@@ -31,7 +31,7 @@ import asyncio
 import re
 import time
 
-from .. import prompts
+from .. import prompts, takes
 from ..agent_client import session_id_for_phase
 from ..render import main as render_main
 from . import (
@@ -153,6 +153,14 @@ async def run(context: Context) -> None:
     loop = asyncio.get_running_loop()
     try:
         await loop.run_in_executor(None, _invoke_renderer, context)
+        # Versioned take after every successful render (M4): the
+        # film just made becomes restorable history. A snapshot
+        # failure must never fail the phase.
+        try:
+            n = takes.snapshot(context.project, label="render")
+            print(f"[Phase 6] Saved as version {n}")
+        except OSError as exc:
+            print(f"[Phase 6] WARNING: take snapshot failed: {exc}")
     finally:
         # Record AFTER the executor so duration_ms reflects the true
         # phase wall-clock. The try/finally guarantees we still record
