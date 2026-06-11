@@ -133,6 +133,50 @@ class TestValidatePlanned:
         assert any("narration must be a string" in p for p in problems)
 
 
+class TestChapters:
+    """Spec rows C1-C6 (M5a sections)."""
+
+    def make_sectioned(self, names: list[str]) -> dict:
+        doc = storyboard.new_document(title="t", url="u")
+        for i, name in enumerate(names, start=1):
+            storyboard.add_scene(
+                doc, title=f"S{i}", narration="x", action="wait",
+                section=name or None,
+            )
+        return doc
+
+    def test_chapters_derivation(self):  # C1
+        doc = self.make_sectioned(["A", "A", "B", "C", "C"])
+        chs = storyboard.chapters(doc)
+        assert [(c["name"], c["scene_ids"]) for c in chs] == [
+            ("A", ["s1", "s2"]), ("B", ["s3"]), ("C", ["s4", "s5"]),
+        ]
+
+    def test_sectionless_doc(self):  # C2
+        doc = make_doc()
+        assert storyboard.chapters(doc) == []
+        assert storyboard.validate_storyboard(doc, stage="planned") == []
+
+    def test_valid_sectioned(self):  # C3
+        doc = self.make_sectioned(["A", "A", "B"])
+        assert storyboard.validate_storyboard(doc, stage="planned") == []
+
+    def test_non_contiguous_section(self):  # C4
+        doc = self.make_sectioned(["A", "B", "A"])
+        problems = storyboard.validate_storyboard(doc, stage="planned")
+        assert any("not contiguous" in p and "'A'" in p for p in problems)
+
+    def test_partial_sections(self):  # C5
+        doc = self.make_sectioned(["A", "", "B"])
+        problems = storyboard.validate_storyboard(doc, stage="planned")
+        assert any("all-or-nothing" in p and "scene 2" in p for p in problems)
+
+    def test_section_not_projected(self):  # C6
+        doc = self.make_sectioned(["A", "A"])
+        script = storyboard.to_demo_script(doc)
+        assert all("section" not in seg for seg in script["segments"])
+
+
 class TestValidateHypothesized:
     """Spec rows VH1-VH5."""
 
