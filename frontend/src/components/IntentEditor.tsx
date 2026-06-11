@@ -20,7 +20,7 @@ interface IntentEditorProps {
 /**
  * Edits an `Intent` struct. Reused by the New Project modal and
  * (later) the per-phase re-run dialog. Goal is always visible;
- * audience / tone / length / focus / excludes / addenda live
+ * audience / tone / focus / excludes / addenda live
  * behind a collapsible "Style and scope" section so first-time
  * users aren't overwhelmed. See issue #39.
  */
@@ -95,14 +95,6 @@ export function IntentEditor({
               value={value.tone ?? ''}
               onChange={(v) => update({ tone: v || null })}
               placeholder="casual / formal / neutral"
-              disabled={disabled}
-            />
-            <FieldText
-              id="intent-length"
-              label="Length"
-              value={value.length ?? ''}
-              onChange={(v) => update({ length: v || null })}
-              placeholder="short / medium / long"
               disabled={disabled}
             />
           </div>

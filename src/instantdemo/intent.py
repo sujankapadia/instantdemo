@@ -2,8 +2,14 @@
 
 `intent.json` lives in the project root alongside `demo-script.json`.
 It captures the user's intent for generating the demo: what to show
-(`goal`), who the audience is, what tone / length to target, what
-areas to focus on or exclude, and any free-form `addenda`.
+(`goal`), who the audience is, what tone to target, what areas to
+focus on or exclude, and any free-form `addenda`.
+
+(A `length` field existed until 2026-06-11; it was removed because
+nothing measured the rendered duration against it — DESIGN.md
+principle 11. Loaders ignore it in old intent.json files; a length
+wish in free text reaches the planner via goal/addenda just as
+effectively.)
 
 Phase 1 reads `goal`, `focus`, `excludes` to scope the codebase
 analysis. Phase 2 reads all fields to shape the narrative. Phases
@@ -44,7 +50,6 @@ class Intent:
     goal: str = ""
     audience: str | None = None
     tone: str | None = None
-    length: str | None = None
     focus: list[str] = field(default_factory=list)
     excludes: list[str] = field(default_factory=list)
     addenda: list[str] = field(default_factory=list)
@@ -55,7 +60,6 @@ class Intent:
             not self.goal
             and self.audience is None
             and self.tone is None
-            and self.length is None
             and not self.focus
             and not self.excludes
             and not self.addenda
@@ -83,7 +87,6 @@ def load(project_dir: Path) -> Intent | None:
         goal=raw.get("goal", "") or "",
         audience=raw.get("audience"),
         tone=raw.get("tone"),
-        length=raw.get("length"),
         focus=list(raw.get("focus") or []),
         excludes=list(raw.get("excludes") or []),
         addenda=list(raw.get("addenda") or []),

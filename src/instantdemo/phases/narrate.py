@@ -12,7 +12,6 @@ Input resolution per field (highest priority wins):
   - flow:         intent.goal → phase1.md answer block → context.describe → ""
   - tone:         intent.tone → phase2.md answer block (legacy) → default "casual"
   - audience:     intent.audience → phase2.md answer block (legacy) → default "non-technical (general user, not a developer)"
-  - length:       intent.length → (none in legacy answer block) → "" (let agent pick)
   - focus:        intent.focus
   - excludes:     intent.excludes
   - addenda:      intent.addenda
@@ -66,7 +65,6 @@ def _resolve_inputs(
             or phase2_answers.get("audience", "")
             or DEFAULT_AUDIENCE
         ).strip(),
-        "length": (intent.length or "").strip(),
         "terminology": (phase2_answers.get("terminology") or "").strip(),
         "focus": list(intent.focus),
         "excludes": list(intent.excludes),
@@ -84,9 +82,6 @@ def _build_prompt(phase1_text: str, inputs: dict[str, object]) -> str:
         lines.append("")
     lines.append(f"Tone: {inputs['tone']}")
     lines.append(f"Audience: {inputs['audience']}")
-    length = inputs.get("length", "")
-    if length:
-        lines.append(f"Target length: {length}")
     terminology = inputs.get("terminology", "")
     if terminology:
         lines.append(f"Terminology to use: {terminology}")
