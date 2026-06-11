@@ -86,8 +86,8 @@ de-risks the next:
 | **M1** ✅ 2026-06-10 | Source-free Phase 1 + pre-flight + intent proposal | New phase1 prompt w/ browser tooling, jail default-on for it, screenshot streaming (new SSE event), intent-confirmation endpoint | The entire §5 experiment series; the harness is the prototype | M |
 | **M2** ✅ 2026-06-10 | Storyboard UI | React storyboard view over `storyboard.json`; rehearsal screenshots; triage→scene notices; phase rail demoted | GUI scaffolding, SSE, triage panel all exist — this is a re-skin plus screenshots | L |
 | **M3** ✅ 2026-06-10 | Voice & brand (#59 + #54 generalized) | Per-project TTS config, voice picker w/ upload validation + consent, pronunciation respelling layer with the **speech-text/display-text split** | pocket-tts provider shipped; bake-off findings 7–8 are the UX spec | M |
-| **M4** | Feedback loop, tiers 0–2 (#60) | Notes UI, tier classifier (small LLM task), line/global narration rewrite passes, **versioned takes** | Tier 0 is shipped; Phase 4's diff machinery is the versioning precedent | L |
-| **M5** | Sections (#50) → tier 3 + long demos | Section schema in storyboard/script, per-section record + re-plan, chapter UX | The §2.1 analysis (PRODUCT_DIRECTION.md); render concat is straightforward ffmpeg | L |
+| **M4** (rescoped 2026-06-10) | Revision essentials | **Versioned takes** (snapshot per render/revision, A/B previous-version toggle, restore) + a whole-demo "adjust style/pacing" pass (one text box → one rewrite/pace change → one audio re-render; no classifier) | Takes design + SDK-no-tools pattern from the M4 design review; segment edit/delete/re-voice already cover per-segment revision directly | M |
+| **M5** | Sections (#50) → **the feedback milestone** | Section schema in storyboard/script, per-section re-plan + re-record, chapter UX; structural notes ("redo the middle", "also show X") become affordable scoped operations | The §2.1 analysis (PRODUCT_DIRECTION.md); render concat is straightforward ffmpeg; the M4 design review's answers-card voice + regenerate-with-brief door carry over | L |
 | **M6** | Output package v1 | SRT captions (must use *display* text — depends on M3's split), logo overlay, outro card | All ffmpeg-layer, no agent work | S |
 
 **Why this order:** M0 first because everything downstream
@@ -96,9 +96,22 @@ retrofitting a data contract under a shipped UI is the expensive
 version. M1 before M2 because the storyboard UI should be built
 against what source-free exploration actually produces. M3 before M4
 because tier-2 notes ("different voice," "slower") need voice config
-to exist. M5 late because sections touch the most machinery — but
-everything before it is designed sections-aware so it slots in
-rather than rewrites.
+to exist.
+
+**The M4 rescope (2026-06-10 design review):** the original
+notes-with-classifier design was demoted after working it end to
+end. Two findings: (1) for per-segment wording the user knows, the
+existing direct edit beats a note — describing a sentence to an LLM
+is slower than typing it; pronunciation/voice/cut likewise already
+have more direct affordances. (2) The revisions with real value —
+show something else, fix what's on screen — all require re-exercising
+the app and re-recording, which notes structurally can't do; and
+re-recording is cheap ($0.09/~2min) — what's expensive is
+RE-PLANNING, and the fix for that is sections. So M4 keeps only the
+genuinely-new pieces (takes; the one note kind that beats direct
+manipulation — whole-demo style/pace) and M5 becomes the feedback
+milestone proper. Everything before it was designed sections-aware
+so it slots in rather than rewrites.
 
 **Cross-cutting polish bar** (applies to every milestone, as
 acceptance criteria): no pipeline vocabulary user-facing; every wait
