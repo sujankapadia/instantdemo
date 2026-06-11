@@ -13,6 +13,12 @@ Test: `tests/test_render_resolve.py`
 
 (B1–B3 implemented as module-level tests alongside T1–T7.)
 
+## _ACTION_FIELD_MAP candidate resolution (M5b L5 gap)
+
+| ID | Scenario | Assertion | Risk if broken |
+|----|----------|-----------|----------------|
+| D1 | select_option/press/check/uncheck with a candidate-ARRAY selector | Playwright receives ONE string (the first match), value/key passed through | Any scene whose Phase 3 supplied selector fallbacks crashes the renderer mid-record ("expected string, got object") |
+
 ## Methods not tested (and why)
 
 | Method | Reason |

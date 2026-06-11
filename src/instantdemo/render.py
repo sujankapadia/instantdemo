@@ -1126,12 +1126,25 @@ _ACTION_FIELD_MAP = {
     "hover": _action_hover,
     "scroll": lambda page, seg: _action_scroll(page, seg),
     "wait": lambda _page, _seg: None,
+    # These four resolve candidate arrays exactly like click/fill/
+    # hover — the projection emits ["primary", "fallback"] whenever
+    # Phase 3 supplied fallbacks, and Playwright wants ONE string.
+    # (Gap found live in the M5b L5: a select_option with two
+    # candidates was the first such segment ever rendered.)
     "select_option": lambda page, seg: page.select_option(
-        seg["selector"], seg["value"]
+        _wait_first_match(page, _selector_candidates(seg["selector"])),
+        seg["value"],
     ),
-    "press": lambda page, seg: page.press(seg["selector"], seg["key"]),
-    "check": lambda page, seg: page.check(seg["selector"]),
-    "uncheck": lambda page, seg: page.uncheck(seg["selector"]),
+    "press": lambda page, seg: page.press(
+        _wait_first_match(page, _selector_candidates(seg["selector"])),
+        seg["key"],
+    ),
+    "check": lambda page, seg: page.check(
+        _wait_first_match(page, _selector_candidates(seg["selector"]))
+    ),
+    "uncheck": lambda page, seg: page.uncheck(
+        _wait_first_match(page, _selector_candidates(seg["selector"]))
+    ),
     "evaluate": lambda page, seg: page.evaluate(seg["expression"]),
 }
 

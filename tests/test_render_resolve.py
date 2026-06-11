@@ -85,3 +85,46 @@ def test_pause_still_wins_when_longer():  # B2
 
 def test_missing_pause_is_safe():  # B3
     assert _slot_seconds(2.0, None) == 2.0 + BREATH_S
+
+
+class _FakePage:
+    """Records dispatch calls; wait_for_selector accepts anything."""
+
+    def __init__(self):
+        self.calls = []
+
+    def wait_for_selector(self, selector, timeout=None, state=None):
+        assert isinstance(selector, str)
+        return object()
+
+    def select_option(self, selector, value):
+        self.calls.append(("select_option", selector, value))
+
+    def press(self, selector, key):
+        self.calls.append(("press", selector, key))
+
+    def check(self, selector):
+        self.calls.append(("check", selector))
+
+    def uncheck(self, selector):
+        self.calls.append(("uncheck", selector))
+
+
+def test_candidate_arrays_resolve_to_one_string():  # D1
+    from instantdemo.render import _ACTION_FIELD_MAP
+
+    page = _FakePage()
+    _ACTION_FIELD_MAP["select_option"](
+        page, {"selector": ["#a", "#b"], "value": "v"}
+    )
+    _ACTION_FIELD_MAP["press"](page, {"selector": ["#a"], "key": "Escape"})
+    _ACTION_FIELD_MAP["check"](page, {"selector": "#c"})
+    _ACTION_FIELD_MAP["uncheck"](page, {"selector": ["#d", "#e"]})
+    assert page.calls == [
+        ("select_option", "#a", "v"),
+        ("press", "#a", "Escape"),
+        ("check", "#c"),
+        ("uncheck", "#d"),
+    ]
+    for call in page.calls:
+        assert isinstance(call[1], str)
