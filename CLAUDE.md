@@ -272,6 +272,10 @@ self-contained restoration of a prior run.
   scene 7's revision history carries the #67 drift saga (rehearsal-
   verified press-Escape lost by the merge, recovered with
   provenance); ~$0.98 incl. two blocked attempts
+- `adjust-takes-evernote-2026-06-12` — first multi-take film (M4):
+  three takes (original salesy cut → de-salesy Adjust pass → tone
+  change + re-record), instructions verbatim in scene revisions;
+  v1-vs-current A/B shows takes + style pass + the #68 breath
 
 To restore: `cp -r fixtures/<name>/. /tmp/restore && instantdemo
 serve --project /tmp/restore --port 8770`.
