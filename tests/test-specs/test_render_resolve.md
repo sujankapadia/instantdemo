@@ -10,6 +10,7 @@ Test: `tests/test_render_resolve.py`
 | B1 | Audio fills the slot (audio 3.0s, pause 800ms) | slot = 3.4 (audio + BREATH_S) | Sentences run into each other — the #68 complaint |
 | B2 | Pause dominates (audio 1.0s, pause 5000ms) | slot = 5.0 (pause still wins when longer) | Long deliberate pauses silently shortened |
 | B3 | pause_after_ms missing/None | slot = audio + BREATH_S, no crash | Segments without pauses crash the renderer |
+| B4 | _write_segment_timing rows | start/end cursor advances by _slot_seconds (audio + breath), matching the film's actual layout | The seek map runs 0.4s/segment ahead of the audio — early highlights, clicks landing in the previous segment, splices cutting mid-narration (the M5b L5 symptom) |
 
 (B1–B3 implemented as module-level tests alongside T1–T7.)
 

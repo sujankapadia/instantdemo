@@ -87,6 +87,27 @@ def test_missing_pause_is_safe():  # B3
     assert _slot_seconds(2.0, None) == 2.0 + BREATH_S
 
 
+def test_timing_rows_include_breath(tmp_path: Path):  # B4
+    import json
+
+    from instantdemo.render import _write_segment_timing
+
+    segments = [
+        {"action": "wait", "pause_after_ms": 1000},
+        {"action": "wait", "pause_after_ms": 0},
+    ]
+    _write_segment_timing(
+        tmp_path, segments, [3.0, 2.0], "demo.mp4",
+        recorded_durations_s=[3.0 + BREATH_S, 2.0 + BREATH_S],
+    )
+    rows = json.loads(
+        (tmp_path / "segment-timing.json").read_text()
+    )["segments"]
+    assert rows[0]["end_s"] == 3.0 + BREATH_S
+    assert rows[1]["start_s"] == 3.0 + BREATH_S
+    assert rows[1]["end_s"] == round(5.0 + 2 * BREATH_S, 3)
+
+
 class _FakePage:
     """Records dispatch calls; wait_for_selector accepts anything."""
 

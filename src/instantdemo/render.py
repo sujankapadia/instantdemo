@@ -439,8 +439,12 @@ def _write_segment_timing(
     out_segments = []
     for i, seg in enumerate(segments):
         audio_s = audio_durations_s[i]
-        pause_s = (seg.get("pause_after_ms") or 0) / 1000
-        seg_s = max(audio_s, pause_s)
+        # The FIFTH slot-math call site (M5b L5): this one was missed
+        # when #68 added the breath, so timing rows ran 0.4s/segment
+        # ahead of the actual audio — early highlights, seeks landing
+        # in the previous segment, and one ingredient of the splice
+        # mis-cut. One arithmetic, everywhere: _slot_seconds.
+        seg_s = _slot_seconds(audio_s, seg.get("pause_after_ms"))
         entry = {
             "index": i,
             "start_s": round(cursor, 3),
