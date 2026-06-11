@@ -313,14 +313,17 @@ export function Layout() {
         // THE one object: the Stage owns the whole center, deriving
         // its face (front door / exploring / proposal / storyboard /
         // film) from server state — reload-safe at every step.
-        const videoDone = data?.phases?.['6']?.status === 'completed'
         const sbExists =
           storyboard.state.status === 'success' &&
           storyboard.state.data.exists
-        // The approve gate: rehearsed, unreviewed, not yet rendered.
+        // The approve gate: rehearsed and unreviewed. An existing
+        // film does NOT close it (M5b L5 — revision legs run on
+        // projects that already rendered; phase 6's stale
+        // "completed" was suppressing the approve bar exactly like
+        // the stageState face bug). storyboard_approved alone
+        // carries the reviewed/recorded truth.
         const phase4 = data?.phases?.['4']
         const gateOpen =
-          !videoDone &&
           !data?.storyboard_approved &&
           sbExists &&
           (phase4?.status === 'completed' ||
@@ -347,6 +350,16 @@ export function Layout() {
               onPlayingChange={setLightsDown}
               onOpenVoice={() => setVoiceOpen(true)}
               onRerecord={() => handleRunPhase(6)}
+              onReviseChapter={(section, instruction) => {
+                if (!data?.url) return
+                void run.startRun({
+                  phases: [2, 3, 4],
+                  url: data.url,
+                  section_scope: section,
+                  section_instruction: instruction,
+                })
+              }}
+              pendingScopeSection={data?.pending_scope_section ?? null}
             />
           </main>
         )

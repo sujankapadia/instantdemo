@@ -102,6 +102,12 @@ class RunRequest(BaseModel):
     # project/product-context.md and injected into Phase 1's prompt
     # with the trust rule (docs guide vocabulary; live app wins).
     docs: str | None = None
+    # Scoped chapter revision (M5b): chapter name + the user's
+    # instruction. A scoped [2,3,4] leg persists these to state.json
+    # (pending_scope) so the gate's approve leg ([5,6]) records the
+    # right span without the frontend carrying memory.
+    section_scope: str | None = None
+    section_instruction: str | None = None
 
 
 def _storyboard_marker(phases: list[int]) -> bool | None:
@@ -356,6 +362,18 @@ class RunManager:
             if marker is not None:
                 s["storyboard_approved"] = marker
 
+            # Scoped chapter revision (M5b): a scoped planning leg
+            # persists the scope so the approve leg records the right
+            # span; any UNSCOPED planning/regenerate leg invalidates a
+            # stale scope (the whole plan is being rewritten).
+            if request.section_scope:
+                s["pending_scope"] = {
+                    "section": request.section_scope,
+                    "instruction": request.section_instruction or "",
+                }
+            elif any(p in (1, 2, 3, 4) for p in request.phases):
+                s.pop("pending_scope", None)
+
             run = _Run(run_id=str(uuid.uuid4()), phases=request.phases)
             self.active = run
 
@@ -470,6 +488,16 @@ class RunManager:
         # request included one) or synthesize from describe for legacy
         # callers. See #39.
         intent_obj = intent_mod.load_or_synthesize(project, request.describe)
+        # Effective scope (M5b): the request's own scope (a scoped
+        # planning leg), or the persisted pending_scope when this is
+        # the gate's approve leg ([5,6] carries no scope of its own).
+        scope = request.section_scope
+        scope_instruction = request.section_instruction
+        if scope is None and all(p >= 5 for p in request.phases):
+            pending = state_mod.load(state_dir).get("pending_scope")
+            if isinstance(pending, dict) and pending.get("section"):
+                scope = pending["section"]
+                scope_instruction = pending.get("instruction") or None
         context = Context(
             url=request.url,
             source=source_path,
@@ -486,6 +514,8 @@ class RunManager:
             # Threads through to session_id_for_phase so each run
             # gets fresh per-phase SDK sessions. See #53.
             run_id=run.run_id,
+            section_scope=scope,
+            section_instruction=scope_instruction,
         )
         # State.json was already prepared in start_run (phases reset to
         # pending, run-level inputs recorded). Just proceed.
@@ -558,6 +588,14 @@ class RunManager:
                         }
                     )
             run.status = "complete"
+            # A completed render consumes the pending scope (M5b) —
+            # the scoped revision is recorded; the next gate approve
+            # must not silently re-scope. Failed/canceled runs keep
+            # it so a retry still records the right span.
+            if any(p >= 6 for p in request.phases):
+                s = state_mod.load(state_dir)
+                if s.pop("pending_scope", None) is not None:
+                    state_mod.save(state_dir, s)
             run.queue.put_nowait(
                 {
                     "type": "run_complete",

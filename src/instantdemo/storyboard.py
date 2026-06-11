@@ -345,7 +345,10 @@ def to_demo_script(
 
 
 def _scene_heading(scene: dict) -> str:
-    return f"### Segment {scene['index']} — {scene['title']}"
+    # The scene id rides in the heading so Phase 4 can name rehearsal
+    # thumbnails by id (M5b) — MarkdownView's custom renderers key on
+    # the "### Segment N" prefix, which is preserved.
+    return f"### Segment {scene['index']} — {scene['title']} (id: {scene['id']})"
 
 
 def _narration_line(scene: dict) -> str:

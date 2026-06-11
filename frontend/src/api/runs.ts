@@ -34,6 +34,9 @@ export interface RunRequest {
   // Optional product one-pager / README excerpt (M1). Persisted to
   // product-context.md and injected into Phase 1's prompt.
   docs?: string | null
+  // Scoped chapter revision (M5b): re-plan/re-record ONE chapter.
+  section_scope?: string | null
+  section_instruction?: string | null
 }
 
 export interface RunInfo {

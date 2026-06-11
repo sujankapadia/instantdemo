@@ -135,7 +135,24 @@ runs gated by user review —
 
 Regenerate takes the SAME staged flow since M5a (#82 stage 1) — no
 blind `[1..6]` runs; phase 6 snapshots the existing film as a take
-before overwriting when it isn't already one. Source is OPTIONAL
+before overwriting when it isn't already one.
+
+**Scoped chapter revision (M5b):** "Revise this chapter" on the film
+face's scenes pane starts a `[2,3,4]` run with `section_scope` +
+`section_instruction`: phase 2 EDITS the storyboard in place
+(`narrate.replace_chapter_scenes` — chapter scenes replaced with
+fresh ids, everything else asserted untouched), phases 3/4 operate
+on the chapter only (phase 4 replays the prefix as verified setup),
+and `state.json.pending_scope` carries the scope to the gate's
+approve leg, where phase 6 records JUST the chapter (fast prefix
+replay, `render.record_section_video`) and splices it into the
+existing film (`render.splice_section` — untouched segments keep
+their original frames and mixed audio; single re-encode pass; no
+re-synthesis). The splice guard (`phases.render._section_render_plan`)
+falls back to a full record whenever film/timing/storyboard don't
+align. Rehearsal thumbnails are named by SCENE ID (`s<id>.png`),
+not index, since M5b — ids never reuse, so scoped re-plans can't
+collide thumbnails. Source is OPTIONAL
 enrichment; an optional one-pager lives
 at `product-context.md`. The filesystem jail is always on for server
 runs (CLI keeps the `INSTANTDEMO_FS_JAIL` opt-in). The storyboard is

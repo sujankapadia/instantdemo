@@ -85,6 +85,9 @@ export interface ProjectState {
   // true once a run including phase 5/6 starts. The approve bar
   // shows when a rehearsed storyboard exists and this is false.
   storyboard_approved?: boolean
+  // Scoped chapter revision in flight (M5b): the chapter awaiting
+  // gate review + scoped record. The gate highlights it.
+  pending_scope_section?: string | null
 }
 
 // --- M1: exploration screenshots + pre-flight ---
