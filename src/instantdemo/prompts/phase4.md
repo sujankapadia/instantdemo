@@ -73,14 +73,16 @@ have Write — Phase 5 (Build) emits the JSON.
    the narration describes), save:
 
    ```python
-   page.screenshot(path=f"{rehearsal_dir}/s{seg_index}.png")
+   page.screenshot(path=f"{rehearsal_dir}/{scene_id}.png")
    ```
 
-   One PNG per segment, named `s1.png`, `s2.png`, ... by the
-   1-based segment number. Save them on every rehearsal pass —
-   later iterations overwrite earlier files, which is correct
-   (the final passing rehearsal's screens are what the user
-   should see). They also stream live to the user as you work.
+   One PNG per segment, named by the segment's scene id exactly as
+   listed in the plan (`s1.png`, `s7.png`, `s12.png`, ...) — use
+   the id shown for each segment, NOT its position in the list.
+   Save them on every rehearsal pass — later iterations overwrite
+   earlier files, which is correct (the final passing rehearsal's
+   screens are what the user should see). They also stream live to
+   the user as you work.
 
 2. **Apply Phase 3's listed fallbacks when the primary fails.**
    Phase 3 lists 1-2 fallbacks per segment in the Notes line.
@@ -184,6 +186,7 @@ You may summarize observations in prose before the block.
       "index": <segment number, 1-based>,
       "status": "PASS" | "FAIL_SELECTOR" | "FAIL_NARRATIVE" | "WARN",
       "reason": "<technical observation — what you found on the live app, written for a developer reviewing the report>",
+      "note_for_user": "<for WARN and FAIL_*: ONE plain sentence for the demo's maker — what this means for their film and what you did about it. First person, no engineering vocabulary (no selectors, waits, pixels, DOM). Example: \"Every export file holds exactly 100 notes, so I dropped the line about the count changing each time.\" Omit for PASS.>",
       "suggestion": "<for FAIL_*: USER-FACING fix — see Suggestion rules below; omit for PASS/WARN>",
       "selector_swapped": <true if you replaced Phase 3's primary; omit if not>,
       "from": "<Phase 3's original primary; only when selector_swapped>",

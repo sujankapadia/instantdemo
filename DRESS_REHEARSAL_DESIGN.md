@@ -135,6 +135,13 @@ Three categories of fix, in increasing assertiveness:
 These are deterministic fixes from observed timing/behavior.
 No user judgment needed. PASS outcome.
 
+**Scoped rehearsal (M5b):** a chapter revision rehearses ONLY the
+revised chapter — the scenes before it are presented as verified
+setup steps to replay without verification (reaching the chapter's
+starting state), findings stay globally index-keyed, and the merge
+ignores out-of-scope findings (the rehearsal cannot rewrite
+recorded scenes).
+
 **Level 2 — Narration regrounding (the high-value change)**
 - Replace generic claims with observed specifics ("3 cards",
   not "your cards")

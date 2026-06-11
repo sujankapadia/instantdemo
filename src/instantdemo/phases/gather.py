@@ -30,8 +30,21 @@ from . import (
 )
 
 
-def _scenes_for_prompt(doc: dict) -> str:
-    """Compact scene JSON the agent enriches — planning fields only."""
+def _scoped_ids(doc: dict, section: str | None) -> list[str] | None:
+    """Scene ids in the scoped chapter (M5b), or None when unscoped."""
+    if not section:
+        return None
+    ids = [
+        s["id"] for s in doc["scenes"] if s.get("section") == section
+    ]
+    if not ids:
+        raise RuntimeError(f"no chapter named {section!r} in the storyboard")
+    return ids
+
+
+def _scenes_for_prompt(doc: dict, scope_ids: list[str] | None = None) -> str:
+    """Compact scene JSON the agent enriches — planning fields only.
+    When scoped, only the chapter's scenes are listed."""
     compact = [
         {
             "id": scene["id"],
@@ -42,12 +55,26 @@ def _scenes_for_prompt(doc: dict) -> str:
             "target_hint": scene.get("target_hint", ""),
         }
         for scene in doc["scenes"]
+        if scope_ids is None or scene["id"] in scope_ids
     ]
     return json.dumps({"scenes": compact}, indent=2)
 
 
-def _build_prompt(doc: dict, url: str) -> str:
+def _build_prompt(
+    doc: dict, url: str, scope_ids: list[str] | None = None,
+    section: str | None = None,
+) -> str:
     template = prompts.load("phase3")
+    scoped_note = (
+        (
+            f"This is a CHAPTER REVISION: only the scenes below (the "
+            f"\"{section}\" chapter) need enrichment — the rest of the "
+            "demo is already verified and recorded. Enrich exactly "
+            "these scenes, nothing else.\n\n"
+        )
+        if scope_ids
+        else ""
+    )
     return (
         f"The app being demoed is running at: {url}\n"
         "\n"
@@ -57,21 +84,23 @@ def _build_prompt(doc: dict, url: str) -> str:
         "port from the codebase configuration — the user has chosen this\n"
         "specific URL.\n"
         "\n"
+        f"{scoped_note}"
         "These are the storyboard scenes from Phase 2. Each has a stable\n"
         "`id` — your output is keyed by it.\n"
         "\n"
         "---\n"
-        f"{_scenes_for_prompt(doc)}\n"
+        f"{_scenes_for_prompt(doc, scope_ids)}\n"
         "---\n"
         "\n"
         f"{template}"
     )
 
 
-def _make_validator(doc: dict):
+def _make_validator(doc: dict, scope_ids: list[str] | None = None):
     """Validator closure: id discipline + a dry-run merge that must
-    leave the storyboard valid at stage='hypothesized'."""
-    expected_ids = [scene["id"] for scene in doc["scenes"]]
+    leave the storyboard valid at stage='hypothesized'. When scoped,
+    exactly the chapter's ids are expected (M5b)."""
+    expected_ids = scope_ids or [scene["id"] for scene in doc["scenes"]]
 
     def _validate(payload: dict) -> list[str]:
         problems: list[str] = []
@@ -137,16 +166,19 @@ async def run(context: Context) -> None:
         )
 
     doc = storyboard.load(context.state_dir)
+    scope_ids = _scoped_ids(doc, context.section_scope)
 
     artifact = context.phase_artifact(3)
     artifact.parent.mkdir(parents=True, exist_ok=True)
 
-    prompt = _build_prompt(doc, context.url)
+    prompt = _build_prompt(
+        doc, context.url, scope_ids, context.section_scope
+    )
     payload, result = await run_structured_query(
         context,
         prompt,
         session_id_for_phase(3, context.run_id),
-        validate=_make_validator(doc),
+        validate=_make_validator(doc, scope_ids),
         phase_number=3,
     )
 
@@ -156,4 +188,10 @@ async def run(context: Context) -> None:
     artifact.write_text(storyboard.render_phase3_view(doc))
     record_phase_result(context, 3, result)
     print(summarize_run(3, artifact, result))
-    print(f"  (storyboard: {len(doc['scenes'])} scenes hypothesized)")
+    if scope_ids:
+        print(
+            f"  (chapter {context.section_scope!r}: "
+            f"{len(scope_ids)} scenes hypothesized)"
+        )
+    else:
+        print(f"  (storyboard: {len(doc['scenes'])} scenes hypothesized)")

@@ -23,6 +23,9 @@ export interface SceneVerification {
   status?: string
   reason?: string
   suggestion?: string | null
+  /** One plain sentence for the maker (M5b): what the warning means
+   * for their film. Shown inline at the gate; `reason` is hover. */
+  note_for_user?: string | null
 }
 
 export interface StoryboardScene {

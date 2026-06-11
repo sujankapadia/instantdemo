@@ -44,6 +44,28 @@ class TestLinkRehearsalScreenshots:
             "rehearsal_screenshot" not in s for s in doc["scenes"]
         )
 
+    def test_binds_by_id_not_position(self, tmp_path: Path):  # L4
+        doc = make_doc(3)
+        # Simulate a scoped re-plan: scene s2 was replaced by s5 at
+        # the same position (index 2).
+        from instantdemo import storyboard as sb
+
+        replacement = sb.add_scene(
+            doc, title="New scene", narration="x", action="wait"
+        )  # gets id s4... next call s5; we want a gap, so add twice
+        replacement = sb.add_scene(
+            doc, title="Newer scene", narration="x", action="wait"
+        )
+        doc["scenes"] = [doc["scenes"][0], replacement, doc["scenes"][2]]
+        sb.save(tmp_path / ".sb", doc)  # recomputes indices: s1=1, s5=2, s3=3
+        assert replacement["id"] == "s5" and replacement["index"] == 2
+
+        (tmp_path / "s5.png").write_bytes(b"x")
+        (tmp_path / "s2.png").write_bytes(b"x")  # stale file, old scene
+        linked = link_rehearsal_screenshots(doc, tmp_path)
+        assert linked == ["s5.png"]
+        assert doc["scenes"][1]["rehearsal_screenshot"] == "s5.png"
+
 
 class TestStoryboardMarker:
     def test_exploration_only_untouched(self):  # GM1

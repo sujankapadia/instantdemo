@@ -15,9 +15,10 @@ Test: `tests/test_phase4_screenshots.py`
 
 | ID | Scenario | Assertion | Risk if broken |
 |----|----------|-----------|----------------|
-| L1 | Shots exist for scenes 1 and 3 of 3 | Scenes 1+3 get rehearsal_screenshot "s1.png"/"s3.png"; scene 2 has no key; returns the two names | Storyboard cards show wrong/missing thumbnails — the gate review loses its visual grounding |
+| L1 | Shots exist for scenes 1 and 3 of 3 (fresh doc: ids == positions) | Scenes 1+3 get rehearsal_screenshot "s1.png"/"s3.png"; scene 2 has no key; returns the two names | Storyboard cards show wrong/missing thumbnails — the gate review loses its visual grounding |
 | L2 | Scene carries a stale rehearsal_screenshot from a prior run; no file on disk | Key POPPED | Gate shows a prior run's screen for a re-rehearsed scene — user approves against wrong imagery |
 | L3 | Rehearsal dir missing entirely | No keys set, returns [], no crash | Phase 4 crashes post-merge when the agent saved nothing |
+| L4 | Ids ≠ positions (M5b: scoped re-plan inserted s5 at position 2) | Binding is BY ID: scene s5 at index 2 links "s5.png", NOT "s2.png" | Post-revision thumbnails bind to the wrong scenes — the gate reviews chapter A with chapter B's screens |
 
 ## runs._storyboard_marker() (gate marker truth table — M2-c)
 

@@ -107,24 +107,73 @@ def _iteration_budget_s(segment_count: int) -> float:
 
 
 def _build_initial_prompt(
-    doc: dict, url: str, phase3_path: str, shots_dir: Path
+    doc: dict,
+    url: str,
+    phase3_path: str,
+    shots_dir: Path,
+    section: str | None = None,
 ) -> str:
     """The plan is rendered FROM the storyboard (not read from
     phase3.md on disk) so the prompt is guaranteed consistent with
-    the canonical document."""
+    the canonical document. When scoped to a chapter (M5b), the
+    scenes BEFORE the chapter are presented as verified setup steps
+    to replay without verification; scenes after it are omitted."""
     template = prompts.load("phase4")
     # str.replace, not str.format — the template contains JSON braces.
     template = template.replace("{rehearsal_dir}", str(shots_dir))
+    if not section:
+        return (
+            f"The app being demoed is running at: {url}\n"
+            f"The Phase 3 plan is at: {phase3_path}\n"
+            "\n"
+            "The following is the Phase 3 hypothesis plan. Each segment\n"
+            "has a primary selector derived from source code and (often)\n"
+            "fallback selectors on its 'Selector fallbacks' line.\n"
+            "\n"
+            "---\n"
+            f"{storyboard.render_phase3_view(doc)}\n"
+            "---\n"
+            "\n"
+            f"{template}"
+        )
+
+    scenes = doc["scenes"]
+    positions = [
+        i for i, s in enumerate(scenes) if s.get("section") == section
+    ]
+    if not positions:
+        raise RuntimeError(f"no chapter named {section!r} in the storyboard")
+    prefix_doc = dict(doc, scenes=scenes[: positions[0]])
+    chapter_doc = dict(doc, scenes=scenes[positions[0] : positions[-1] + 1])
+    prefix_block = (
+        "These VERIFIED SETUP segments come before the chapter. Replay\n"
+        "their actions in order with brief waits (their selectors are\n"
+        "already verified — do NOT re-verify, screenshot, or report\n"
+        "findings for them; they only get the app to the chapter's\n"
+        "starting state):\n"
+        "\n"
+        "---\n"
+        f"{storyboard.render_phase3_view(prefix_doc)}\n"
+        "---\n"
+        "\n"
+        if positions[0] > 0
+        else "This chapter OPENS the film — no setup segments.\n\n"
+    )
     return (
         f"The app being demoed is running at: {url}\n"
         f"The Phase 3 plan is at: {phase3_path}\n"
         "\n"
-        "The following is the Phase 3 hypothesis plan. Each segment\n"
-        "has a primary selector derived from source code and (often)\n"
-        "fallback selectors on its 'Selector fallbacks' line.\n"
+        f"This is a CHAPTER REVISION: rehearse and verify ONLY the\n"
+        f"\"{section}\" chapter's segments below. Report findings (and\n"
+        "save rehearsal screenshots) for those segments ONLY, keyed by\n"
+        "the indices shown.\n"
+        "\n"
+        f"{prefix_block}"
+        "The chapter under rehearsal — each segment has a primary\n"
+        "selector and (often) fallbacks:\n"
         "\n"
         "---\n"
-        f"{storyboard.render_phase3_view(doc)}\n"
+        f"{storyboard.render_phase3_view(chapter_doc)}\n"
         "---\n"
         "\n"
         f"{template}"
@@ -228,7 +277,8 @@ _FINDING_STATUS_TO_SCENE = {
 
 
 def merge_findings_into_storyboard(
-    doc: dict, findings: dict[str, Any], *, iteration: int
+    doc: dict, findings: dict[str, Any], *, iteration: int,
+    scope_indices: set[int] | None = None,
 ) -> list[str]:
     """Apply the final findings to the storyboard scenes. Pure
     function (unit-tested); returns human-readable warnings for
@@ -256,6 +306,14 @@ def merge_findings_into_storyboard(
         if not isinstance(idx, int) or not (1 <= idx <= len(scenes)):
             warnings.append(
                 f"finding index {idx!r} out of range (1..{len(scenes)}) — skipped"
+            )
+            continue
+        if scope_indices is not None and idx not in scope_indices:
+            # Scoped chapter rehearsal (M5b): scenes outside the
+            # chapter are verified and recorded — a finding against
+            # them exceeds the rehearsal's authority.
+            warnings.append(
+                f"finding {idx} is outside the revised chapter — ignored"
             )
             continue
         scene = scenes[idx - 1]
@@ -372,6 +430,10 @@ def merge_findings_into_storyboard(
             "status": status,
             "reason": reason,
             "suggestion": finding.get("suggestion"),
+            # Persona register (same rehearsal call, one more field):
+            # what this means for the film, in the maker's language.
+            # The gate shows THIS inline; `reason` moves to hover.
+            "note_for_user": finding.get("note_for_user"),
         }
     return warnings
 
@@ -445,17 +507,19 @@ def _write_diff_artifact(
 
 
 def link_rehearsal_screenshots(doc: dict, shots_dir: Path) -> list[str]:
-    """Join rehearsal screenshots to scenes by segment-index naming
-    (`s<index>.png`). Pure function (unit-tested). Sets each scene's
-    `rehearsal_screenshot` when the file exists and POPS it when it
-    doesn't — a prior run's storyboard must not carry stale refs into
-    the gate. Returns the linked filenames."""
+    """Join rehearsal screenshots to scenes by SCENE-ID naming
+    (`<id>.png`, e.g. s12.png — M5b). Ids are stable and never
+    reused, so a scoped re-plan can't collide thumbnails the way
+    shifting indices would. Pure function (unit-tested). Sets each
+    scene's `rehearsal_screenshot` when the file exists and POPS it
+    when it doesn't — a prior run's storyboard must not carry stale
+    refs into the gate. Returns the linked filenames."""
     linked: list[str] = []
     existing: set[str] = set()
     if shots_dir.is_dir():
         existing = {p.name for p in shots_dir.glob("s*.png")}
     for scene in doc.get("scenes", []):
-        name = f"s{scene['index']}.png"
+        name = f"{scene['id']}.png"
         if name in existing:
             scene["rehearsal_screenshot"] = name
             linked.append(name)
@@ -512,6 +576,16 @@ async def run(context: Context) -> None:
         )
 
     doc = storyboard.load(context.state_dir)
+    section = context.section_scope
+    scope_indices: set[int] | None = None
+    if section:
+        scope_indices = {
+            s["index"] for s in doc["scenes"] if s.get("section") == section
+        }
+        if not scope_indices:
+            raise RuntimeError(
+                f"Phase 4 (scoped): no chapter named {section!r}"
+            )
 
     artifact = context.phase_artifact(4)
     artifact.parent.mkdir(parents=True, exist_ok=True)
@@ -519,10 +593,22 @@ async def run(context: Context) -> None:
     shots_dir = rehearsal_dir(context.state_dir)
     shots_dir.mkdir(parents=True, exist_ok=True)
     # Clear stale shots so the gate never shows a prior run's screens.
-    for old in shots_dir.glob("*.png"):
-        old.unlink()
+    # Scoped (M5b): out-of-scope scenes keep their thumbnails (they
+    # aren't re-rehearsed); only files no longer backed by a current
+    # scene id are stale — which covers the replaced chapter's
+    # retired ids.
+    if section:
+        live_ids = {s["id"] for s in doc["scenes"]}
+        for old in shots_dir.glob("*.png"):
+            if old.stem not in live_ids:
+                old.unlink()
+    else:
+        for old in shots_dir.glob("*.png"):
+            old.unlink()
 
-    segment_count = len(doc["scenes"])
+    segment_count = (
+        len(scope_indices) if scope_indices else len(doc["scenes"])
+    )
     iteration_budget = _iteration_budget_s(segment_count)
     session_id = session_id_for_phase(4, context.run_id)
 
@@ -548,7 +634,8 @@ async def run(context: Context) -> None:
             final_iteration = iteration
             if iteration == 1:
                 prompt = _build_initial_prompt(
-                    doc, context.url, str(context.phase_artifact(3)), shots_dir
+                    doc, context.url, str(context.phase_artifact(3)),
+                    shots_dir, section,
                 )
             else:
                 assert findings is not None  # only retry after a parsed iteration
@@ -643,7 +730,8 @@ async def run(context: Context) -> None:
         # is captured in the canonical document. phase4.md becomes
         # the rendered view of the merged result.
         merge_warnings = merge_findings_into_storyboard(
-            doc, findings, iteration=final_iteration
+            doc, findings, iteration=final_iteration,
+            scope_indices=scope_indices,
         )
         for warning in merge_warnings:
             print(f"[Phase 4] merge warning: {warning}")

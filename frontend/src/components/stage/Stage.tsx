@@ -33,6 +33,10 @@ interface StageProps {
   onOpenVoice?: () => void
   /** Faster-pacing answers offer a re-record ([6] run). */
   onRerecord?: () => void
+  /** Scoped chapter revision (M5b): starts the [2,3,4]+scope run. */
+  onReviseChapter?: (section: string, instruction: string) => void
+  /** Chapter awaiting scoped review — highlighted at the gate. */
+  pendingScopeSection?: string | null
 }
 
 /**
@@ -115,6 +119,7 @@ export function Stage(props: StageProps) {
               currentPhase !== null &&
               currentPhase >= 5
             }
+            highlightSection={props.pendingScopeSection ?? null}
           />
         )
       case 'film':
@@ -125,6 +130,12 @@ export function Stage(props: StageProps) {
             onPlayingChange={props.onPlayingChange}
             onOpenVoice={props.onOpenVoice}
             onRerecord={props.onRerecord}
+            storyboardScenes={
+              storyboard.status === 'success'
+                ? (storyboard.data.storyboard?.scenes ?? [])
+                : []
+            }
+            onReviseChapter={props.onReviseChapter}
           />
         )
     }

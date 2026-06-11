@@ -10,8 +10,15 @@ Test: `tests/test_render_resolve.py`
 | B1 | Audio fills the slot (audio 3.0s, pause 800ms) | slot = 3.4 (audio + BREATH_S) | Sentences run into each other — the #68 complaint |
 | B2 | Pause dominates (audio 1.0s, pause 5000ms) | slot = 5.0 (pause still wins when longer) | Long deliberate pauses silently shortened |
 | B3 | pause_after_ms missing/None | slot = audio + BREATH_S, no crash | Segments without pauses crash the renderer |
+| B4 | _write_segment_timing rows | start/end cursor advances by _slot_seconds (audio + breath), matching the film's actual layout | The seek map runs 0.4s/segment ahead of the audio — early highlights, clicks landing in the previous segment, splices cutting mid-narration (the M5b L5 symptom) |
 
 (B1–B3 implemented as module-level tests alongside T1–T7.)
+
+## _ACTION_FIELD_MAP candidate resolution (M5b L5 gap)
+
+| ID | Scenario | Assertion | Risk if broken |
+|----|----------|-----------|----------------|
+| D1 | select_option/press/check/uncheck with a candidate-ARRAY selector | Playwright receives ONE string (the first match), value/key passed through | Any scene whose Phase 3 supplied selector fallbacks crashes the renderer mid-record ("expected string, got object") |
 
 ## Methods not tested (and why)
 

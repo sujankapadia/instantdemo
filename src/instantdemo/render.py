@@ -16,6 +16,7 @@ import argparse
 import base64
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -438,8 +439,12 @@ def _write_segment_timing(
     out_segments = []
     for i, seg in enumerate(segments):
         audio_s = audio_durations_s[i]
-        pause_s = (seg.get("pause_after_ms") or 0) / 1000
-        seg_s = max(audio_s, pause_s)
+        # The FIFTH slot-math call site (M5b L5): this one was missed
+        # when #68 added the breath, so timing rows ran 0.4s/segment
+        # ahead of the actual audio — early highlights, seeks landing
+        # in the previous segment, and one ingredient of the splice
+        # mis-cut. One arithmetic, everywhere: _slot_seconds.
+        seg_s = _slot_seconds(audio_s, seg.get("pause_after_ms"))
         entry = {
             "index": i,
             "start_s": round(cursor, 3),
@@ -529,6 +534,287 @@ def _build_combined_audio(
         capture_output=True,
     )
     return combined_audio
+
+
+PREFIX_BEAT_S = 0.35
+"""Settle time per fast-forwarded prefix action during a scoped
+chapter record (M5b) — the prefix only establishes app state, it
+isn't filmed, so narration pacing doesn't apply. Action dispatch
+itself still honors each segment's wait_for conditions."""
+
+
+def record_section_video(
+    segments: list[dict],
+    start_idx: int,
+    end_idx: int,
+    clip_durations: list[float],
+    tmp_dir: Path,
+    resolution: dict,
+) -> tuple[Path, list[tuple[float, float]]]:
+    """Record ONLY segments [start_idx..end_idx] (M5b): one browser
+    context with capture on throughout — the prefix segments'
+    actions are dispatched fast (state establishment, not film),
+    then the chapter records at narration pace. Returns the raw
+    video and the chapter's per-segment (clean_start, end)
+    timestamps relative to the recording; the splice trims away the
+    fast-forwarded head using them. clip_durations is CHAPTER-LOCAL
+    (one entry per chapter segment)."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        context = browser.new_context(
+            viewport={
+                "width": resolution["width"],
+                "height": resolution["height"],
+            },
+            record_video_dir=str(tmp_dir),
+            record_video_size={
+                "width": resolution["width"],
+                "height": resolution["height"],
+            },
+        )
+        context.add_init_script(_CURSOR_INJECT_SCRIPT)
+        page = context.new_page()
+        recording_start = time.monotonic()
+
+        for i, seg in enumerate(segments[:start_idx]):
+            print(f"  Prefix {i}: action={seg['action']} (fast-forward)")
+            _dispatch_action(page, seg)
+            time.sleep(PREFIX_BEAT_S)
+
+        timestamps: list[tuple[float, float]] = []
+        for j, seg in enumerate(segments[start_idx : end_idx + 1]):
+            wait_ms = _slot_seconds(
+                clip_durations[j], seg.get("pause_after_ms", 0)
+            ) * 1000
+            print(
+                f"  Section segment {start_idx + j}: "
+                f"action={seg['action']}, wait={wait_ms:.0f}ms"
+            )
+            _dispatch_action(page, seg)
+            seg_start = time.monotonic() - recording_start
+            time.sleep(wait_ms / 1000)
+            timestamps.append(
+                (seg_start, time.monotonic() - recording_start)
+            )
+
+        video = page.video
+        if video is None:
+            raise RuntimeError("no video was recorded")
+        video_path = video.path()
+        context.close()
+        browser.close()
+
+    return Path(video_path), timestamps
+
+
+def splice_section(
+    old_video: Path,
+    section_raw: Path,
+    section_timestamps: list[tuple[float, float]],
+    section_slots_s: list[float],
+    section_audio: Path,
+    pre_end_s: float,
+    tail_start_s: float,
+    output_path: Path,
+) -> None:
+    """Splice a freshly recorded chapter into an existing film (M5b):
+    video and audio outside [pre_end_s, tail_start_s) come from the
+    CURRENT demo.mp4 (frame-accurate trim; original mixed narration —
+    no re-synthesis), the chapter from the new recording + its
+    combined audio. One ffmpeg invocation, single re-encode."""
+    AFMT = ",aformat=sample_rates=44100:channel_layouts=stereo"
+    v_parts: list[str] = []
+    a_parts: list[str] = []
+    graph: list[str] = []
+    if pre_end_s > 0:
+        graph.append(
+            f"[0:v]trim=start=0:end={pre_end_s},setpts=PTS-STARTPTS[vpre]"
+        )
+        graph.append(
+            f"[0:a]atrim=start=0:end={pre_end_s},asetpts=PTS-STARTPTS"
+            f"{AFMT}[apre]"
+        )
+        v_parts.append("[vpre]")
+        a_parts.append("[apre]")
+    for j, (clean_start, _end) in enumerate(section_timestamps):
+        graph.append(
+            f"[1:v]trim=start={clean_start}:duration={section_slots_s[j]},"
+            f"setpts=PTS-STARTPTS[vc{j}]"
+        )
+        v_parts.append(f"[vc{j}]")
+    graph.append(f"[2:a]asetpts=PTS-STARTPTS{AFMT}[ach]")
+    a_parts.append("[ach]")
+    has_tail = tail_start_s >= 0
+    if has_tail:
+        graph.append(
+            f"[0:v]trim=start={tail_start_s},setpts=PTS-STARTPTS[vtail]"
+        )
+        graph.append(
+            f"[0:a]atrim=start={tail_start_s},asetpts=PTS-STARTPTS"
+            f"{AFMT}[atail]"
+        )
+        v_parts.append("[vtail]")
+        a_parts.append("[atail]")
+    graph.append(
+        "".join(v_parts) + f"concat=n={len(v_parts)}:v=1:a=0[outv]"
+    )
+    graph.append(
+        "".join(a_parts) + f"concat=n={len(a_parts)}:v=0:a=1[outa]"
+    )
+    result = subprocess.run(  # nosec B607
+        [
+            "ffmpeg", "-y",
+            "-i", str(old_video),
+            "-i", str(section_raw),
+            "-i", str(section_audio),
+            "-filter_complex", ";".join(graph),
+            "-map", "[outv]",
+            "-map", "[outa]",
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            str(output_path),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg splice failed: {result.stderr}")
+
+
+def rebuild_section_timing(
+    old_timing: dict,
+    new_segments: list[dict],
+    start_idx: int,
+    end_idx: int,
+    old_chapter_len: int,
+    section_slots_s: list[float],
+    section_recorded_s: list[float],
+    section_audio_s: list[float],
+    output_filename: str,
+) -> dict:
+    """segment-timing.json after a chapter splice (M5b): rows before
+    the chapter unchanged; chapter rows fresh; tail rows keep their
+    recorded durations but shift by the chapter's duration delta and
+    re-index. Pure function (unit-tested)."""
+    old_rows = old_timing.get("segments") or []
+    pre_rows = [dict(r) for r in old_rows[:start_idx]]
+    cursor = pre_rows[-1]["end_s"] if pre_rows else 0.0
+    chapter_rows: list[dict] = []
+    for j in range(end_idx - start_idx + 1):
+        row = {
+            "index": start_idx + j,
+            "start_s": round(cursor, 3),
+            "end_s": round(cursor + section_slots_s[j], 3),
+            "audio_duration_s": round(section_audio_s[j], 3),
+            "recorded_clean_duration_s": round(section_recorded_s[j], 3),
+        }
+        cursor = row["end_s"]
+        chapter_rows.append(row)
+    tail_rows: list[dict] = []
+    for k, old_row in enumerate(old_rows[start_idx + old_chapter_len :]):
+        duration = old_row["end_s"] - old_row["start_s"]
+        row = dict(old_row)
+        row["index"] = end_idx + 1 + k
+        row["start_s"] = round(cursor, 3)
+        row["end_s"] = round(cursor + duration, 3)
+        cursor = row["end_s"]
+        tail_rows.append(row)
+    return {
+        "video": output_filename,
+        "total_duration_s": round(cursor, 3),
+        "segments": pre_rows + chapter_rows + tail_rows,
+    }
+
+
+def render_section_main(
+    script_path: Path,
+    output_path: Path,
+    state_dir: Path,
+    start_idx: int,
+    end_idx: int,
+    old_chapter_len: int,
+    tts_config_path: Path | None = None,
+    tts_override: str | None = None,
+) -> None:
+    """Scoped chapter render (M5b): synthesize audio for the chapter
+    segments only, record just that span (fast prefix replay), and
+    splice into the existing film. Everything outside the chapter
+    keeps its original frames AND original audio. Caller guarantees
+    alignment (see phases/render._section_render_plan)."""
+    script = json.loads(script_path.read_text())
+    segments = script["segments"]
+    chapter = segments[start_idx : end_idx + 1]
+    resolution = script.get("resolution", {"width": 1280, "height": 720})
+
+    old_video = output_path
+    timing_path = state_dir / "segment-timing.json"
+    old_timing = json.loads(timing_path.read_text())
+    old_rows = old_timing["segments"]
+    pre_end_s = old_rows[start_idx - 1]["end_s"] if start_idx > 0 else 0.0
+    tail_first = start_idx + old_chapter_len
+    tail_start_s = (
+        old_rows[tail_first]["start_s"]
+        if tail_first < len(old_rows)
+        else -1.0
+    )
+
+    args = argparse.Namespace(
+        tts=tts_override, kokoro_voice=None, kokoro_speed=None,
+        pocket_voice=None, pocket_ref=None,
+    )
+    config = (
+        tts_config_mod.load(tts_config_path)
+        if tts_config_path and tts_config_path.exists()
+        else None
+    )
+    resolved = _resolve_tts(
+        args, config, tts_config_path.parent if tts_config_path else None
+    )
+    print(
+        f"Scoped render: segments {start_idx}..{end_idx} "
+        f"({len(chapter)} of {len(segments)}); voice: {resolved.provider}"
+    )
+
+    with tempfile.TemporaryDirectory(prefix="instantdemo-section-") as td:
+        tmp_dir = Path(td)
+        clips = generate_audio(
+            chapter, tmp_dir, resolved, Path(".env")
+        )
+        clip_durations = [get_audio_duration(c) for c in clips]
+        section_audio = _build_combined_audio(
+            clips, clip_durations, chapter, tmp_dir
+        )
+        raw_video, timestamps = record_section_video(
+            segments, start_idx, end_idx, clip_durations, tmp_dir,
+            resolution,
+        )
+        slots = [
+            _slot_seconds(clip_durations[j], chapter[j].get("pause_after_ms"))
+            for j in range(len(chapter))
+        ]
+        spliced = tmp_dir / "spliced.mp4"
+        splice_section(
+            old_video, raw_video, timestamps, slots, section_audio,
+            pre_end_s, tail_start_s, spliced,
+        )
+        new_timing = rebuild_section_timing(
+            old_timing, segments, start_idx, end_idx, old_chapter_len,
+            slots,
+            [e - s for s, e in timestamps],
+            clip_durations,
+            output_path.name,
+        )
+        shutil.move(str(spliced), str(output_path))
+        timing_path.write_text(json.dumps(new_timing, indent=2) + "\n")
+    print(
+        f"Scoped render complete: {output_path} "
+        f"({new_timing['total_duration_s']:.1f}s)"
+    )
 
 
 def cut_segment_from_video(
@@ -844,12 +1130,25 @@ _ACTION_FIELD_MAP = {
     "hover": _action_hover,
     "scroll": lambda page, seg: _action_scroll(page, seg),
     "wait": lambda _page, _seg: None,
+    # These four resolve candidate arrays exactly like click/fill/
+    # hover — the projection emits ["primary", "fallback"] whenever
+    # Phase 3 supplied fallbacks, and Playwright wants ONE string.
+    # (Gap found live in the M5b L5: a select_option with two
+    # candidates was the first such segment ever rendered.)
     "select_option": lambda page, seg: page.select_option(
-        seg["selector"], seg["value"]
+        _wait_first_match(page, _selector_candidates(seg["selector"])),
+        seg["value"],
     ),
-    "press": lambda page, seg: page.press(seg["selector"], seg["key"]),
-    "check": lambda page, seg: page.check(seg["selector"]),
-    "uncheck": lambda page, seg: page.uncheck(seg["selector"]),
+    "press": lambda page, seg: page.press(
+        _wait_first_match(page, _selector_candidates(seg["selector"])),
+        seg["key"],
+    ),
+    "check": lambda page, seg: page.check(
+        _wait_first_match(page, _selector_candidates(seg["selector"]))
+    ),
+    "uncheck": lambda page, seg: page.uncheck(
+        _wait_first_match(page, _selector_candidates(seg["selector"]))
+    ),
     "evaluate": lambda page, seg: page.evaluate(seg["expression"]),
 }
 
@@ -1106,8 +1405,19 @@ def combine_audio_video(
     # concatenates them, and encodes to H.264 exactly once.
     print("  Trimming segments and merging with audio...")
     filter_parts = []
-    for i, (seg_start, seg_end) in enumerate(timestamps):
-        duration = seg_end - seg_start
+    for i, (seg_start, _seg_end) in enumerate(timestamps):
+        # Trim each segment to EXACTLY its slot — the same arithmetic
+        # the audio track and segment-timing.json use. The recording
+        # always waited at least the slot (sleep), so the frames
+        # exist; the wall-clock surplus (sleep/scheduler jitter,
+        # ~0.3s/segment) is held frame we drop. Before this, video
+        # used wall-clock while audio/timing used slots — films
+        # accumulated a/v drift (~4s over a dozen segments), seek
+        # positions ran progressively late, and the M5b splice cut
+        # the old film mid-narration (the "repeated phrase" L5 bug).
+        duration = _slot_seconds(
+            clip_durations[i], segments[i].get("pause_after_ms")
+        )
         filter_parts.append(
             f"[0:v]trim=start={seg_start:.3f}:duration={duration:.3f},"
             f"setpts=PTS-STARTPTS[v{i}]"
@@ -1444,7 +1754,14 @@ def main(argv=None):
         if args.state_dir
         else script_path.parent / ".instantdemo"
     )
-    recorded_durations = [end - start for (start, end) in timestamps]
+    # What's IN the film per segment is now exactly the slot (the
+    # video trim above) — record that, not the raw wall-clock, so
+    # timing rows match the real frame layout (seek + splice
+    # accuracy both depend on it).
+    recorded_durations = [
+        _slot_seconds(clip_durations[i], seg.get("pause_after_ms"))
+        for i, seg in enumerate(segments)
+    ]
     _write_segment_timing(
         state_dir, segments, clip_durations, output_path.name,
         recorded_durations_s=recorded_durations,

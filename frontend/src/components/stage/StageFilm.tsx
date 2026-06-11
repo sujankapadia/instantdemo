@@ -31,6 +31,11 @@ interface StageFilmProps {
   onOpenVoice?: () => void
   /** Faster-pacing answers offer a re-record ([6] run). */
   onRerecord?: () => void
+  /** The storyboard's scenes (upstream truth) — chapter grouping
+   * over the scenes pane when counts align (M5b). */
+  storyboardScenes?: { section?: unknown; [key: string]: unknown }[]
+  /** Starts the scoped revision run ([2,3,4] + scope). */
+  onReviseChapter?: (section: string, instruction: string) => void
 }
 
 export function StageFilm({
@@ -39,6 +44,8 @@ export function StageFilm({
   onPlayingChange,
   onOpenVoice,
   onRerecord,
+  storyboardScenes,
+  onReviseChapter,
 }: StageFilmProps) {
   const segmentsState = useSegments()
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -245,6 +252,31 @@ export function StageFilm({
     segmentsState.state.status === 'success'
       ? segmentsState.state.data.segments.length
       : 0
+
+  // Chapter spans over the scenes pane (M5b): derived from the
+  // storyboard, index-aligned — only when scene/segment counts match
+  // (a post-cut project diverges → flat list, full regenerate is
+  // its path).
+  const chapterSpans = useMemo(() => {
+    const scenes = storyboardScenes ?? []
+    if (scenes.length === 0 || scenes.length !== segmentCount) return []
+    const spans: { name: string; startIndex: number; count: number }[] = []
+    scenes.forEach((scene, i) => {
+      const name =
+        typeof scene.section === 'string' && scene.section.trim()
+          ? scene.section
+          : null
+      if (!name) return
+      const last = spans[spans.length - 1]
+      if (last && last.name === name) last.count += 1
+      else spans.push({ name, startIndex: i, count: 1 })
+    })
+    return spans
+  }, [storyboardScenes, segmentCount])
+
+  // The Revise dialog (M5b): chapter name + instruction box.
+  const [revisingChapter, setRevisingChapter] = useState<string | null>(null)
+  const [reviseText, setReviseText] = useState('')
 
   const editing: EditingProps = {
     editingIndex,
@@ -488,9 +520,69 @@ export function StageFilm({
             onSelect={handleSeek}
             editing={editing}
             runStatus={runStatus}
+            chapters={chapterSpans}
+            onReviseChapter={
+              onReviseChapter
+                ? (name) => {
+                    setReviseText('')
+                    setRevisingChapter(name)
+                  }
+                : undefined
+            }
           />
         </ResizablePanel>
       </ResizablePanelGroup>
+
+      {/* The chapter-revision dialog (M5b): one instruction, scoped
+          to the chapter the user pointed at — no inference. */}
+      {revisingChapter !== null ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          onClick={() => setRevisingChapter(null)}
+        >
+          <div
+            className="w-[min(90vw,480px)] rounded-xl border border-border bg-background p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="studio-voice text-base">
+              Revise “{revisingChapter}”
+            </h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              The studio re-plans just this chapter against your app.
+              You'll review the new storyboard before anything is
+              re-recorded — the rest of the film stays untouched, and
+              your current cut is kept as a version.
+            </p>
+            <textarea
+              autoFocus
+              value={reviseText}
+              onChange={(e) => setReviseText(e.target.value)}
+              placeholder={'What should change? — "add a step showing the attachments filter", "tighten this to two scenes"…'}
+              rows={3}
+              className="mt-3 w-full resize-none rounded-md border border-input bg-background px-2.5 py-2 text-sm placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
+            <div className="mt-3 flex justify-end gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setRevisingChapter(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={!reviseText.trim()}
+                onClick={() => {
+                  onReviseChapter?.(revisingChapter, reviseText.trim())
+                  setRevisingChapter(null)
+                }}
+              >
+                Re-plan this chapter
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </aside>
   )
 }

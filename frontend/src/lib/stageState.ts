@@ -45,6 +45,13 @@ export function deriveStage(args: {
   ) {
     return 'proposal'
   }
+  // An UNAPPROVED storyboard outranks the film: after any revision
+  // leg ([2,3,4] — scoped or full), the gate must be the face even
+  // though an older film exists. Before this rule, phase 6's stale
+  // "completed" status sent users to the film face and the approve
+  // bar was unreachable (M5b L5 finding — "the record finished"
+  // twice when no record had run).
+  if (storyboardExists && !data.storyboard_approved) return 'storyboarding'
   if (data.phases?.['6']?.status === 'completed') return 'film'
   if (storyboardExists) return 'storyboarding'
   // Project exists but no storyboard yet (e.g. paused after [1] with
