@@ -318,6 +318,59 @@ class TestMergeFindings:
         assert any("without 'to'" in w for w in warnings)
         assert doc["scenes"][1]["selector"] == ["a.orig", "a.fallback"]
 
+    def test_action_kind_update(self):  # M7
+        doc = self.make_doc()
+        warnings = self.merge(doc, [{
+            "index": 1, "status": "PASS",
+            "reason": "click leaves the search active; Escape clears it",
+            "updates": {"action": "press", "key": "Escape"},
+        }])
+        scene = doc["scenes"][0]
+        assert warnings == []
+        assert scene["action"] == "press"
+        assert scene["key"] == "Escape"
+        rev = scene["revisions"][-1]
+        assert rev["type"] == "action"
+        assert rev["to"] == "press Escape"
+
+    def test_non_canonical_action_refused(self):  # M8
+        doc = self.make_doc()
+        original = doc["scenes"][0]["action"]
+        warnings = self.merge(doc, [{
+            "index": 1, "status": "PASS", "reason": "",
+            "updates": {"action": "teleport"},
+        }])
+        assert any("not a canonical action" in w for w in warnings)
+        assert doc["scenes"][0]["action"] == original
+
+    def test_action_key_hygiene(self):  # M9
+        doc = self.make_doc()
+        doc["scenes"][0]["key"] = "Enter"  # stale from a prior shape
+        self.merge(doc, [{
+            "index": 1, "status": "PASS", "reason": "",
+            "updates": {"action": "click"},
+        }])
+        assert "key" not in doc["scenes"][0]
+        # press without an explicit key keeps whatever the scene has
+        doc2 = self.make_doc()
+        self.merge(doc2, [{
+            "index": 1, "status": "PASS", "reason": "",
+            "updates": {"action": "press"},
+        }])
+        assert doc2["scenes"][0]["action"] == "press"
+
+    def test_option_wait_refused(self):  # M10
+        doc = self.make_doc()
+        original_wait = list(doc["scenes"][0].get("wait_for") or [])
+        warnings = self.merge(doc, [{
+            "index": 1, "status": "PASS", "reason": "",
+            "updates": {"wait_for": ["#source-select option:nth-child(6)"]},
+        }])
+        assert any("<option>" in w for w in warnings)
+        scene = doc["scenes"][0]
+        assert list(scene.get("wait_for") or []) == original_wait
+        assert all(r["type"] != "wait_for" for r in scene.get("revisions", []))
+
 
 class TestViews:
     """Spec rows W1-W4."""

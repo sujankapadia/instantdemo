@@ -83,6 +83,10 @@ Test: `tests/test_storyboard.py`
 | M4 | Statuses PASS/WARN/FAIL_SELECTOR | Scene status verified/warn/failed; verification carries status+reason+suggestion | Triage/Phase 5 gating reads wrong scene state — failed scenes render or clean scenes block |
 | M5 | Finding index 0 / out of range | Warning returned per bad finding; scenes byte-identical before/after (JSON-compared) | Misindexed finding corrupts a neighboring scene's selector |
 | M6 | selector_swapped with empty 'to' | Warning; selector unchanged | Scene left with an empty selector array — unrenderable segment passes validation |
+| M7 | updates.action="press" + key="Escape" (canonical) | Scene action/key updated; revision type=action with from/to (incl. key) | The #67 L5 failure: a rehearsal-VERIFIED action fix silently dropped → guaranteed drift block at render |
+| M8 | updates.action not in CANONICAL_ACTIONS | Warning; action unchanged | Garbage action reaches Phase 5 validation or, worse, the renderer |
+| M9 | updates.action to non-press clears stale key; press without key keeps scene unkeyed | No dangling `key` on non-press actions | Stale key field confuses the renderer's press handling |
+| M10 | updates.wait_for targeting an `<option>` ("#s option:nth-child(6)") | Warning naming the selectors; existing wait kept byte-identical (captured before merge); no wait_for revision | The #67 second finding: never-visible wait merged → renderer aborts mid-demo |
 
 ## render_phase2_view() / render_phase3_view() / render_phase4_view()
 

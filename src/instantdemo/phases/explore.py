@@ -47,6 +47,7 @@ from typing import Any
 
 from .. import prompts, storyboard
 from .. import state as state_mod
+from ..actions import CANONICAL_ACTIONS
 from ..agent_client import session_id_for_phase
 from .analyze import new_screenshots, screenshot_event, watch_screenshots
 from . import (
@@ -58,6 +59,12 @@ from . import (
 
 REHEARSAL_DIRNAME = "rehearsal"
 _REHEARSAL_URL_PREFIX = "/api/project/rehearsal"
+
+# Selectors that target <option> elements — hidden inside a closed
+# <select> in Playwright's visibility model, so a visible-wait can
+# never resolve (#67). Matches "option" as the element part of a
+# selector ("#x option:nth-child(6)", "select > option", "option[v]").
+_OPTION_SELECTOR_RE = re.compile(r"(?:^|[\s>+~])option\b")
 
 
 def rehearsal_dir(state_dir: Path) -> Path:
@@ -233,9 +240,13 @@ def merge_findings_into_storyboard(
         (the rehearsal verified exactly ONE selector; stale fallbacks
         that already failed would only burn renderer timeout budget)
       - narration_revised → scene.narration = narration_to + revision
+      - updates.action (+ key) → apply when canonical + revision
+        (action-kind change on the same element, e.g. click →
+        press-Escape — Level-1 mechanical; see #67)
       - updates.wait_for / updates.pause_after_ms → apply + revision
         (the Level-1 timing channel — without it, refinements would
-        be lost now that Phase 5 is deterministic)
+        be lost now that Phase 5 is deterministic). wait_for values
+        targeting <option> elements are refused (never visible).
       - status / verification from the finding status
     """
     warnings: list[str] = []
@@ -287,9 +298,50 @@ def merge_findings_into_storyboard(
                 )
 
         updates = finding.get("updates") or {}
+        if "action" in updates:
+            # Action-KIND revision on the same UI element (e.g.
+            # click → press-Escape) — Level-1 mechanical in spirit:
+            # the scene's purpose is unchanged, only how it's
+            # performed. Validated against the closed action
+            # contract; anything non-canonical is refused loudly.
+            # (Issue #67: this used to be silently dropped, losing a
+            # rehearsal-VERIFIED fix and guaranteeing a drift block.)
+            new_action = updates["action"]
+            if new_action in CANONICAL_ACTIONS:
+                old_action = scene.get("action", "")
+                new_key = updates.get("key")
+                revisions.append({
+                    "type": "action",
+                    "from": old_action,
+                    "to": new_action
+                    + (f" {new_key}" if isinstance(new_key, str) else ""),
+                    "reason": reason,
+                    "iteration": iteration,
+                    "phase": 4,
+                })
+                scene["action"] = new_action
+                if isinstance(new_key, str):
+                    scene["key"] = new_key
+                elif new_action != "press":
+                    scene.pop("key", None)
+            else:
+                warnings.append(
+                    f"segment {idx}: updates.action {new_action!r} is not "
+                    "a canonical action — skipped"
+                )
         if "wait_for" in updates:
             new_wait = storyboard.normalize_candidates(updates["wait_for"])
-            if new_wait:
+            unwaitable = [s for s in new_wait if _OPTION_SELECTOR_RE.search(s)]
+            if unwaitable:
+                # <option> elements inside a closed <select> are
+                # hidden in Playwright's visibility model — the
+                # renderer's visible-wait can never resolve (#67).
+                warnings.append(
+                    f"segment {idx}: wait_for targets <option> elements "
+                    f"({', '.join(unwaitable)}) which can never become "
+                    "visible — skipped; keeping the existing wait"
+                )
+            elif new_wait:
                 revisions.append({
                     "type": "wait_for",
                     "from": ", ".join(
