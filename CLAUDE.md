@@ -267,6 +267,10 @@ self-contained restoration of a prior run.
 - `storyboard-gate-evernote-2026-06-10` — first M2 three-stage run
   (explore → confirm → live storyboard build → gate approve →
   render), user-driven; 7/7 rehearsal thumbnails; $0.70 total
+- `brief-box-evernote-2026-06-11` — first one-object/brief-box film;
+  scene 7's revision history carries the #67 drift saga (rehearsal-
+  verified press-Escape lost by the merge, recovered with
+  provenance); ~$0.98 incl. two blocked attempts
 
 To restore: `cp -r fixtures/<name>/. /tmp/restore && instantdemo
 serve --project /tmp/restore --port 8770`.
