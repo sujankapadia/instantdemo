@@ -347,6 +347,16 @@ export function Layout() {
               onPlayingChange={setLightsDown}
               onOpenVoice={() => setVoiceOpen(true)}
               onRerecord={() => handleRunPhase(6)}
+              onReviseChapter={(section, instruction) => {
+                if (!data?.url) return
+                void run.startRun({
+                  phases: [2, 3, 4],
+                  url: data.url,
+                  section_scope: section,
+                  section_instruction: instruction,
+                })
+              }}
+              pendingScopeSection={data?.pending_scope_section ?? null}
             />
           </main>
         )

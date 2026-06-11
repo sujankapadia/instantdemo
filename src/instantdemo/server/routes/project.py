@@ -92,6 +92,10 @@ class ProjectState(BaseModel):
     # or 6 starts (approve / re-render / Regenerate). Gate visibility
     # derives from this — reload-safe.
     storyboard_approved: bool = False
+    # Scoped chapter revision in flight (M5b): the chapter awaiting
+    # gate review + scoped record. The gate highlights it; cleared
+    # when the approve leg's render completes. Reload-safe.
+    pending_scope_section: str | None = None
 
 
 class ArtifactResponse(BaseModel):
@@ -209,6 +213,11 @@ def get_project() -> ProjectState:
         current_run_id=raw.get("current_run_id"),
         intent_confirmed=bool(raw.get("intent_confirmed", False)),
         storyboard_approved=bool(raw.get("storyboard_approved", False)),
+        pending_scope_section=(
+            (raw.get("pending_scope") or {}).get("section")
+            if isinstance(raw.get("pending_scope"), dict)
+            else None
+        ),
     )
 
 

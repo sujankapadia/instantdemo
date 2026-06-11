@@ -44,6 +44,9 @@ interface StoryboardViewProps {
   /** Live SSE screenshots — rehearsal shots (s<N>.png) bind to scene
    * cards optimistically while Phase 4 is still running. */
   liveShots?: { file: string; url: string }[]
+  /** Scoped chapter revision awaiting review (M5b) — its header gets
+   * the accent; other chapters dim slightly. */
+  highlightSection?: string | null
 }
 
 /**
@@ -62,6 +65,7 @@ export function StoryboardView({
   onRegenerate,
   approving,
   liveShots = [],
+  highlightSection = null,
 }: StoryboardViewProps) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editError, setEditError] = useState<string | null>(null)
@@ -113,6 +117,7 @@ export function StoryboardView({
   }
 
   const scenes = doc.scenes
+  const replanning = runActive && currentPhase === 2
   const chapterCount = scenes.reduce((n, s, i) => {
     const sec = typeof s.section === 'string' && s.section.trim() ? s.section : null
     const prev = i > 0 ? scenes[i - 1]!.section : null
@@ -164,12 +169,23 @@ export function StoryboardView({
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-3">
-        {/* layoutId pairs with StageExploring's frame container —
-            exploration frames visibly become the storyboard (motion
-            budget item 2). */}
+        {/* While the plan is being rewritten, the storyboard on
+            screen is the OUTGOING one — say so and dim it (M5a L5
+            finding: the stale plan read as current). */}
+        {replanning ? (
+          <div className="mx-auto mb-3 flex max-w-2xl items-center gap-2 rounded-md border border-border bg-secondary/30 px-3 py-2">
+            <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
+            <span className="studio-voice text-sm text-muted-foreground">
+              Previous plan — a new one is being written
+            </span>
+          </div>
+        ) : null}
         <motion.div
           layoutId="stage-frames"
-          className="mx-auto flex max-w-2xl flex-col gap-3"
+          className={cn(
+            'mx-auto flex max-w-2xl flex-col gap-3',
+            replanning && 'pointer-events-none opacity-40',
+          )}
         >
           {scenes.map((scene, i) => {
             // Chapters (M5a): a header opens each contiguous run of
@@ -188,12 +204,27 @@ export function StoryboardView({
             const chapterScenes = section
               ? scenes.filter((s) => s.section === section)
               : []
+            // Scoped revision review (M5b): the revised chapter
+            // reads at full strength with an accent bar; settled
+            // chapters dim slightly but stay readable.
+            const dimmed =
+              highlightSection !== null && section !== highlightSection
+            const highlighted =
+              highlightSection !== null && section === highlightSection
             return (
-              <div key={scene.id} className="flex flex-col gap-3">
+              <div
+                key={scene.id}
+                className={cn(
+                  'flex flex-col gap-3 transition-opacity',
+                  dimmed && 'opacity-55',
+                  highlighted && 'border-l-2 border-primary/70 pl-3',
+                )}
+              >
                 {opensChapter ? (
                   <ChapterHeader
                     name={section!}
                     scenes={chapterScenes}
+                    revised={highlighted}
                   />
                 ) : null}
                 <SceneCard
@@ -286,9 +317,11 @@ export function StoryboardView({
 function ChapterHeader({
   name,
   scenes,
+  revised = false,
 }: {
   name: string
   scenes: StoryboardScene[]
+  revised?: boolean
 }) {
   const worst = scenes.some((s) => s.status === 'failed')
     ? 'failed'
@@ -316,6 +349,11 @@ function ChapterHeader({
       <span className="text-xs text-muted-foreground">
         {scenes.length} scene{scenes.length === 1 ? '' : 's'}
       </span>
+      {revised ? (
+        <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+          revised — review below
+        </span>
+      ) : null}
     </div>
   )
 }

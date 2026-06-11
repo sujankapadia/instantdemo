@@ -28,6 +28,14 @@ export interface SegmentsListState {
     | { status: 'empty' }
 }
 
+/** A chapter's span over the segment list (M5b) — derived from the
+ * storyboard by StageFilm when scene/segment counts align. */
+export interface ChapterSpan {
+  name: string
+  startIndex: number
+  count: number
+}
+
 interface SegmentsListProps {
   state: SegmentsListState['state']
   currentIndex: number | null
@@ -35,6 +43,9 @@ interface SegmentsListProps {
   /** Editing controls — undefined disables editing affordances entirely. */
   editing?: EditingProps
   runStatus: RunStatus
+  /** Chapter grouping + the Revise affordance (M5b). Empty = flat. */
+  chapters?: ChapterSpan[]
+  onReviseChapter?: (name: string) => void
 }
 
 export interface EditingProps {
@@ -63,6 +74,8 @@ export function SegmentsList({
   onSelect,
   editing,
   runStatus,
+  chapters = [],
+  onReviseChapter,
 }: SegmentsListProps) {
   const isRunActive =
     runStatus === 'running' ||
@@ -94,6 +107,8 @@ export function SegmentsList({
             onSelect={onSelect}
             editing={editing}
             isRunActive={isRunActive}
+            chapters={chapters}
+            onReviseChapter={onReviseChapter}
           />
         )}
       </div>
@@ -135,6 +150,8 @@ function SegmentsBody({
   onSelect,
   editing,
   isRunActive,
+  chapters = [],
+  onReviseChapter,
 }: {
   segments: Segment[]
   hasTiming: boolean
@@ -142,6 +159,8 @@ function SegmentsBody({
   onSelect: (segment: Segment) => void
   editing?: EditingProps
   isRunActive: boolean
+  chapters?: ChapterSpan[]
+  onReviseChapter?: (name: string) => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -166,20 +185,45 @@ function SegmentsBody({
     )
   }
 
+  const chapterAt = new Map(chapters.map((c) => [c.startIndex, c]))
   return (
     <div ref={containerRef} className="divide-y divide-border/60">
       {!hasTiming ? <StaleTimingBanner /> : null}
-      {segments.map((seg) => (
-        <SegmentRow
-          key={seg.index}
-          segment={seg}
-          hasTiming={hasTiming}
-          active={currentIndex === seg.index}
-          onSelect={onSelect}
-          editing={editing}
-          isRunActive={isRunActive}
-        />
-      ))}
+      {segments.map((seg) => {
+        const chapter = chapterAt.get(seg.index)
+        return (
+          <div key={seg.index}>
+            {chapter ? (
+              <div className="flex items-center gap-2 bg-muted/20 px-4 py-1.5">
+                <span className="studio-voice text-xs font-medium">
+                  {chapter.name}
+                </span>
+                <span className="text-[10px] text-muted-foreground">
+                  {chapter.count} scene{chapter.count === 1 ? '' : 's'}
+                </span>
+                {onReviseChapter ? (
+                  <button
+                    type="button"
+                    className="ml-auto rounded px-1.5 py-0.5 text-[10px] text-muted-foreground/70 transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    disabled={isRunActive}
+                    onClick={() => onReviseChapter(chapter.name)}
+                  >
+                    Revise
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            <SegmentRow
+              segment={seg}
+              hasTiming={hasTiming}
+              active={currentIndex === seg.index}
+              onSelect={onSelect}
+              editing={editing}
+              isRunActive={isRunActive}
+            />
+          </div>
+        )
+      })}
     </div>
   )
 }
