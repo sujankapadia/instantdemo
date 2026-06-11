@@ -1,5 +1,12 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle2, Loader2, Play, TriangleAlert } from 'lucide-react'
+import {
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Loader2,
+  Play,
+  TriangleAlert,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { IntentEditor } from './IntentEditor'
 import { emptyIntent, type Intent } from '@/api/runs'
@@ -53,6 +60,7 @@ export function NewProjectForm({
     defaultValues?.pause_between_phases ?? false,
   )
   const [submitInFlight, setSubmitInFlight] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const [preflight, setPreflight] = useState<PreflightState>({
     status: 'idle',
   })
@@ -188,96 +196,107 @@ export function NewProjectForm({
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <label htmlFor="np-source" className="text-sm font-medium">
-          Source directory{' '}
-          <span className="text-muted-foreground">(optional)</span>
-        </label>
-        <input
-          id="np-source"
-          type="text"
-          value={source}
-          onChange={(e) => setSource(e.target.value)}
-          placeholder="/path/to/your/codebase"
-          disabled={isWorking}
-          spellCheck={false}
-          className="rounded-md border border-input bg-background px-3 py-2 font-mono text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-        />
-        <p className="text-xs text-muted-foreground">
-          Absolute path to your app's source code. Optional enrichment —
-          the agent explores the live app either way, and may read source
-          for hidden routes and exact terminology when provided.
-        </p>
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <label htmlFor="np-docs" className="text-sm font-medium">
-          Product context{' '}
-          <span className="text-muted-foreground">(optional)</span>
+        <label htmlFor="np-brief" className="text-sm font-medium">
+          Brief
         </label>
         <textarea
-          id="np-docs"
-          rows={3}
-          value={docs}
-          onChange={(e) => setDocs(e.target.value)}
-          placeholder="Paste a product one-pager or README excerpt…"
+          id="np-brief"
+          rows={4}
+          value={intent.goal}
+          onChange={(e) => setIntent({ ...intent, goal: e.target.value })}
+          placeholder='"This is for prospective customers — not technical. Friendly tone. Focus on the export flow; skip settings."'
           disabled={isWorking}
-          className="rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+          className="rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 resize-y"
         />
         <p className="text-xs text-muted-foreground">
-          Used for framing and vocabulary (what features are called, who
-          it's for). The live app remains the source of truth.
+          Mention anything you know: who it's for, the tone, what to
+          show or skip.
         </p>
       </div>
 
-      <IntentEditor
-        value={intent}
-        onChange={setIntent}
-        disabled={isWorking}
-      />
+      <button
+        type="button"
+        onClick={() => setAdvancedOpen((v) => !v)}
+        className="flex items-center gap-1.5 self-start text-sm font-medium text-muted-foreground hover:text-foreground"
+      >
+        {advancedOpen ? (
+          <ChevronDown className="size-4" />
+        ) : (
+          <ChevronRight className="size-4" />
+        )}
+        Background &amp; fine-tuning
+      </button>
 
-      <div className="flex flex-col gap-1.5">
-        <label className="text-sm font-medium">Voice</label>
-        <div className="flex items-center justify-between rounded-md border border-input bg-secondary/30 px-3 py-2 text-sm text-muted-foreground">
-          <span>{voiceSummary ?? 'Alba (stock)'}</span>
-          {onOpenVoiceSettings ? (
-            <button
-              type="button"
-              onClick={onOpenVoiceSettings}
-              className="text-xs text-primary hover:underline"
+      {advancedOpen ? (
+        <div className="flex flex-col gap-4 border-l-2 border-border pl-4">
+          <IntentEditor
+            value={intent}
+            onChange={setIntent}
+            disabled={isWorking}
+            hideGoal
+            advancedExpanded
+          />
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="np-docs" className="text-sm font-medium">
+              Product notes{' '}
+              <span className="text-muted-foreground">(optional)</span>
+            </label>
+            <textarea
+              id="np-docs"
+              rows={3}
+              value={docs}
+              onChange={(e) => setDocs(e.target.value)}
+              placeholder="Paste a product one-pager or README excerpt…"
+              disabled={isWorking}
+              className="rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="np-source" className="text-sm font-medium">
+              Source code folder{' '}
+              <span className="text-muted-foreground">(optional)</span>
+            </label>
+            <input
+              id="np-source"
+              type="text"
+              value={source}
+              onChange={(e) => setSource(e.target.value)}
+              placeholder="/path/to/your/codebase"
+              disabled={isWorking}
+              spellCheck={false}
+              className="rounded-md border border-input bg-background px-3 py-2 font-mono text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+            />
+          </div>
+          <div className="flex items-start gap-2">
+            <input
+              id="np-pause"
+              type="checkbox"
+              checked={pauseBetweenPhases}
+              onChange={(e) => setPauseBetweenPhases(e.target.checked)}
+              disabled={isWorking}
+              className="mt-0.5 size-4 cursor-pointer"
+            />
+            <label
+              htmlFor="np-pause"
+              className="cursor-pointer text-sm text-muted-foreground"
             >
-              Change…
-            </button>
-          ) : null}
+              Pause after each step for review
+            </label>
+          </div>
+          <div className="flex items-center justify-between rounded-md border border-input bg-secondary/30 px-3 py-2 text-sm text-muted-foreground">
+            <span>Voice: {voiceSummary ?? 'Alba (stock)'}</span>
+            {onOpenVoiceSettings ? (
+              <button
+                type="button"
+                onClick={onOpenVoiceSettings}
+                className="text-xs text-primary hover:underline"
+              >
+                Change…
+              </button>
+            ) : null}
+          </div>
         </div>
-        <p className="text-xs text-muted-foreground">
-          Saved with the project — change it any time, including using
-          your own voice, in Voice settings.
-        </p>
-      </div>
-
-      <div className="flex items-start gap-2">
-        <input
-          id="np-pause"
-          type="checkbox"
-          checked={pauseBetweenPhases}
-          onChange={(e) => setPauseBetweenPhases(e.target.checked)}
-          disabled={isWorking}
-          className="mt-0.5 size-4 cursor-pointer"
-        />
-        <div className="flex flex-col gap-0.5">
-          <label
-            htmlFor="np-pause"
-            className="cursor-pointer text-sm font-medium"
-          >
-            Pause between phases
-          </label>
-          <p className="text-xs text-muted-foreground">
-            Stops after each phase so you can review the artifact before
-            continuing. Useful for inspecting the script (Phase 4) before
-            committing to the render.
-          </p>
-        </div>
-      </div>
+      ) : null}
 
       <div className="flex justify-end gap-2 pt-2">
         <Button

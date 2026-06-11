@@ -18,6 +18,7 @@ import { PauseBanner } from './PauseBanner'
 import { PhaseFailureBanner } from './PhaseFailureBanner'
 import { Phase4TriagePanel } from './Phase4TriagePanel'
 import { IntentConfirmCard } from './IntentConfirmCard'
+import { StageEmpty } from './stage/StageEmpty'
 import { StoryboardView } from './StoryboardView'
 import { useStoryboard } from '@/hooks/useStoryboard'
 import { VoiceDialog } from './VoiceDialog'
@@ -384,10 +385,24 @@ export function Layout() {
         )
       })()}
       {(() => {
-        // Empty project? Always show the editor pane so the user sees
-        // the onboarding message regardless of the toggle. Once they
-        // start a project, the toggle controls visibility normally.
-        const showEditor = detailsVisible || empty
+        // Empty project → the front door IS the stage (one-object
+        // pass): hero URL + brief box, full width. Once a run starts
+        // (or a project exists) the normal surfaces take over.
+        const runActive =
+          run.status === 'starting' || run.status === 'running'
+        if (empty && !runActive) {
+          return (
+            <main className="flex min-h-0 flex-1">
+              <StageEmpty
+                projectDir={projectDir}
+                submitting={run.status === 'starting'}
+                onSubmit={handleNewProjectSubmit}
+              />
+            </main>
+          )
+        }
+
+        const showEditor = detailsVisible
 
         // Storyboard as the end-user-mode center surface (M2): shown
         // whenever a storyboard exists (or the [2,3,4] leg is
