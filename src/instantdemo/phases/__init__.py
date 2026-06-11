@@ -58,7 +58,11 @@ class Context:
     describe: str | None        # optional — like the skill's $ARGUMENTS
     state_dir: Path             # project / ".instantdemo"
     output: Path                # final MP4 path (used by phase 5)
-    tts: str                    # TTS provider name (used by phase 5)
+    # TTS provider OVERRIDE for phase 6's renderer. None (the normal
+    # case since M3) means "resolve from <project>/tts.json" —
+    # pocket-tts/alba when no config exists. A string forces that
+    # provider over the config (CLI --tts).
+    tts: str | None
     no_edit: bool               # if True, skip $EDITOR checkpoints
     # Structured intent for Phase 1 / Phase 2 — see issue #39.
     # Defaults to an empty Intent so callers that don't yet pass one

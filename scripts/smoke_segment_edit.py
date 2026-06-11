@@ -99,6 +99,19 @@ async def run_smoke() -> int:
         round(0.5 + 0.05 * i, 3) for i in range(n_segments)
     ]
     (tmp_root / ".instantdemo").mkdir(parents=True, exist_ok=True)
+    # M3: exercise the per-project voice path — the re-render must
+    # read tts.json (kokoro here for speed/cost) and apply the
+    # pronunciation respelling to speech text.
+    (tmp_root / "tts.json").write_text(
+        json.dumps({
+            "provider": "kokoro",
+            "voice": "af_heart",
+            "pronunciations": [
+                {"match": "session", "say": "recorded session"}
+            ],
+        })
+        + "\n"
+    )
     (tmp_root / ".instantdemo" / "segment-timing.json").write_text(
         json.dumps(
             {

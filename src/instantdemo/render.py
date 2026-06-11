@@ -24,7 +24,11 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from dataclasses import dataclass, field
+
+from instantdemo import tts_config as tts_config_mod
 from instantdemo.actions import CANONICAL_ACTIONS, validate_segments
+from instantdemo.tts_config import PronunciationEntry, TTSConfig
 
 
 # Injected via context.add_init_script — gives the recorded video a
@@ -1135,6 +1139,107 @@ def combine_audio_video(
 # ---------------------------------------------------------------------------
 
 
+@dataclass
+class ResolvedTTS:
+    """The voice a render will actually use, after precedence:
+    explicit CLI flags > tts.json > built-in defaults."""
+
+    provider: str = tts_config_mod.DEFAULT_PROVIDER
+    voice: str = tts_config_mod.DEFAULT_VOICE
+    ref: Path | None = None  # absolute path to a cloning reference
+    pronunciations: list[PronunciationEntry] = field(default_factory=list)
+    kokoro_speed: float = 1.0  # CLI-only knob; no tts.json field
+
+
+_PROVIDER_DEFAULT_VOICE = {
+    "kokoro": "af_heart",
+    "pocket-tts": "alba",
+}
+
+
+def _resolve_tts(args, config: TTSConfig | None, config_dir: Path | None) -> ResolvedTTS:
+    """Pure precedence resolution (unit-tested). `config_dir` is the
+    directory tts.json was loaded from (ref_wav is relative to it);
+    None when no config file was found."""
+    config = config or TTSConfig()
+    provider = args.tts or config.provider
+
+    # Voice: explicit per-provider flag > config voice (only when the
+    # config was authored FOR this provider — an "alba" voice means
+    # nothing to kokoro) > the provider's built-in default.
+    flag_voice = {
+        "kokoro": args.kokoro_voice,
+        "pocket-tts": args.pocket_voice,
+    }.get(provider)
+    if flag_voice:
+        voice = flag_voice
+    elif config.provider == provider:
+        voice = config.voice
+    else:
+        voice = _PROVIDER_DEFAULT_VOICE.get(provider, config.voice)
+
+    ref: Path | None = None
+    if provider == "pocket-tts":
+        if args.pocket_ref is not None:
+            ref = args.pocket_ref
+        elif config_dir is not None:
+            ref = tts_config_mod.resolve_ref_wav(config_dir, config)
+
+    return ResolvedTTS(
+        provider=provider,
+        voice=voice,
+        ref=ref,
+        pronunciations=list(config.pronunciations),
+        kokoro_speed=(
+            args.kokoro_speed if args.kokoro_speed is not None else 1.0
+        ),
+    )
+
+
+def generate_audio(
+    segments: list,
+    tmp_dir: Path,
+    resolved: ResolvedTTS,
+    env_path: Path,
+    piper_model: str | None = None,
+) -> list:
+    """The single config-driven TTS dispatcher. Applies the
+    pronunciation speech-text transform (copies — the caller's
+    segments keep their display narration), then dispatches to the
+    provider. Used by main()'s Phase A and the server's audio-only
+    segment re-render."""
+    speech = tts_config_mod.speech_segments(
+        segments, resolved.pronunciations
+    )
+    provider = resolved.provider
+    if provider == "piper":
+        model = piper_model or os.environ.get("PIPER_MODEL_PATH")
+        if not model:
+            print(
+                "  Set --piper-model or PIPER_MODEL_PATH env var",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        return generate_audio_piper(speech, tmp_dir, model)
+    if provider == "google":
+        return generate_audio_google(speech, tmp_dir, env_path)
+    if provider == "elevenlabs":
+        return generate_audio_elevenlabs(speech, tmp_dir, env_path)
+    if provider == "kokoro":
+        return generate_audio_kokoro(
+            speech, tmp_dir, resolved.voice, resolved.kokoro_speed
+        )
+    if provider == "pocket-tts":
+        if resolved.ref is not None and not resolved.ref.exists():
+            print(f"  --pocket-ref not found: {resolved.ref}", file=sys.stderr)
+            sys.exit(1)
+        return generate_audio_pocket_tts(
+            speech, tmp_dir, resolved.voice, resolved.ref
+        )
+    print(f"  Unknown TTS provider: {provider}", file=sys.stderr)
+    sys.exit(1)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="instantdemo render",
@@ -1148,8 +1253,16 @@ def main(argv=None):
     parser.add_argument(
         "--tts",
         choices=["piper", "google", "elevenlabs", "kokoro", "pocket-tts"],
-        default="google",
-        help="TTS provider (default: google)",
+        default=None,
+        help="TTS provider. Default: the project's tts.json, or "
+        "pocket-tts. (Explicit flags always override tts.json.)",
+    )
+    parser.add_argument(
+        "--tts-config",
+        type=Path,
+        default=None,
+        help="Path to a tts.json voice config (default: tts.json "
+        "next to the script, if present)",
     )
     parser.add_argument(
         "-o",
@@ -1173,19 +1286,19 @@ def main(argv=None):
     parser.add_argument(
         "--kokoro-voice",
         type=str,
-        default="af_heart",
+        default=None,
         help="Kokoro voice name (default: af_heart). See docs/kokoro-tts.md for full list.",
     )
     parser.add_argument(
         "--kokoro-speed",
         type=float,
-        default=1.0,
+        default=None,
         help="Kokoro speech speed (default: 1.0)",
     )
     parser.add_argument(
         "--pocket-voice",
         type=str,
-        default="alba",
+        default=None,
         help="Pocket TTS stock voice name (default: alba). "
         "Catalog: alba, marius, javert, jean, fantine, cosette, "
         "eponine, azelma, and others — see the pocket-tts docs.",
@@ -1259,37 +1372,34 @@ def main(argv=None):
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Phase A: Generate audio clips
-    provider_name = args.tts
-    print(f"Phase A: Generating audio clips with {provider_name}...")
-    if provider_name == "piper":
-        piper_model = args.piper_model or os.environ.get("PIPER_MODEL_PATH")
-        if not piper_model:
-            print(
-                "  Set --piper-model or PIPER_MODEL_PATH env var",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-        audio_clips = generate_audio_piper(segments, tmp_dir, piper_model)
-    elif provider_name == "google":
-        audio_clips = generate_audio_google(segments, tmp_dir, env_path)
-    elif provider_name == "elevenlabs":
-        audio_clips = generate_audio_elevenlabs(segments, tmp_dir, env_path)
-    elif provider_name == "kokoro":
-        audio_clips = generate_audio_kokoro(
-            segments, tmp_dir, args.kokoro_voice, args.kokoro_speed
-        )
-    elif provider_name == "pocket-tts":
-        pocket_ref = args.pocket_ref
-        if pocket_ref is not None and not pocket_ref.exists():
-            print(f"  --pocket-ref not found: {pocket_ref}", file=sys.stderr)
-            sys.exit(1)
-        audio_clips = generate_audio_pocket_tts(
-            segments, tmp_dir, args.pocket_voice, pocket_ref
-        )
+    # Phase A: Generate audio clips. Voice resolution: explicit CLI
+    # flags > tts.json (via --tts-config, or next to the script) >
+    # defaults. Only the audio path sees the pronunciation-transformed
+    # speech text; Phases B/C/D keep the original display segments.
+    if args.tts_config is not None:
+        config_dir = args.tts_config.resolve().parent
+        config = tts_config_mod.load(config_dir)
     else:
-        print(f"  Unknown TTS provider: {provider_name}", file=sys.stderr)
-        sys.exit(1)
+        config_dir = script_path.resolve().parent
+        config = tts_config_mod.load(config_dir)
+    resolved = _resolve_tts(args, config, config_dir if config else None)
+    voice_label = (
+        f"cloned voice ({resolved.ref.name})" if resolved.ref
+        else resolved.voice
+    )
+    print(
+        f"Phase A: Generating audio clips with {resolved.provider} "
+        f"/ {voice_label}..."
+    )
+    if resolved.pronunciations:
+        print(
+            f"  Pronunciations: {len(resolved.pronunciations)} "
+            "respelling(s) applied to speech text"
+        )
+    audio_clips = generate_audio(
+        segments, tmp_dir, resolved, env_path,
+        piper_model=args.piper_model,
+    )
 
     clip_durations = [get_audio_duration(clip) for clip in audio_clips]
     for i, dur in enumerate(clip_durations):

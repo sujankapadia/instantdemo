@@ -6,6 +6,17 @@ the deterministic detection + auto-resolution algorithm built on
 top, and the precedence + data model for the
 `pronunciations.json` feature.
 
+> **M3 status (2026-06-10):** the product shipped the
+> provider-UNIVERSAL slice instead — respelling entries
+> (`{match, say}`) in `<project>/tts.json`, applied as a
+> speech-text transform for every provider, verified by a
+> listen-check preview in the GUI's Voice dialog. Pocket TTS
+> (now the default provider) has no G2P/phoneme layer, so
+> everything below that touches misaki's lexicon — IPA installs,
+> miss detection, auto-resolution, the four-tier file precedence —
+> remains DEFERRED, Kokoro-only design. See issue #54 for the
+> rescope.
+
 ## TL;DR
 
 - Kokoro uses **misaki** as its G2P frontend. Overrides are

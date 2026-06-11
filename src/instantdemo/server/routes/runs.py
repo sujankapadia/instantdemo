@@ -93,7 +93,10 @@ class RunRequest(BaseModel):
     # project directory when None — produces lower-quality results
     # since the agent has no source to analyze.
     source: str | None = None
-    tts: str = "kokoro"
+    # Provider OVERRIDE only (M3). None — the normal case — means the
+    # renderer resolves the project's tts.json (the GUI's voice
+    # dialog edits that config; runs no longer carry voice params).
+    tts: str | None = None
     pause_between_phases: bool = False
     intent: IntentBody | None = None
     # Optional product one-pager / README excerpt (M1). Stored at
