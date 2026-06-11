@@ -163,6 +163,18 @@ async def run_smoke(confirm: bool) -> int:
             proposal = phase1.get("intent_proposal") or {}
             if not proposal.get("goal"):
                 errors.append("intent_proposal.goal missing")
+            # Persona rule (#69): the proposal is read verbatim by a
+            # PM — engineering vocabulary must not leak into it.
+            forbidden = (
+                "phase ", "pipeline", "selector", "segment", " dom ",
+                "wait_for", "css", "xpath",
+            )
+            goal_lower = f" {proposal.get('goal', '').lower()} "
+            leaked = [w for w in forbidden if w in goal_lower]
+            if leaked:
+                errors.append(
+                    f"proposal goal leaks engineering vocabulary: {leaked}"
+                )
             if state.get("intent_confirmed") is not False:
                 errors.append(
                     f"intent_confirmed: {state.get('intent_confirmed')!r}"
