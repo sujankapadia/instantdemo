@@ -27,6 +27,7 @@ from pathlib import Path
 
 from dataclasses import dataclass, field
 
+from instantdemo import brand as brand_mod
 from instantdemo import captions
 from instantdemo import tts_config as tts_config_mod
 from instantdemo.actions import CANONICAL_ACTIONS, validate_segments
@@ -542,6 +543,33 @@ def _build_combined_audio(
     return combined_audio
 
 
+def _logo_init_script(logo_path: Path) -> str:
+    """Page-level logo watermark (M6) — the cursor-inject pattern: a
+    fixed bottom-right element burned into the recording naturally,
+    identical across full records and scoped splice records, zero
+    ffmpeg cost. data: URI so no server dependency (CLI renders)."""
+    import base64
+
+    suffix = logo_path.suffix.lower()
+    mime = "image/jpeg" if suffix in (".jpg", ".jpeg") else "image/png"
+    b64 = base64.b64encode(logo_path.read_bytes()).decode("ascii")
+    return (
+        "(() => {\n"
+        "  const mount = () => {\n"
+        "    const img = document.createElement('img');\n"
+        f"    img.src = 'data:{mime};base64,{b64}';\n"
+        "    img.style.cssText = 'position:fixed;right:16px;bottom:14px;"
+        "max-height:48px;max-width:160px;opacity:.92;z-index:2147483646;"
+        "pointer-events:none;';\n"
+        "    document.documentElement.appendChild(img);\n"
+        "  };\n"
+        "  if (document.readyState === 'loading') {\n"
+        "    document.addEventListener('DOMContentLoaded', mount);\n"
+        "  } else { mount(); }\n"
+        "})();\n"
+    )
+
+
 PREFIX_BEAT_S = 0.35
 """Settle time per fast-forwarded prefix action during a scoped
 chapter record (M5b) — the prefix only establishes app state, it
@@ -556,6 +584,7 @@ def record_section_video(
     clip_durations: list[float],
     tmp_dir: Path,
     resolution: dict,
+    logo_path: Path | None = None,
 ) -> tuple[Path, list[tuple[float, float]]]:
     """Record ONLY segments [start_idx..end_idx] (M5b): one browser
     context with capture on throughout — the prefix segments'
@@ -581,6 +610,8 @@ def record_section_video(
             },
         )
         context.add_init_script(_CURSOR_INJECT_SCRIPT)
+        if logo_path is not None:
+            context.add_init_script(_logo_init_script(logo_path))
         page = context.new_page()
         recording_start = time.monotonic()
 
@@ -746,6 +777,7 @@ def render_section_main(
     old_chapter_len: int,
     tts_config_path: Path | None = None,
     tts_override: str | None = None,
+    brand_config_path: Path | None = None,
 ) -> None:
     """Scoped chapter render (M5b): synthesize audio for the chapter
     segments only, record just that span (fast prefix replay), and
@@ -795,9 +827,17 @@ def render_section_main(
         section_audio = _build_combined_audio(
             clips, clip_durations, chapter, tmp_dir
         )
+        brand_dir = (
+            brand_config_path.resolve().parent
+            if brand_config_path
+            else script_path.parent
+        )
+        logo = brand_mod.resolve_logo(
+            brand_dir, brand_mod.load_or_default(brand_dir)
+        )
         raw_video, timestamps = record_section_video(
             segments, start_idx, end_idx, clip_durations, tmp_dir,
-            resolution,
+            resolution, logo_path=logo,
         )
         slots = [
             _slot_seconds(clip_durations[j], chapter[j].get("pause_after_ms"))
@@ -1272,6 +1312,7 @@ def record_browser_video(
     clip_durations: list[float],
     resolution: dict,
     tmp_dir: Path,
+    logo_path: Path | None = None,
 ) -> tuple[Path, list[tuple[float, float]]]:
     """Record browser interactions with video capture, tracking segment timestamps.
 
@@ -1298,6 +1339,8 @@ def record_browser_video(
             },
         )
         context.add_init_script(_CURSOR_INJECT_SCRIPT)
+        if logo_path is not None:
+            context.add_init_script(_logo_init_script(logo_path))
         page = context.new_page()
         recording_start = time.monotonic()
 
@@ -1603,6 +1646,13 @@ def main(argv=None):
         "next to the script, if present)",
     )
     parser.add_argument(
+        "--brand-config",
+        type=Path,
+        default=None,
+        help="Path to a brand.json (logo watermark + outro card; "
+        "default: brand.json next to the script, if present)",
+    )
+    parser.add_argument(
         "-o",
         "--output",
         type=Path,
@@ -1745,8 +1795,17 @@ def main(argv=None):
 
     # Phase B: Record browser video
     print("\nPhase B: Recording browser with Playwright...")
+    brand_dir = (
+        args.brand_config.resolve().parent
+        if args.brand_config
+        else script_path.parent
+    )
+    brand_cfg = brand_mod.load_or_default(brand_dir)
+    logo = brand_mod.resolve_logo(brand_dir, brand_cfg)
+    if logo is not None:
+        print(f"  Logo watermark: {logo.name}")
     video_path, timestamps = record_browser_video(
-        segments, clip_durations, resolution, tmp_dir
+        segments, clip_durations, resolution, tmp_dir, logo_path=logo
     )
     print(f"  Video saved: {video_path}")
 

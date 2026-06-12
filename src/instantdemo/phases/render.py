@@ -169,12 +169,15 @@ def _invoke_renderer(context: Context) -> None:
             old_chapter_len,
             tts_config_path=context.project / "tts.json",
             tts_override=context.tts,
+            brand_config_path=context.project / "brand.json",
         )
         return
     argv = [
         str(context.script_path),
         "--tts-config",
         str(context.project / "tts.json"),
+        "--brand-config",
+        str(context.project / "brand.json"),
         "-o",
         str(context.output),
     ]
