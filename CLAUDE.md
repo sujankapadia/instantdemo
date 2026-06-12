@@ -314,6 +314,12 @@ self-contained restoration of a prior run.
   two scoped splices → the GUI-driven Revise loop → the
   timing-fixes healing render); the M5b L5 found six shipped
   defects on this project (PR #86)
+- `m7-longform-evernote-2026-06-12` — first chaptered long-form film
+  (M7): 6 chapters / 21 scenes / ~2:15, $2.44 cold start from a
+  comprehensive brief; cloned voice (reference in `.instantdemo/`);
+  takes arc = original → narration edit → alba-splice bug → healed
+  clone splice; the M7 L5's chapter Revise found three shipped
+  defects on this project (PR #94)
 
 To restore: `cp -r fixtures/<name>/. /tmp/restore && instantdemo
 serve --project /tmp/restore --port 8770`.
