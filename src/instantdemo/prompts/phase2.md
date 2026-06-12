@@ -15,13 +15,9 @@ Plan the narrative:
   story breathe.
 - **Lead with the payoff** — show the impressive result early, then
   explain how you got there.
-- **Group the scenes into chapters** — 2 to 6 named beats of the
-  story ("Opening", "Finding a note", "The privacy story"), each one
-  a contiguous run of scenes. Chapters are how the user will later
-  review and revise the film, so name them the way a viewer would
-  describe the film's parts — never with pipeline or engineering
-  vocabulary. Every scene belongs to exactly one chapter; a chapter
-  never reappears after a different chapter has begun.
+- **Set every scene's `section` to the chapter you were given.**
+  Chapters are how the user reviews and revises the film; you are
+  planning exactly one of them.
 - **Narration defaults**: short sentences, present tense, spoken-word
   style, no jargon, contractions OK.
 - Some scenes may have no narration (e.g. login, scrolling to

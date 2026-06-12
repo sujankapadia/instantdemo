@@ -37,3 +37,4 @@ Test: `tests/test_render_resolve.py`
 | T5 | --pocket-ref flag over config ref_wav | Flag path wins | Can't A/B a new reference from the CLI |
 | T6 | Config with dangling ref_wav | ref None (stock voice fallback) | Deleted WAV bricks every render |
 | T7 | Pronunciations always flow from config | resolved.pronunciations == config's regardless of provider flags | Respellings vanish when overriding the provider |
+| T8 | _load_tts_config_file with the FILE path (a real tts.json with ref_wav); also a missing path | Returns the parsed config (it loads the file's parent dir); chained through _resolve_tts the ref resolves absolute; missing path → None, no crash | The live alba-splice bug: tts_config.load takes the PROJECT DIR, so handing it the file path silently returns None — the chapter splice re-voices in stock alba while the rest of the film keeps the clone |

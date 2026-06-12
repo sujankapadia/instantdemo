@@ -48,7 +48,6 @@ from typing import Any
 from .. import prompts, storyboard
 from .. import state as state_mod
 from ..actions import CANONICAL_ACTIONS
-from ..agent_client import session_id_for_phase
 from .analyze import new_screenshots, screenshot_event, watch_screenshots
 from . import (
     Context,
@@ -166,7 +165,8 @@ def _build_initial_prompt(
         f"This is a CHAPTER REVISION: rehearse and verify ONLY the\n"
         f"\"{section}\" chapter's segments below. Report findings (and\n"
         "save rehearsal screenshots) for those segments ONLY, keyed by\n"
-        "the indices shown.\n"
+        "the GLOBAL segment numbers exactly as shown in the headings\n"
+        "(\"### Segment N\") — do NOT renumber the chapter from 1.\n"
         "\n"
         f"{prefix_block}"
         "The chapter under rehearsal — each segment has a primary\n"
@@ -178,6 +178,68 @@ def _build_initial_prompt(
         "\n"
         f"{template}"
     )
+
+
+async def _correct_scope_indices(
+    context: Context,
+    findings: dict[str, Any],
+    scope_indices: set[int],
+    session_id: str,
+) -> dict[str, Any]:
+    """One corrective re-ask when findings key segments by local
+    positions instead of the global Segment numbers. Without this,
+    the scope guard silently ignores every finding and the chapter
+    concludes OK with nothing applied (caught live in the first M7
+    chapter revision). JSON-only re-emit; no browser re-run."""
+    bad = sorted(
+        {
+            seg.get("index")
+            for seg in findings.get("segments") or []
+            if seg.get("index") not in scope_indices
+        },
+        key=repr,
+    )
+    if not bad:
+        return findings
+    valid = ", ".join(str(i) for i in sorted(scope_indices))
+    print(
+        f"[Phase 4] findings used out-of-scope indices {bad} — "
+        f"one corrective re-ask (valid: {valid})"
+    )
+    text, result = await run_query_on_client(
+        context,
+        (
+            f"Your findings JSON used segment indices {bad}, which are "
+            "not the chapter under rehearsal. Findings must be keyed by "
+            "the GLOBAL segment numbers from the plan headings "
+            f'("### Segment N"): the valid indices are {valid}. '
+            "Re-emit ONLY the corrected fenced JSON findings block — do "
+            "not re-run any browser steps, do not change statuses or "
+            "reasons."
+        ),
+        session_id=session_id,
+    )
+    if result is not None:
+        record_phase_result(context, 4, result)
+    fixed = _parse_findings(text or "")
+    if fixed is None:
+        print(
+            "[Phase 4] corrective re-ask returned no parseable findings "
+            "— keeping the original payload"
+        )
+        return findings
+    still_bad = [
+        seg.get("index")
+        for seg in fixed.get("segments") or []
+        if seg.get("index") not in scope_indices
+    ]
+    if still_bad:
+        print(
+            f"[Phase 4] corrective re-ask still out of scope "
+            f"({still_bad}) — keeping the original payload"
+        )
+        return findings
+    return fixed
 
 
 def _build_retry_prompt(prior_findings: dict[str, Any], iteration: int) -> str:
@@ -568,6 +630,162 @@ async def _ensure_screenshots(
         )
 
 
+async def run_for_section(
+    context: Context,
+    doc: dict,
+    section: str | None,
+    shots_dir: Path,
+    artifact: Path,
+    session_id: str,
+) -> tuple[dict[str, Any] | None, str | None, str, int, float]:
+    """Rehearse ONE chapter (M7): the full convergence loop, scoped to
+    the section — prefix scenes replay as verified setup (earlier
+    chapters rehearsed first, so the prefix is verified by
+    construction). Merges the section's findings into the doc and
+    returns (findings, overall, last_text, final_iteration)."""
+    if section is None:
+        scope_indices: set[int] | None = None
+        budget_count = len(doc["scenes"])
+    else:
+        scope_indices = {
+            s["index"] for s in doc["scenes"]
+            if s.get("section") == section
+        }
+        if not scope_indices:
+            raise RuntimeError(f"Phase 4: no chapter named {section!r}")
+        budget_count = len(scope_indices)
+    iteration_budget = _iteration_budget_s(budget_count)
+
+    # Cost snapshot: session_cost_totals is keyed by the SDK's own
+    # session UUID (result.session_id), not our logical session ids,
+    # so the section's cost is measured as dispatcher-total growth.
+    cost_before = 0.0
+    if context.dispatcher is not None:
+        cost_before = sum(context.dispatcher.session_cost_totals.values())
+
+    findings: dict[str, Any] | None = None
+    overall: str | None = None
+    verified_text = ""
+    prior_signature: frozenset[tuple[int, str]] | None = None
+    final_iteration = 0
+
+    for iteration in range(1, MAX_ITERATIONS + 1):
+        final_iteration = iteration
+        if iteration == 1:
+            prompt = _build_initial_prompt(
+                doc, context.url, str(context.phase_artifact(3)),
+                shots_dir, section,
+            )
+        else:
+            assert findings is not None  # only retry after a parsed iteration
+            prompt = _build_retry_prompt(findings, iteration)
+
+        start_ts = time.monotonic()
+        # Soft ceiling: the SDK call runs to completion. We check
+        # elapsed AFTER the call and only refuse to start iteration
+        # N+1 if N already overran. Mid-call hard cancellation would
+        # discard all in-flight work.
+        verified_text, result = await run_query_on_client(
+            context, prompt, session_id=session_id
+        )
+        elapsed = time.monotonic() - start_ts
+
+        if result is None:
+            raise RuntimeError(
+                "Phase 4: the Claude Agent SDK did not return a "
+                f"ResultMessage on iteration {iteration}."
+            )
+
+        # Persist this iteration's text as the artifact (later
+        # iterations overwrite — phase4.md reflects the LAST report
+        # until the final rendered view lands). Record metrics per
+        # iteration (per-section sessions keep cost deltas correct).
+        artifact.write_text(verified_text + "\n")
+        record_phase_result(context, 4, result)
+        label = f"{section!r} " if section else ""
+        print(
+            summarize_run(4, artifact, result)
+            + f" [{label}iter {iteration}, {elapsed:.1f}s]"
+        )
+
+        findings = _parse_findings(verified_text)
+        if findings is None:
+            # No parseable findings — legacy directive logic decides.
+            break
+
+        if scope_indices is not None:
+            findings = await _correct_scope_indices(
+                context, findings, scope_indices, session_id
+            )
+
+        overall = _findings_overall(findings)
+        if overall == "OK":
+            break
+
+        signature = _failure_signature(findings)
+        if signature == prior_signature:
+            print(
+                f"[Phase 4] iteration {iteration} produced the same "
+                "FAIL signature as the prior iteration — no progress, "
+                "stopping."
+            )
+            break
+        prior_signature = signature
+
+        if elapsed > iteration_budget:
+            print(
+                f"[Phase 4] iteration {iteration} took {elapsed:.1f}s, "
+                f"exceeding the {iteration_budget:.0f}s soft budget; "
+                "not starting another iteration."
+            )
+            break
+
+    if findings is not None:
+        await _ensure_screenshots(context, session_id, shots_dir, findings)
+        if overall is None:
+            overall = _findings_overall(findings)
+        # Merge this section's findings BEFORE any BLOCKED raise so
+        # failure state is captured in the canonical document.
+        merge_warnings = merge_findings_into_storyboard(
+            doc, findings, iteration=final_iteration,
+            scope_indices=scope_indices,
+        )
+        for warning in merge_warnings:
+            print(f"[Phase 4] merge warning: {warning}")
+        storyboard.save(context.state_dir, doc)
+        # Honesty check: a section cannot conclude OK while its scenes
+        # are still hypothesized (findings ignored by the scope guard,
+        # or scenes never reported). Phase 5 would reject the board at
+        # record time — fail HERE, where the cause is visible.
+        if scope_indices is not None and overall == "OK":
+            unverified = [
+                s["id"] for s in doc["scenes"]
+                if s["index"] in scope_indices
+                and s.get("status") not in ("verified", "warn")
+            ]
+            if unverified:
+                print(
+                    "[Phase 4] chapter reported OK but scenes "
+                    f"{unverified} were never verified (no finding "
+                    "applied to them) — refusing the OK."
+                )
+                overall = "BLOCKED"
+    else:
+        overall = _legacy_overall(verified_text)
+
+    # The section's true cost: how much the dispatcher's summed
+    # session totals grew during this section — robust regardless of
+    # which key the SDK reports results under.
+    section_cost = 0.0
+    if context.dispatcher is not None:
+        section_cost = max(
+            0.0,
+            sum(context.dispatcher.session_cost_totals.values())
+            - cost_before,
+        )
+    return findings, overall, verified_text, final_iteration, section_cost
+
+
 async def run(context: Context) -> None:
     if context.client is None:
         raise RuntimeError(
@@ -576,16 +794,18 @@ async def run(context: Context) -> None:
         )
 
     doc = storyboard.load(context.state_dir)
-    section = context.section_scope
-    scope_indices: set[int] | None = None
-    if section:
-        scope_indices = {
-            s["index"] for s in doc["scenes"] if s.get("section") == section
-        }
-        if not scope_indices:
-            raise RuntimeError(
-                f"Phase 4 (scoped): no chapter named {section!r}"
-            )
+
+    # Chaptered always (M7): rehearse chapter by chapter, in film
+    # order — each chapter's prefix is verified by construction. A
+    # scoped revision is the single-chapter case of the same loop.
+    if context.section_scope:
+        sections: list[str | None] = [context.section_scope]
+    else:
+        sections = [c["name"] for c in storyboard.chapters(doc)]
+        if not sections:
+            # Legacy sectionless storyboard: one full-board leg —
+            # the original behavior.
+            sections = [None]
 
     artifact = context.phase_artifact(4)
     artifact.parent.mkdir(parents=True, exist_ok=True)
@@ -593,11 +813,9 @@ async def run(context: Context) -> None:
     shots_dir = rehearsal_dir(context.state_dir)
     shots_dir.mkdir(parents=True, exist_ok=True)
     # Clear stale shots so the gate never shows a prior run's screens.
-    # Scoped (M5b): out-of-scope scenes keep their thumbnails (they
-    # aren't re-rehearsed); only files no longer backed by a current
-    # scene id are stale — which covers the replaced chapter's
-    # retired ids.
-    if section:
+    # Scoped revision: out-of-scope scenes keep their thumbnails; a
+    # cold start re-rehearses everything, so everything is stale.
+    if context.section_scope:
         live_ids = {s["id"] for s in doc["scenes"]}
         for old in shots_dir.glob("*.png"):
             if old.stem not in live_ids:
@@ -606,12 +824,7 @@ async def run(context: Context) -> None:
         for old in shots_dir.glob("*.png"):
             old.unlink()
 
-    segment_count = (
-        len(scope_indices) if scope_indices else len(doc["scenes"])
-    )
-    iteration_budget = _iteration_budget_s(segment_count)
-    session_id = session_id_for_phase(4, context.run_id)
-
+    run8 = (context.run_id or "")[:8] or "norun"
     seen_shots: set[str] = set()
     watcher: asyncio.Task | None = None
     emit = context.event_emitter
@@ -623,88 +836,43 @@ async def run(context: Context) -> None:
             )
         )
 
-    findings: dict[str, Any] | None = None
-    overall: str | None = None
-    verified_text = ""
-    prior_signature: frozenset[tuple[int, str]] | None = None
-    final_iteration = 0
+    combined_segments: list[dict[str, Any]] = []
+    any_findings = False
+    blocked = False
+    last_text = ""
+    phase_cost = 0.0
 
     try:
-        for iteration in range(1, MAX_ITERATIONS + 1):
-            final_iteration = iteration
-            if iteration == 1:
-                prompt = _build_initial_prompt(
-                    doc, context.url, str(context.phase_artifact(3)),
-                    shots_dir, section,
+        for k, section in enumerate(sections):
+            if emit is not None and len(sections) > 1:
+                emit({
+                    "type": "chapter_progress",
+                    "phase": 4,
+                    "current": k + 1,
+                    "total": len(sections),
+                    "name": section,
+                })
+            findings, overall, last_text, _, section_cost = (
+                await run_for_section(
+                    context, doc, section, shots_dir, artifact,
+                    f"phase4-{run8}-c{k + 1}",
                 )
-            else:
-                assert findings is not None  # only retry after a parsed iteration
-                prompt = _build_retry_prompt(findings, iteration)
-
-            start_ts = time.monotonic()
-            # Soft ceiling: the SDK call runs to completion. We check
-            # elapsed AFTER the call and only refuse to start iteration
-            # N+1 if N already overran. Mid-call hard cancellation would
-            # discard all in-flight work.
-            verified_text, result = await run_query_on_client(
-                context, prompt, session_id=session_id
             )
-            elapsed = time.monotonic() - start_ts
-
-            if result is None:
-                raise RuntimeError(
-                    "Phase 4: the Claude Agent SDK did not return a "
-                    f"ResultMessage on iteration {iteration}."
-                )
-
-            # Persist this iteration's text as the artifact (later iterations
-            # overwrite earlier ones — phase4.md always reflects the LAST
-            # rehearsal's report). Record metrics for cost / token tracking.
-            artifact.write_text(verified_text + "\n")
-            record_phase_result(context, 4, result)
-            print(
-                summarize_run(4, artifact, result)
-                + f" [iter {iteration}, {elapsed:.1f}s]"
-            )
-
-            findings = _parse_findings(verified_text)
-            if findings is None:
-                # No parseable findings — defer to legacy directive logic
-                # below. Don't iterate further; structured iteration
-                # requires structured findings.
+            phase_cost += section_cost
+            if findings is not None:
+                any_findings = True
+                combined_segments.extend(findings.get("segments") or [])
+            if overall == "BLOCKED":
+                # Fail fast: later chapters' prefixes depend on this
+                # chapter's verified flow.
+                blocked = True
+                if k + 1 < len(sections):
+                    print(
+                        f"[Phase 4] chapter {section!r} BLOCKED — "
+                        f"skipping {len(sections) - k - 1} remaining "
+                        "chapter(s) (their setup depends on it)."
+                    )
                 break
-
-            overall = _findings_overall(findings)
-            if overall == "OK":
-                break
-
-            signature = _failure_signature(findings)
-            if signature == prior_signature:
-                print(
-                    f"[Phase 4] iteration {iteration} produced the same "
-                    "FAIL signature as the prior iteration — no progress, "
-                    "stopping."
-                )
-                break
-            prior_signature = signature
-
-            # Soft ceiling check: if this iteration overran its budget,
-            # don't start the next one. The current iteration's work is
-            # preserved (artifact written, cost recorded).
-            if elapsed > iteration_budget:
-                print(
-                    f"[Phase 4] iteration {iteration} took {elapsed:.1f}s, "
-                    f"exceeding the {iteration_budget:.0f}s soft budget; "
-                    "not starting another iteration."
-                )
-                break
-
-        # Screenshot enforcement (one corrective turn, never fails the
-        # phase) runs while the watcher is still streaming.
-        if findings is not None:
-            await _ensure_screenshots(
-                context, session_id, shots_dir, findings
-            )
     finally:
         if watcher is not None and emit is not None:
             watcher.cancel()
@@ -718,50 +886,45 @@ async def run(context: Context) -> None:
                     name, phase=4, url_prefix=_REHEARSAL_URL_PREFIX,
                 ))
 
-    # Persist findings + overall to state.json. Falls back to legacy
-    # text directive parsing when the agent emitted no JSON block.
-    if findings is not None:
-        if overall is None:
-            overall = _findings_overall(findings)
-
-        # Merge the FINAL findings into the storyboard — once, after
-        # the convergence loop (findings are cumulative across
-        # iterations), and BEFORE the BLOCKED raise so failure state
-        # is captured in the canonical document. phase4.md becomes
-        # the rendered view of the merged result.
-        merge_warnings = merge_findings_into_storyboard(
-            doc, findings, iteration=final_iteration,
-            scope_indices=scope_indices,
-        )
-        for warning in merge_warnings:
-            print(f"[Phase 4] merge warning: {warning}")
+    combined: dict[str, Any] | None = (
+        {"segments": combined_segments} if any_findings else None
+    )
+    if combined is not None:
         linked = link_rehearsal_screenshots(doc, shots_dir)
         print(f"[Phase 4] rehearsal screenshots linked: {len(linked)}")
         storyboard.save(context.state_dir, doc)
-        artifact.write_text(storyboard.render_phase4_view(doc, findings))
-
+        artifact.write_text(storyboard.render_phase4_view(doc, combined))
+        overall = "BLOCKED" if blocked else _findings_overall(combined)
         state_mod.record_phase_metrics(
             context.state_dir,
             4,
-            explore_findings=findings,
+            explore_findings=combined,
             explore_overall=overall,
         )
     else:
-        overall = _legacy_overall(verified_text)
+        overall = "BLOCKED" if blocked else _legacy_overall(last_text)
         state_mod.record_phase_metrics(
             context.state_dir,
             4,
             explore_overall=overall,
         )
 
+    # The per-iteration records overwrite state.json's cost with the
+    # last delta — write the true phase total (sum of the per-section
+    # session finals; sessions are per-chapter so finals are
+    # independent cumulative totals).
+    state_mod.record_phase_metrics(
+        context.state_dir, 4, cost_usd=round(phase_cost, 6)
+    )
+
     # Diff artifact — always emit, even when no revisions or no
     # parseable findings (the file documents the no-op case).
-    _write_diff_artifact(context.state_dir, findings)
+    _write_diff_artifact(context.state_dir, combined)
 
     if overall == "BLOCKED":
         failures: list[str] = []
-        if findings is not None:
-            for seg in findings.get("segments") or []:
+        if combined is not None:
+            for seg in combined.get("segments") or []:
                 status = seg.get("status", "")
                 if status in ("FAIL_SELECTOR", "FAIL_NARRATIVE"):
                     idx = seg.get("index", "?")

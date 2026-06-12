@@ -28,7 +28,9 @@ intent.json, which takes priority.
 
 from __future__ import annotations
 
-from .. import prompts, storyboard
+from typing import Any
+
+from .. import prompts, revise, storyboard
 from ..actions import CANONICAL_ACTIONS
 from ..agent_client import session_id_for_phase
 from ..checkpoints import parse_answer_block
@@ -72,9 +74,9 @@ def _resolve_inputs(
     }
 
 
-def _build_prompt(phase1_text: str, inputs: dict[str, object]) -> str:
-    template = prompts.load("phase2")
-
+def _inputs_header(inputs: dict[str, object]) -> list[str]:
+    """The deterministic intent header shared by the outline and
+    chapter-plan prompts."""
     lines: list[str] = []
     flow = inputs.get("flow", "")
     if flow:
@@ -96,67 +98,138 @@ def _build_prompt(phase1_text: str, inputs: dict[str, object]) -> str:
         lines.append("Additional guidance:")
         for item in addenda_items:  # type: ignore[union-attr]
             lines.append(f"- {item}")
-    lines.append("")
-    lines.append("---")
-    lines.append("Codebase analysis (from Phase 1):")
-    lines.append("")
-    lines.append(phase1_text)
-    lines.append("---")
-    lines.append("")
-    lines.append(template)
+    return lines
 
+
+def _build_outline_prompt(phase1_text: str, inputs: dict[str, object]) -> str:
+    lines = _inputs_header(inputs)
+    lines += [
+        "",
+        "---",
+        "Codebase analysis (from Phase 1):",
+        "",
+        phase1_text,
+        "---",
+        "",
+        prompts.load("phase2_outline"),
+    ]
     return "\n".join(lines)
 
 
-def _validate_payload(payload: dict) -> list[str]:
-    """Validate the agent's plan payload before it becomes a storyboard."""
+def _outline_text(outline: dict) -> str:
+    """The whole arc, rendered for every chapter-plan prompt so each
+    chapter knows the film it belongs to."""
+    lines = [f"The film: {outline['title']} — {outline.get('summary', '')}"]
+    for i, ch in enumerate(outline["chapters"], start=1):
+        lines.append(f"  {i}. {ch['name']} — {ch['purpose']}")
+    return "\n".join(lines)
+
+
+def _build_chapter_plan_prompt(
+    outline: dict,
+    index: int,
+    prev_scene: dict | None,
+    phase1_text: str,
+    inputs: dict[str, object],
+) -> str:
+    """One chapter's planning call (M7). The chapter calls share ONE
+    session: the FIRST carries the heavy context (outline, phase-1
+    analysis, the scene rules) and every later call is a short
+    continuation — the context is already in the conversation, so
+    each chapter costs its own output, not a re-send of the world."""
+    chapter = outline["chapters"][index]
+    ask = [
+        f"Now plan chapter {index + 1}: \"{chapter['name']}\" — "
+        f"{chapter['purpose']} (around {chapter.get('est_scenes', 4)} "
+        "scenes; use what the beat needs).",
+        "",
+    ]
+    if prev_scene is not None:
+        narration = prev_scene.get("narration") or "(silent)"
+        ask += [
+            "The previous chapter's final scene was "
+            f"\"{prev_scene['title']}\" ({prev_scene['action']}) with the "
+            f"narration: \"{narration}\" — your chapter continues from the "
+            "app state and the sentence rhythm that scene leaves behind. "
+            "Don't repeat its information or echo its phrasing.",
+            "",
+        ]
+    else:
+        ask += [
+            "This chapter OPENS the film — your first scene must get the "
+            "app to its starting state itself (e.g. goto).",
+            "",
+        ]
+    ask += [
+        f"Every scene's `section` must be \"{chapter['name']}\". The "
+        "`title` and `summary` fields of your JSON are ignored; only "
+        "`scenes` is read. Later chapters are planned separately — end "
+        "your chapter in an app state the next chapter's purpose can "
+        "start from.",
+    ]
+    if index > 0:
+        # Continuation: the outline, analysis, and rules are already
+        # in the session.
+        return "\n".join(ask + [
+            "",
+            "Same output format and narration/grounding rules as before.",
+        ])
+    lines = _inputs_header(inputs)
+    lines += [
+        "",
+        "You will plan this film ONE CHAPTER AT A TIME, in order, in "
+        "this conversation. The full outline:",
+        "",
+        _outline_text(outline),
+        "",
+    ]
+    lines += ask
+    lines += [
+        "",
+        "---",
+        "Codebase analysis (from Phase 1):",
+        "",
+        phase1_text,
+        "---",
+        "",
+        prompts.load("phase2"),
+    ]
+    return "\n".join(lines)
+
+
+def _validate_outline(payload: dict) -> list[str]:
+    """Validate the outline payload (M7) — the film's arc before any
+    scene exists."""
     problems: list[str] = []
-    scenes = payload.get("scenes")
-    if not isinstance(scenes, list) or not scenes:
-        problems.append("payload must contain a non-empty 'scenes' array")
-        return problems
     if not isinstance(payload.get("title"), str) or not payload["title"]:
         problems.append("payload must contain a non-empty 'title' string")
-    for i, scene in enumerate(scenes, start=1):
-        if not isinstance(scene, dict):
-            problems.append(f"scene {i}: must be an object")
-            continue
-        if not isinstance(scene.get("title"), str) or not scene["title"]:
-            problems.append(f"scene {i}: missing 'title'")
-        if not isinstance(scene.get("narration"), str):
-            problems.append(
-                f"scene {i}: 'narration' must be a string (\"\" for silent)"
-            )
-        if scene.get("action") not in CANONICAL_ACTIONS:
-            problems.append(
-                f"scene {i}: unknown action {scene.get('action')!r}; "
-                f"allowed: {', '.join(sorted(CANONICAL_ACTIONS))}"
-            )
-        if not isinstance(scene.get("section"), str) or not scene["section"].strip():
-            problems.append(
-                f"scene {i}: missing 'section' (the chapter this scene "
-                "belongs to)"
-            )
-
-    # Chapter coherence (M5a): each chapter is one contiguous run.
-    seen_sections: list[str] = []
-    for scene in scenes:
-        name = scene.get("section")
-        if not isinstance(name, str) or not name.strip():
-            continue
-        if seen_sections and seen_sections[-1] == name:
-            continue
-        if name in seen_sections:
-            problems.append(
-                f"section {name!r} reappears after another chapter began — "
-                "each chapter must be one contiguous run of scenes"
-            )
-        seen_sections.append(name)
-    if len(seen_sections) > 8:
+    chapters = payload.get("chapters")
+    if not isinstance(chapters, list) or not chapters:
+        problems.append("payload must contain a non-empty 'chapters' array")
+        return problems
+    if not (2 <= len(chapters) <= 12):
         problems.append(
-            f"{len(seen_sections)} chapters is too many — group the story "
-            "into 2-6 beats"
+            f"{len(chapters)} chapters — outline 2 to 12 beats"
         )
+    seen: set[str] = set()
+    for i, ch in enumerate(chapters, start=1):
+        if not isinstance(ch, dict):
+            problems.append(f"chapter {i}: must be an object")
+            continue
+        name = ch.get("name")
+        if not isinstance(name, str) or not name.strip():
+            problems.append(f"chapter {i}: missing 'name'")
+        elif name in seen:
+            problems.append(f"chapter {i}: duplicate name {name!r}")
+        else:
+            seen.add(name)
+        if not isinstance(ch.get("purpose"), str) or not ch["purpose"].strip():
+            problems.append(f"chapter {i}: missing 'purpose'")
+        est = ch.get("est_scenes")
+        if not isinstance(est, int) or not (1 <= est <= 12):
+            problems.append(
+                f"chapter {i}: 'est_scenes' must be an integer 1-12"
+            )
     return problems
 
 
@@ -379,6 +452,95 @@ async def _run_scoped(context: Context) -> None:
     )
 
 
+CONTINUITY_PROMPT = """You are the script editor reading a demo film's
+full narration in one sitting. The chapters were written separately;
+your job is to make them read as ONE film.
+
+Look ONLY for:
+- repetitive chapter openers ("Now let's...", "Next we..." again and
+  again) — vary or drop them
+- information repeated across chapters (a fact narrated twice)
+- broken transitions (a chapter that ignores where the previous one
+  left the viewer)
+- global claims duplicated per chapter (e.g. the privacy line said
+  three times)
+
+Do NOT restyle, expand, or improve narration that already works.
+Return ONLY changed scenes. Keep every rewrite the same approximate
+length, spoken plain text, no markup. If the narration already reads
+as one film, return an empty rewrites object.
+
+END your response with exactly ONE fenced ```json block:
+
+```json
+{
+  "kind": "rewrite",
+  "explanation": "one sentence on what you smoothed (or that nothing needed it)",
+  "rewrites": {"<1-based scene number>": "new narration"}
+}
+```
+"""
+
+
+def _continuity_validator(scene_count: int):
+    """Tolerant wrapper over the style-pass validator (M7): an empty
+    rewrites map means "reads fine" and is accepted."""
+
+    def validate(payload: dict) -> list[str]:
+        if (
+            payload.get("kind") == "rewrite"
+            and isinstance(payload.get("rewrites"), dict)
+            and not payload["rewrites"]
+        ):
+            return []
+        return revise.validate_style_payload(
+            payload, segment_count=scene_count
+        )
+
+    return validate
+
+
+async def _continuity_pass(
+    context: Context, doc: dict, outline: dict, session_id: str
+) -> tuple[Any, int]:
+    """One no-tools read-through of the whole narration (M7 beat 3).
+    Mutates scene narrations in place via revise.apply_rewrites; the
+    caller saves. Returns (cost, turns)."""
+    scenes = doc["scenes"]
+    lines = [
+        "The film's outline:",
+        _outline_text(outline),
+        "",
+        "The narration, scene by scene (chapter markers inline):",
+    ]
+    current = None
+    for i, scene in enumerate(scenes, start=1):
+        if scene.get("section") != current:
+            current = scene.get("section")
+            lines.append(f"--- chapter: {current} ---")
+        narration = (scene.get("narration") or "").strip() or "(silent)"
+        lines.append(f"{i}. {narration}")
+    lines += ["", CONTINUITY_PROMPT]
+
+    payload, result = await run_structured_query(
+        context,
+        "\n".join(lines),
+        session_id,
+        validate=_continuity_validator(len(scenes)),
+        phase_number=2,
+    )
+    rewrites = payload.get("rewrites") or {}
+    if rewrites:
+        changed = revise.apply_rewrites(scenes, rewrites)
+        print(
+            f"  Continuity pass: smoothed {len(changed)} scene(s) — "
+            f"{payload.get('explanation', '')}"
+        )
+    else:
+        print("  Continuity pass: narration reads as one film")
+    return result, int(getattr(result, "num_turns", 0) or 0)
+
+
 async def run(context: Context) -> None:
     if context.client is None:
         raise RuntimeError(
@@ -403,20 +565,33 @@ async def run(context: Context) -> None:
     phase2_answers = parse_answer_block(artifact.read_text()) if artifact.exists() else {}
 
     inputs = _resolve_inputs(context, phase1_answers, phase2_answers)
-    prompt = _build_prompt(phase1_text, inputs)
+    run8 = (context.run_id or "")[:8] or "norun"
+    # ONE session for outline + chapters + continuity (M7 cost fix):
+    # the heavy context is paid once; each chapter is a short
+    # continuation. The session's final total_cost_usd IS the phase
+    # cost (cumulative within a session).
+    session_id = f"phase2-{run8}"
+    total_turns = 0
 
-    payload, result = await run_structured_query(
+    # Beat 1 (M7): the outline — the film's arc before any scene.
+    outline, result = await run_structured_query(
         context,
-        prompt,
-        session_id_for_phase(2, context.run_id),
-        validate=_validate_payload,
+        _build_outline_prompt(phase1_text, inputs),
+        session_id,
+        validate=_validate_outline,
         phase_number=2,
+    )
+    total_turns += int(getattr(result, "num_turns", 0) or 0)
+    chapters = outline["chapters"]
+    print(
+        f"  Outline: {len(chapters)} chapters — "
+        + ", ".join(ch["name"] for ch in chapters)
     )
 
     doc = storyboard.new_document(
-        title=payload["title"],
+        title=outline["title"],
         url=context.url,
-        summary=payload.get("summary", ""),
+        summary=outline.get("summary", ""),
         provenance={
             "tone": inputs["tone"],
             "audience": inputs["audience"],
@@ -424,18 +599,66 @@ async def run(context: Context) -> None:
             "intent_goal": inputs["flow"],
         },
     )
-    for scene in payload["scenes"]:
-        storyboard.add_scene(
-            doc,
-            title=scene["title"],
-            narration=scene.get("narration", ""),
-            action=scene["action"],
-            target_hint=scene.get("target_hint", ""),
-            section=scene.get("section"),
+
+    # Beat 2: plan each chapter as its own bounded call. Whole-chapter
+    # appends keep contiguity valid at every save.
+    for k, chapter in enumerate(chapters):
+        if context.event_emitter is not None:
+            context.event_emitter({
+                "type": "chapter_progress",
+                "phase": 2,
+                "current": k + 1,
+                "total": len(chapters),
+                "name": chapter["name"],
+            })
+        prev_scene = doc["scenes"][-1] if doc["scenes"] else None
+        payload, result = await run_structured_query(
+            context,
+            _build_chapter_plan_prompt(
+                outline, k, prev_scene, phase1_text, inputs
+            ),
+            session_id,
+            validate=_scoped_validator(chapter["name"]),
+            phase_number=2,
         )
+        total_turns += int(getattr(result, "num_turns", 0) or 0)
+        for scene in payload["scenes"]:
+            storyboard.add_scene(
+                doc,
+                title=scene["title"],
+                narration=scene.get("narration", ""),
+                action=scene["action"],
+                target_hint=scene.get("target_hint", ""),
+                section=chapter["name"],
+            )
+        storyboard.save(context.state_dir, doc)
+        problems = storyboard.validate_storyboard(doc, stage="planned")
+        if problems:
+            raise RuntimeError(
+                f"Phase 2: storyboard invalid after chapter "
+                f"{chapter['name']!r}: " + "; ".join(problems)
+            )
+        print(
+            f"  Chapter {k + 1}/{len(chapters)} {chapter['name']!r}: "
+            f"{len(payload['scenes'])} scenes"
+        )
+
+    # Beat 3: the continuity pass — one no-tools read-through so the
+    # chapters speak as one film.
+    result, cont_turns = await _continuity_pass(
+        context, doc, outline, session_id
+    )
+    total_turns += cont_turns
     storyboard.save(context.state_dir, doc)
+    total_cost = float(getattr(result, "total_cost_usd", 0.0) or 0.0)
 
     artifact.write_text(storyboard.render_phase2_view(doc, inputs))
-    record_phase_result(context, 2, result)
+    record_phase_result(
+        context, 2, result,
+        cost_usd_total=total_cost, num_turns_total=total_turns,
+    )
     print(summarize_run(2, artifact, result))
-    print(f"  (storyboard: {len(doc['scenes'])} scenes)")
+    print(
+        f"  (storyboard: {len(doc['scenes'])} scenes in "
+        f"{len(chapters)} chapters; phase total ${total_cost:.2f})"
+    )

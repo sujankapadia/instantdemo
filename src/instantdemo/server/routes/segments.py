@@ -262,12 +262,16 @@ async def delete_segment_endpoint(
 
 def _snapshot_take_safely(project: Path, label: str) -> None:
     """Versioned take BEFORE a mutating revision (M4): the current
-    film becomes restorable history. Never fails the operation."""
+    film becomes restorable history. Skipped when the newest take
+    already IS the current film (a fresh post-render snapshot —
+    duplicating it would offer two identical "previous versions").
+    Never fails the operation."""
     from instantdemo import takes
 
     try:
-        n = takes.snapshot(project, label)
-        print(f"[segments] Saved version {n} before {label}")
+        n = takes.snapshot_unless_current(project, label)
+        if n is not None:
+            print(f"[segments] Saved version {n} before {label}")
     except OSError as exc:
         print(f"[segments] WARNING: take snapshot failed: {exc}")
 

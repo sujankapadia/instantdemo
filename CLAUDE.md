@@ -110,9 +110,9 @@ narrow tool allowlist:
 | # | Internal name | User-facing label | Purpose | Tools |
 |---|---|---|---|---|
 | 1 | `analyze` | Understand | **Explore-first (M1)**: drive the LIVE APP with Playwright (screenshots stream to the GUI), optionally enriched by source + a product one-pager; proposes the demo intent for user confirmation | `Bash`, `Read`, `Glob`, `Grep` |
-| 2 | `narrate` | Plan | Create `storyboard.json` (scenes grouped into 2-6 named chapters; title/narration/action/target_hint/section) from Phase 1 + `intent.json` | (none) |
-| 3 | `gather` | Inspect | Enrich scenes with selectors (+fallback arrays), wait conditions, pacing — merged by stable scene id | `Read`, `Glob`, `Grep` |
-| 4 | `explore` | Explore | Dress-rehearsal: walk the plan in headless Playwright, verify selectors, reground narration; findings merge back into the storyboard as revisions | `Read`, `Bash` |
+| 2 | `narrate` | Plan | **Chaptered (M7)**: outline call (2-12 chapters w/ purposes) → per-chapter plan calls → continuity pass, all in ONE session (context paid once, chapters as short continuations); creates `storyboard.json` | (none) |
+| 3 | `gather` | Inspect | Enrich scenes with selectors (+fallbacks), waits, pacing — per-chapter calls in ONE session (source reads amortized), merged by stable scene id | `Read`, `Glob`, `Grep` |
+| 4 | `explore` | Explore | Dress-rehearsal PER CHAPTER (M7): each chapter its own bounded convergence session (prefix replays as verified setup; fail-fast on a blocked chapter); findings merge as revisions, combined globally | `Read`, `Bash` |
 | 5 | `script` | Build | **Deterministic projection** (no agent): storyboard → `demo-script.json`, validated against `actions.py` | (pure code) |
 | 6 | `render` | Render | Lightweight drift check, then record video + TTS + ffmpeg merge | `Read`, `Bash` |
 
@@ -136,6 +136,19 @@ runs gated by user review —
 Regenerate takes the SAME staged flow since M5a (#82 stage 1) — no
 blind `[1..6]` runs; phase 6 snapshots the existing film as a take
 before overwriting when it isn't already one.
+
+**The chaptered cold start (M7):** the CHAPTER is the unit of agent
+work everywhere — phase 2 outlines first then plans chapter by
+chapter (one session; later chapters are short continuations so the
+heavy context is paid once — the per-fresh-session variant cost 10x
+and was fixed live), phase 3 enriches per chapter in one session
+(source reads amortized), phase 4 rehearses per chapter in ISOLATED
+sessions (its execution logs are the real context bomb) failing
+fast on a blocked chapter. Prompts are O(chapter); cost is linear
+in film length (~2x the old single-shot on small demos, in exchange
+for one architecture at every scale); legacy sectionless boards
+degrade to a single full-board leg. chapter_progress SSE events
+drive the header's "chapter 3 of 8" suffix.
 
 **Scoped chapter revision (M5b):** "Revise this chapter" on the film
 face's scenes pane starts a `[2,3,4]` run with `section_scope` +
@@ -361,6 +374,9 @@ serve --project /tmp/restore --port 8770`.
   dress-rehearsal instead
 - `DRESS_REHEARSAL_DESIGN.md` — Phase 4 dress-rehearsal design + prototype
   plan + convergence guarantees
+- `MAINTENANCE_RUN_DESIGN.md` — the maintenance run: CI re-runs that
+  repair instead of regenerate (issues labeled `maintenance-run`,
+  tracking #93)
 - `KOKORO_PRONUNCIATIONS.md` — pronunciation override design (issue #54)
 - `GUI-DECISIONS.md` / `GUI-IMPLEMENTATION.md` — GUI design and
   implementation notes from the M1-M3 milestones

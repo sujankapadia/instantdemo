@@ -415,6 +415,8 @@ def record_phase_result(
     result: "ResultMessage",
     *,
     duration_ms: int | None = None,
+    cost_usd_total: float | None = None,
+    num_turns_total: int | None = None,
 ) -> None:
     """Capture metrics from a query() ResultMessage.
 
@@ -451,12 +453,20 @@ def record_phase_result(
         # crash; resulting cost may be inflated on re-runs.
         delta = current_total
 
+    # Multi-call phases (M7: the chaptered phase 2 makes K+2 calls in
+    # K+2 fresh sessions) pass their summed cost/turns; `result` is
+    # the LAST call, whose own totals would undercount.
+    if cost_usd_total is not None:
+        delta = cost_usd_total
+
     usage = result.usage or {}
     fields = {
         "cost_usd": delta,
         "duration_ms": duration_ms if duration_ms is not None else result.duration_ms,
         "duration_api_ms": result.duration_api_ms,
-        "num_turns": result.num_turns,
+        "num_turns": (
+            num_turns_total if num_turns_total is not None else result.num_turns
+        ),
         "is_error": result.is_error,
         "stop_reason": result.stop_reason,
         "session_id_phase": result.session_id,
