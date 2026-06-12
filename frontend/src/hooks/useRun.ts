@@ -67,6 +67,8 @@ export interface UseRunReturn {
   error: string | null
   /** Phase 1 exploration screenshots streamed via SSE (M1). */
   screenshots: { file: string; url: string }[]
+  /** Per-chapter progress within phases 2-4 (M7), null between. */
+  chapterProgress: { current: number; total: number; name: string } | null
   startRun: (req: RunRequest) => Promise<void>
   cancel: () => Promise<void>
   continueRun: () => Promise<void>
@@ -111,6 +113,12 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
   const [screenshots, setScreenshots] = useState<
     { file: string; url: string }[]
   >([])
+  // M7: phases 2-4 work chapter by chapter — "chapter 3 of 8: name".
+  const [chapterProgress, setChapterProgress] = useState<{
+    current: number
+    total: number
+    name: string
+  } | null>(null)
 
   const subscriptionRef = useRef<StreamSubscription | null>(null)
   const runIdRef = useRef<string | null>(null)
@@ -148,6 +156,7 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
     switch (event.type) {
       case 'phase_started':
         setCurrentPhase(event.phase)
+        setChapterProgress(null)
         setPhaseUpdates((prev) => {
           const next = new Map(prev)
           next.set(event.phase, { status: 'running' })
@@ -191,6 +200,7 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
         })
         setCumulativeCost((prev) => prev + (event.cost_usd ?? 0))
         setCurrentPhase(null)
+        setChapterProgress(null)
         appendLog({
           kind: 'phase_complete',
           phase: event.phase,
@@ -198,6 +208,14 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
           cost_usd: event.cost_usd,
         })
         onPhaseCompleteRef.current?.(event.phase)
+        break
+
+      case 'chapter_progress':
+        setChapterProgress({
+          current: event.current,
+          total: event.total,
+          name: event.name,
+        })
         break
 
       case 'phase_error':
@@ -378,6 +396,7 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
     status,
     runId,
     currentPhase,
+    chapterProgress,
     pausedAfter,
     nextPhase,
     phaseUpdates,

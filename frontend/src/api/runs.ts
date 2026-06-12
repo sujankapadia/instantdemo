@@ -58,6 +58,15 @@ export type RunEvent =
       num_turns: number | null
     }
   | { type: 'phase_error'; phase: number; error: string }
+  | {
+      // M7: phases 2-4 work chapter by chapter; this drives the
+      // header's "chapter 3 of 8" suffix.
+      type: 'chapter_progress'
+      phase: number
+      current: number
+      total: number
+      name: string
+    }
   | { type: 'screenshot'; phase: number; file: string; url: string }
   | { type: 'paused'; completed_phase: number; next_phase: number }
   | { type: 'resumed'; next_phase: number }
