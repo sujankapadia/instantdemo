@@ -298,9 +298,21 @@ def explore_findings(doc: dict, section: str, status: str = "PASS") -> str:
     return "report\n```json\n" + json.dumps({"segments": segs}) + "\n```\n"
 
 
+def local_explore_findings(doc: dict, section: str) -> str:
+    """Findings keyed 1..n within the chapter — the live revise bug's
+    shape (the agent renumbered instead of using global indices)."""
+    count = sum(1 for s in doc["scenes"] if s["section"] == section)
+    segs = [
+        {"index": i + 1, "status": "PASS", "reason": "ok"}
+        for i in range(count)
+    ]
+    return "report\n```json\n" + json.dumps({"segments": segs}) + "\n```\n"
+
+
 class TestExploreLoop:
     def _run(self, tmp_path, monkeypatch, blocked_chapter=None,
-             dispatcher=None):
+             dispatcher=None, local_indices_chapter=None,
+             correction_fixes=True):
         import asyncio
 
         from instantdemo.phases import explore
@@ -320,6 +332,13 @@ class TestExploreLoop:
             doc = storyboard.load(context.state_dir)
             k = int(session_id.rsplit("-c", 1)[1])
             name = OUTLINE["chapters"][k - 1]["name"]
+            if "Re-emit ONLY the corrected" in prompt:
+                # The corrective re-ask (EL5/EL6): JSON-only re-emit.
+                if correction_fixes:
+                    return explore_findings(doc, name), FakeResult()
+                return local_explore_findings(doc, name), FakeResult()
+            if name == local_indices_chapter:
+                return local_explore_findings(doc, name), FakeResult()
             status = (
                 "FAIL_SELECTOR" if name == blocked_chapter else "PASS"
             )
@@ -390,6 +409,38 @@ class TestExploreLoop:
         # Three chapter calls at $0.10 each, all accumulated under the
         # SDK's UUID key — the phase total must still come out right.
         assert st["phases"]["4"]["cost_usd"] == pytest.approx(0.30)
+
+    def test_local_indices_corrected(self, tmp_path, monkeypatch):  # EL5
+        context, sessions, err = self._run(
+            tmp_path, monkeypatch, local_indices_chapter="Search"
+        )
+        assert err is None
+        # One corrective re-ask, in the SAME chapter session.
+        assert sessions == [
+            "phase4-abcdef12-c1",
+            "phase4-abcdef12-c2",
+            "phase4-abcdef12-c2",
+            "phase4-abcdef12-c3",
+        ]
+        doc = storyboard.load(context.state_dir)
+        assert all(s["status"] == "verified" for s in doc["scenes"])
+
+    def test_uncorrected_indices_refuse_ok(self, tmp_path, monkeypatch):  # EL6
+        context, sessions, err = self._run(
+            tmp_path, monkeypatch, local_indices_chapter="Search",
+            correction_fixes=False,
+        )
+        # The section must NOT conclude OK with hypothesized scenes —
+        # it fails at rehearsal time, and chapter 3 never rehearses.
+        assert err is not None and "block the render" in str(err)
+        assert sessions == [
+            "phase4-abcdef12-c1",
+            "phase4-abcdef12-c2",
+            "phase4-abcdef12-c2",
+        ]
+        doc = storyboard.load(context.state_dir)
+        search = [s for s in doc["scenes"] if s["section"] == "Search"]
+        assert all(s["status"] == "hypothesized" for s in search)
 
     def test_blocked_fails_fast(self, tmp_path, monkeypatch):  # EL2
         context, sessions, err = self._run(

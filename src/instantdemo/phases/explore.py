@@ -165,7 +165,8 @@ def _build_initial_prompt(
         f"This is a CHAPTER REVISION: rehearse and verify ONLY the\n"
         f"\"{section}\" chapter's segments below. Report findings (and\n"
         "save rehearsal screenshots) for those segments ONLY, keyed by\n"
-        "the indices shown.\n"
+        "the GLOBAL segment numbers exactly as shown in the headings\n"
+        "(\"### Segment N\") — do NOT renumber the chapter from 1.\n"
         "\n"
         f"{prefix_block}"
         "The chapter under rehearsal — each segment has a primary\n"
@@ -177,6 +178,68 @@ def _build_initial_prompt(
         "\n"
         f"{template}"
     )
+
+
+async def _correct_scope_indices(
+    context: Context,
+    findings: dict[str, Any],
+    scope_indices: set[int],
+    session_id: str,
+) -> dict[str, Any]:
+    """One corrective re-ask when findings key segments by local
+    positions instead of the global Segment numbers. Without this,
+    the scope guard silently ignores every finding and the chapter
+    concludes OK with nothing applied (caught live in the first M7
+    chapter revision). JSON-only re-emit; no browser re-run."""
+    bad = sorted(
+        {
+            seg.get("index")
+            for seg in findings.get("segments") or []
+            if seg.get("index") not in scope_indices
+        },
+        key=repr,
+    )
+    if not bad:
+        return findings
+    valid = ", ".join(str(i) for i in sorted(scope_indices))
+    print(
+        f"[Phase 4] findings used out-of-scope indices {bad} — "
+        f"one corrective re-ask (valid: {valid})"
+    )
+    text, result = await run_query_on_client(
+        context,
+        (
+            f"Your findings JSON used segment indices {bad}, which are "
+            "not the chapter under rehearsal. Findings must be keyed by "
+            "the GLOBAL segment numbers from the plan headings "
+            f'("### Segment N"): the valid indices are {valid}. '
+            "Re-emit ONLY the corrected fenced JSON findings block — do "
+            "not re-run any browser steps, do not change statuses or "
+            "reasons."
+        ),
+        session_id=session_id,
+    )
+    if result is not None:
+        record_phase_result(context, 4, result)
+    fixed = _parse_findings(text or "")
+    if fixed is None:
+        print(
+            "[Phase 4] corrective re-ask returned no parseable findings "
+            "— keeping the original payload"
+        )
+        return findings
+    still_bad = [
+        seg.get("index")
+        for seg in fixed.get("segments") or []
+        if seg.get("index") not in scope_indices
+    ]
+    if still_bad:
+        print(
+            f"[Phase 4] corrective re-ask still out of scope "
+            f"({still_bad}) — keeping the original payload"
+        )
+        return findings
+    return fixed
 
 
 def _build_retry_prompt(prior_findings: dict[str, Any], iteration: int) -> str:
@@ -650,6 +713,11 @@ async def run_for_section(
             # No parseable findings — legacy directive logic decides.
             break
 
+        if scope_indices is not None:
+            findings = await _correct_scope_indices(
+                context, findings, scope_indices, session_id
+            )
+
         overall = _findings_overall(findings)
         if overall == "OK":
             break
@@ -685,6 +753,23 @@ async def run_for_section(
         for warning in merge_warnings:
             print(f"[Phase 4] merge warning: {warning}")
         storyboard.save(context.state_dir, doc)
+        # Honesty check: a section cannot conclude OK while its scenes
+        # are still hypothesized (findings ignored by the scope guard,
+        # or scenes never reported). Phase 5 would reject the board at
+        # record time — fail HERE, where the cause is visible.
+        if scope_indices is not None and overall == "OK":
+            unverified = [
+                s["id"] for s in doc["scenes"]
+                if s["index"] in scope_indices
+                and s.get("status") not in ("verified", "warn")
+            ]
+            if unverified:
+                print(
+                    "[Phase 4] chapter reported OK but scenes "
+                    f"{unverified} were never verified (no finding "
+                    "applied to them) — refusing the OK."
+                )
+                overall = "BLOCKED"
     else:
         overall = _legacy_overall(verified_text)
 
