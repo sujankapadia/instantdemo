@@ -96,7 +96,7 @@ class TestRoutes:
         })
         assert res.status_code == 422  # clamped by validation
 
-    def test_delete_logo(self, client):  # BR7
+    def test_delete_logo_route(self, client):  # BR7
         project, c = client
         c.post(
             "/api/project/brand/logo",
@@ -106,3 +106,56 @@ class TestRoutes:
         assert res.status_code == 200
         assert res.json()["logo_exists"] is False
         assert not (project / ".instantdemo" / "logo.png").exists()
+
+
+class TestOutroTiming:
+    def test_timing_writer_outro(self, tmp_path: Path):  # OT1
+        import json
+        from instantdemo.render import BREATH_S, _write_segment_timing
+
+        state_dir = tmp_path / ".instantdemo"
+        segments = [
+            {"action": "wait", "narration": "Hi.", "pause_after_ms": 0},
+        ]
+        _write_segment_timing(
+            state_dir, segments, [2.0], "demo.mp4", outro_s=4.0
+        )
+        t = json.loads((state_dir / "segment-timing.json").read_text())
+        assert t["outro_s"] == 4.0
+        assert len(t["segments"]) == 1  # no outro row
+        assert t["total_duration_s"] == round(2.0 + BREATH_S + 4.0, 3)
+        srt = (tmp_path / "demo.srt").read_text()
+        assert srt.count("-->") == 1  # no outro cue
+
+    def test_rebuild_carries_outro(self):  # OT2
+        from instantdemo.render import rebuild_section_timing
+
+        old = {
+            "outro_s": 4.0,
+            "segments": [
+                {"index": i, "start_s": i * 5.0, "end_s": (i + 1) * 5.0,
+                 "audio_duration_s": 4.0, "recorded_clean_duration_s": 5.0}
+                for i in range(3)
+            ],
+        }
+        out = rebuild_section_timing(
+            old, [{}] * 3, start_idx=1, end_idx=1, old_chapter_len=1,
+            section_slots_s=[5.0], section_recorded_s=[5.0],
+            section_audio_s=[4.0], output_filename="demo.mp4",
+        )
+        assert out["outro_s"] == 4.0
+        assert out["total_duration_s"] == 15.0 + 4.0
+
+    def test_load_outro_s(self, tmp_path: Path):  # OT3
+        import json
+        from instantdemo.server.routes.segments import _load_outro_s
+
+        state_dir = tmp_path / ".instantdemo"
+        state_dir.mkdir()
+        assert _load_outro_s(state_dir) == 0.0
+        (state_dir / "segment-timing.json").write_text("{bad")
+        assert _load_outro_s(state_dir) == 0.0
+        (state_dir / "segment-timing.json").write_text(
+            json.dumps({"outro_s": 3.5, "segments": []})
+        )
+        assert _load_outro_s(state_dir) == 3.5

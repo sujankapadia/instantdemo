@@ -25,3 +25,13 @@ Test: `tests/test_brand.py`
 | BR5 | POST logo: wrong type / oversized / empty | 422 each, plain message | Garbage burned into every future film |
 | BR6 | PUT outro settings | Persisted to brand.json; duration clamped by validation (2–10s) | An hour-long outro card |
 | BR7 | DELETE logo | File gone; config logo None; state logo_exists false | "Remove" leaves the watermark in the next record |
+
+## outro timing plumbing
+
+| ID | Scenario | Assertion | Risk if broken |
+|----|----------|-----------|----------------|
+| OT1 | _write_segment_timing with outro_s=4 | payload outro_s == 4.0; total == rows end + 4; rows untouched (no outro row, no caption cue) | Seek/splice math counts the card as a scene, or loses it |
+| OT2 | rebuild_section_timing on old timing carrying outro_s | outro_s survives the splice; total includes it | The next re-voice after a chapter revision silently cuts the card |
+| OT3 | segments._load_outro_s on missing/malformed/valued timing | 0.0 / 0.0 / the value | Audio-only paths truncate the outro via -shortest |
+
+(OT rows implemented in test_brand.py's TestOutroTiming.)

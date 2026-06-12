@@ -421,6 +421,7 @@ def _write_segment_timing(
     audio_durations_s: list[float],
     output_filename: str,
     recorded_durations_s: list[float] | None = None,
+    outro_s: float = 0.0,
 ) -> None:
     """Write per-segment playback timing to <state_dir>/segment-timing.json.
 
@@ -463,9 +464,15 @@ def _write_segment_timing(
     state_dir.mkdir(parents=True, exist_ok=True)
     payload = {
         "video": output_filename,
-        "total_duration_s": round(cursor, 3),
+        # The outro card (M6) is not a scene — no row, no caption
+        # cue — but it IS film: the total includes it, and the
+        # audio-only paths read this field to pad their audio so
+        # `-shortest` can't truncate the card.
+        "total_duration_s": round(cursor + outro_s, 3),
         "segments": out_segments,
     }
+    if outro_s > 0:
+        payload["outro_s"] = round(outro_s, 3)
     (state_dir / "segment-timing.json").write_text(
         json.dumps(payload, indent=2) + "\n"
     )
@@ -495,11 +502,13 @@ def _build_combined_audio(
     clip_durations: list[float],
     segments: list[dict],
     tmp_dir: Path,
+    tail_silence_s: float = 0.0,
 ) -> Path:
     """Concat per-segment audio clips with silence padding, return path
     to the combined WAV. Same logic as the combine_audio_video tail —
     extracted so audio-only re-render can reuse it without going through
-    video trim+concat."""
+    video trim+concat. tail_silence_s (M6) covers the outro card so
+    `-shortest` can't truncate its frames."""
     wav_clips = [_ensure_wav(clip, i, tmp_dir) for i, clip in enumerate(audio_clips)]
     audio_files: list[Path] = []
     for i, wav in enumerate(wav_clips):
@@ -522,6 +531,20 @@ def _build_combined_audio(
                 capture_output=True,
             )
             audio_files.append(gap_silence)
+
+    if tail_silence_s > 0:
+        tail = tmp_dir / "silence_outro.wav"
+        subprocess.run(  # nosec B607
+            [
+                "ffmpeg", "-y",
+                "-f", "lavfi",
+                "-i", "anullsrc=r=44100:cl=stereo",
+                "-t", str(tail_silence_s),
+                str(tail),
+            ],
+            capture_output=True,
+        )
+        audio_files.append(tail)
 
     combined_audio = tmp_dir / "combined_audio.wav"
     audio_inputs: list[str] = []
@@ -568,6 +591,36 @@ def _logo_init_script(logo_path: Path) -> str:
         "  } else { mount(); }\n"
         "})();\n"
     )
+
+
+def _outro_data_url(title: str, text: str, logo_path: Path | None) -> str:
+    """The outro card (M6): screening-room dark, the film's title in
+    a generous register, the user's line beneath, logo centered when
+    present. Rendered by the recording browser as a data: URL —
+    captured like any page, no ffmpeg compositing."""
+    import base64
+    import urllib.parse
+
+    logo_tag = ""
+    if logo_path is not None:
+        suffix = logo_path.suffix.lower()
+        mime = "image/jpeg" if suffix in (".jpg", ".jpeg") else "image/png"
+        b64 = base64.b64encode(logo_path.read_bytes()).decode("ascii")
+        logo_tag = (
+            f'<img src="data:{mime};base64,{b64}" '
+            'style="max-height:72px;max-width:280px;margin-bottom:28px;">'
+        )
+    html = f"""<!doctype html><html><head><meta charset="utf-8"><style>
+  html,body {{ margin:0; height:100%; }}
+  body {{ display:flex; align-items:center; justify-content:center;
+         background:#211f1c; color:#efece7;
+         font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; }}
+  .card {{ text-align:center; padding:0 8%; }}
+  h1 {{ font-size:42px; font-weight:600; letter-spacing:-0.01em; margin:0 0 14px; }}
+  p {{ font-size:22px; color:#b8b2a8; margin:0; }}
+</style></head><body><div class="card">{logo_tag}
+<h1>{title}</h1><p>{text}</p></div></body></html>"""
+    return "data:text/html;charset=utf-8," + urllib.parse.quote(html)
 
 
 PREFIX_BEAT_S = 0.35
@@ -761,11 +814,18 @@ def rebuild_section_timing(
         row["end_s"] = round(cursor + duration, 3)
         cursor = row["end_s"]
         tail_rows.append(row)
-    return {
+    # The outro card (M6) rides the tail extraction — carry its
+    # duration so the next audio-only op keeps padding for it.
+    outro_s = old_timing.get("outro_s")
+    outro_s = float(outro_s) if isinstance(outro_s, (int, float)) else 0.0
+    payload = {
         "video": output_filename,
-        "total_duration_s": round(cursor, 3),
+        "total_duration_s": round(cursor + outro_s, 3),
         "segments": pre_rows + chapter_rows + tail_rows,
     }
+    if outro_s > 0:
+        payload["outro_s"] = round(outro_s, 3)
+    return payload
 
 
 def render_section_main(
@@ -795,11 +855,19 @@ def render_section_main(
     old_rows = old_timing["segments"]
     pre_end_s = old_rows[start_idx - 1]["end_s"] if start_idx > 0 else 0.0
     tail_first = start_idx + old_chapter_len
-    tail_start_s = (
-        old_rows[tail_first]["start_s"]
-        if tail_first < len(old_rows)
-        else -1.0
+    old_outro = old_timing.get("outro_s")
+    old_outro = (
+        float(old_outro) if isinstance(old_outro, (int, float)) else 0.0
     )
+    if tail_first < len(old_rows):
+        tail_start_s = old_rows[tail_first]["start_s"]
+    elif old_outro > 0:
+        # Chapter at the film's end but an outro card follows (M6):
+        # the "tail" is the outro itself — extract from the last
+        # row's nominal end to the file end.
+        tail_start_s = old_rows[-1]["end_s"] if old_rows else 0.0
+    else:
+        tail_start_s = -1.0
 
     args = argparse.Namespace(
         tts=tts_override, kokoro_voice=None, kokoro_speed=None,
@@ -920,6 +988,7 @@ def remux_audio_only(
     output_path: Path,
     tmp_dir: Path,
     recorded_durations_s: list[float] | None = None,
+    outro_s: float = 0.0,
 ) -> None:
     """Replace the audio track of an existing demo.mp4 with newly-built
     audio. Picks one of three strategies based on how the new audio
@@ -942,7 +1011,8 @@ def remux_audio_only(
     surgically; otherwise we fall back to the global tail pad.
     """
     combined_audio = _build_combined_audio(
-        audio_clips, clip_durations, segments, tmp_dir
+        audio_clips, clip_durations, segments, tmp_dir,
+        tail_silence_s=outro_s,
     )
 
     # Compute per-segment slot durations (matches _build_combined_audio's
@@ -968,6 +1038,7 @@ def remux_audio_only(
                 recorded_durations_s=recorded_durations_s,
                 slot_durations_s=slot_durations_s,
                 output_path=output_path,
+                outro_s=outro_s,
             )
             return
         # All segments fit — use cheap copy path below.
@@ -987,7 +1058,10 @@ def remux_audio_only(
                 "-i", str(existing_video),
                 "-i", str(combined_audio),
                 "-filter_complex",
-                f"[0:v]tpad=stop_mode=clone:stop_duration={pad_seconds:.3f}[vpad]",
+                # fps=25 first: tpad under-pads on variable-rate
+                # screen recordings (clones spaced by the input's
+                # last frame duration — see the per-segment path).
+                f"[0:v]fps=25,tpad=stop_mode=clone:stop_duration={pad_seconds:.3f}[vpad]",
                 "-map", "[vpad]",
                 "-map", "1:a",
                 "-c:v", "libx264",
@@ -1028,6 +1102,7 @@ def _remux_with_per_segment_extension(
     recorded_durations_s: list[float],
     slot_durations_s: list[float],
     output_path: Path,
+    outro_s: float = 0.0,
 ) -> None:
     """Rebuild the video with per-segment trim + tpad-extend + concat,
     then mux the new audio. Used when at least one segment's audio
@@ -1043,10 +1118,16 @@ def _remux_with_per_segment_extension(
         start = cursor
         end = cursor + rec
         cursor = end
-        # Trim segment i from the source video and reset its timestamps.
+        # Trim segment i from the source video and reset its
+        # timestamps. fps=25 normalizes to CONSTANT frame rate before
+        # tpad: screen recordings are variable-rate (frames only on
+        # change), and tpad clones the last frame spaced by the
+        # input's frame duration — on sparse VFR that adds ~zero
+        # frames, silently under-padding (found in the M6 outro gate;
+        # it had quietly weakened #37 extensions all along).
         trim_clauses.append(
             f"[0:v]trim=start={start:.3f}:end={end:.3f},"
-            f"setpts=PTS-STARTPTS[s{i}t]"
+            f"setpts=PTS-STARTPTS,fps=25[s{i}t]"
         )
         # If this segment overflows, freeze the last frame for the
         # missing duration. Otherwise pass through unchanged.
@@ -1059,13 +1140,23 @@ def _remux_with_per_segment_extension(
             pad_clauses.append(f"[s{i}t]null[s{i}]")
         concat_inputs.append(f"[s{i}]")
 
+    n_parts = len(recorded_durations_s)
+    if outro_s > 0:
+        # The outro card's frames (M6) sit after the last segment's
+        # recorded window — carry them through the rebuild.
+        trim_clauses.append(
+            f"[0:v]trim=start={cursor:.3f},setpts=PTS-STARTPTS,fps=25[outro]"
+        )
+        concat_inputs.append("[outro]")
+        n_parts += 1
+
     filter_graph = (
         ";".join(trim_clauses)
         + ";"
         + ";".join(pad_clauses)
         + ";"
         + "".join(concat_inputs)
-        + f"concat=n={len(recorded_durations_s)}:v=1:a=0[outv]"
+        + f"concat=n={n_parts}:v=1:a=0[outv]"
     )
 
     total_pad = sum(max(0.0, s - r) for r, s in zip(recorded_durations_s, slot_durations_s))
@@ -1313,7 +1404,9 @@ def record_browser_video(
     resolution: dict,
     tmp_dir: Path,
     logo_path: Path | None = None,
-) -> tuple[Path, list[tuple[float, float]]]:
+    outro_url: str | None = None,
+    outro_s: float = 0.0,
+) -> tuple[Path, list[tuple[float, float]], float | None]:
     """Record browser interactions with video capture, tracking segment timestamps.
 
     Returns (video_path, timestamps) where timestamps is a list of
@@ -1362,6 +1455,16 @@ def record_browser_video(
             seg_end = time.monotonic() - recording_start
             timestamps.append((seg_start, seg_end))
 
+        # The outro card (M6): captured as trailing frames after the
+        # final slot. combine_audio_video appends them as one more
+        # trim part; the audio track is padded by the same duration.
+        outro_start: float | None = None
+        if outro_url is not None and outro_s > 0:
+            print(f"  Outro card: holding {outro_s:.1f}s")
+            page.goto(outro_url, wait_until="domcontentloaded")
+            outro_start = time.monotonic() - recording_start
+            time.sleep(outro_s + 0.2)  # small margin past the hold
+
         # Close context to finalize video
         video = page.video
         if video is None:
@@ -1371,7 +1474,7 @@ def record_browser_video(
         context.close()
         browser.close()
 
-    return Path(video_path), timestamps
+    return Path(video_path), timestamps, outro_start
 
 
 # ---------------------------------------------------------------------------
@@ -1387,69 +1490,22 @@ def combine_audio_video(
     output_path: Path,
     tmp_dir: Path,
     timestamps: list[tuple[float, float]],
+    outro_start: float | None = None,
+    outro_s: float = 0.0,
 ) -> None:
     """Merge audio clips with video into final MP4 using ffmpeg.
 
     Uses segment timestamps to trim loading frames from the video before
     merging with audio. Each segment's video is extracted from the continuous
     recording starting when the action completed (page ready), excluding
-    any loading/skeleton frames that preceded it.
+    any loading/skeleton frames that preceded it. When an outro was
+    recorded (M6), its frames append as one more trim part and the
+    audio is padded by the same duration.
     """
-    # Normalize all clips to WAV for consistent concatenation
-    wav_clips = [_ensure_wav(clip, i, tmp_dir) for i, clip in enumerate(audio_clips)]
-
-    # Build the ordered list of audio files (per-segment audio + gap silences).
-    audio_files: list[Path] = []
-    for i, wav in enumerate(wav_clips):
-        audio_files.append(wav)
-        pause_ms = segments[i].get("pause_after_ms", 0)
-        audio_ms = clip_durations[i] * 1000
-        gap_ms = max(
-            0, _slot_seconds(clip_durations[i], pause_ms) * 1000 - audio_ms
-        )
-        if gap_ms > 0:
-            gap_silence = tmp_dir / f"silence_{i}.wav"
-            subprocess.run(  # nosec B607
-                [
-                    "ffmpeg",
-                    "-y",
-                    "-f",
-                    "lavfi",
-                    "-i",
-                    "anullsrc=r=44100:cl=stereo",
-                    "-t",
-                    str(gap_ms / 1000),
-                    str(gap_silence),
-                ],
-                capture_output=True,
-            )
-            audio_files.append(gap_silence)
-
-    # Concatenate via filter_complex `concat` rather than the concat demuxer
-    # with `-c copy`. The demuxer doesn't normalize formats — when the
-    # silence helpers (44100 stereo) are mixed with a TTS provider that
-    # outputs a different format (e.g. Kokoro at 24000 mono), the output
-    # WAV header takes the first file's format and downstream byte counts
-    # produce a wildly wrong duration. filter_complex resamples to a common
-    # format and produces correct-duration output.
-    combined_audio = tmp_dir / "combined_audio.wav"
-    audio_inputs: list[str] = []
-    for path in audio_files:
-        audio_inputs.extend(["-i", str(path)])
-    n = len(audio_files)
-    audio_filter = (
-        "".join(f"[{i}:a]" for i in range(n))
-        + f"concat=n={n}:v=0:a=1[out]"
-    )
-    subprocess.run(  # nosec B607
-        ["ffmpeg", "-y"] + audio_inputs + [
-            "-filter_complex",
-            audio_filter,
-            "-map",
-            "[out]",
-            str(combined_audio),
-        ],
-        capture_output=True,
+    has_outro = outro_start is not None and outro_s > 0
+    combined_audio = _build_combined_audio(
+        audio_clips, clip_durations, segments, tmp_dir,
+        tail_silence_s=outro_s if has_outro else 0.0,
     )
 
     # Trim, concatenate, and mux in a single ffmpeg pass
@@ -1474,9 +1530,16 @@ def combine_audio_video(
             f"[0:v]trim=start={seg_start:.3f}:duration={duration:.3f},"
             f"setpts=PTS-STARTPTS[v{i}]"
         )
-    concat_inputs = "".join(f"[v{i}]" for i in range(len(timestamps)))
+    n_parts = len(timestamps)
+    if has_outro:
+        filter_parts.append(
+            f"[0:v]trim=start={outro_start:.3f}:duration={outro_s:.3f},"
+            f"setpts=PTS-STARTPTS[v{n_parts}]"
+        )
+        n_parts += 1
+    concat_inputs = "".join(f"[v{i}]" for i in range(n_parts))
     filter_parts.append(
-        f"{concat_inputs}concat=n={len(timestamps)}:v=1:a=0[outv]"
+        f"{concat_inputs}concat=n={n_parts}:v=1:a=0[outv]"
     )
     filter_complex = ";".join(filter_parts)
 
@@ -1804,8 +1867,16 @@ def main(argv=None):
     logo = brand_mod.resolve_logo(brand_dir, brand_cfg)
     if logo is not None:
         print(f"  Logo watermark: {logo.name}")
-    video_path, timestamps = record_browser_video(
-        segments, clip_durations, resolution, tmp_dir, logo_path=logo
+    outro_url: str | None = None
+    outro_hold = 0.0
+    if brand_cfg.outro_enabled:
+        outro_url = _outro_data_url(
+            script.get("title") or "Demo", brand_cfg.outro_text, logo
+        )
+        outro_hold = brand_cfg.outro_duration_s
+    video_path, timestamps, outro_start = record_browser_video(
+        segments, clip_durations, resolution, tmp_dir, logo_path=logo,
+        outro_url=outro_url, outro_s=outro_hold,
     )
     print(f"  Video saved: {video_path}")
 
@@ -1813,7 +1884,7 @@ def main(argv=None):
     print("\nPhase C: Combining audio + video with ffmpeg...")
     combine_audio_video(
         video_path, audio_clips, clip_durations, segments, output_path, tmp_dir,
-        timestamps,
+        timestamps, outro_start=outro_start, outro_s=outro_hold,
     )
 
     # Phase D: Write per-segment timing for the GUI segments view
@@ -1833,6 +1904,7 @@ def main(argv=None):
     _write_segment_timing(
         state_dir, segments, clip_durations, output_path.name,
         recorded_durations_s=recorded_durations,
+        outro_s=outro_hold if outro_start is not None else 0.0,
     )
     print(f"  Timing: {state_dir / 'segment-timing.json'}")
 
