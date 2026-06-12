@@ -570,7 +570,7 @@ async def _ensure_screenshots(
 async def run_for_section(
     context: Context,
     doc: dict,
-    section: str,
+    section: str | None,
     shots_dir: Path,
     artifact: Path,
     session_id: str,
@@ -580,12 +580,18 @@ async def run_for_section(
     chapters rehearsed first, so the prefix is verified by
     construction). Merges the section's findings into the doc and
     returns (findings, overall, last_text, final_iteration)."""
-    scope_indices = {
-        s["index"] for s in doc["scenes"] if s.get("section") == section
-    }
-    if not scope_indices:
-        raise RuntimeError(f"Phase 4: no chapter named {section!r}")
-    iteration_budget = _iteration_budget_s(len(scope_indices))
+    if section is None:
+        scope_indices: set[int] | None = None
+        budget_count = len(doc["scenes"])
+    else:
+        scope_indices = {
+            s["index"] for s in doc["scenes"]
+            if s.get("section") == section
+        }
+        if not scope_indices:
+            raise RuntimeError(f"Phase 4: no chapter named {section!r}")
+        budget_count = len(scope_indices)
+    iteration_budget = _iteration_budget_s(budget_count)
 
     findings: dict[str, Any] | None = None
     overall: str | None = None
@@ -626,9 +632,10 @@ async def run_for_section(
         # iteration (per-section sessions keep cost deltas correct).
         artifact.write_text(verified_text + "\n")
         record_phase_result(context, 4, result)
+        label = f"{section!r} " if section else ""
         print(
             summarize_run(4, artifact, result)
-            + f" [{section!r} iter {iteration}, {elapsed:.1f}s]"
+            + f" [{label}iter {iteration}, {elapsed:.1f}s]"
         )
 
         findings = _parse_findings(verified_text)
@@ -690,14 +697,13 @@ async def run(context: Context) -> None:
     # order — each chapter's prefix is verified by construction. A
     # scoped revision is the single-chapter case of the same loop.
     if context.section_scope:
-        sections = [context.section_scope]
+        sections: list[str | None] = [context.section_scope]
     else:
         sections = [c["name"] for c in storyboard.chapters(doc)]
         if not sections:
-            raise RuntimeError(
-                "Phase 4: the storyboard has no chapters — re-run "
-                "phase 2 (every plan is chaptered since M7)."
-            )
+            # Legacy sectionless storyboard: one full-board leg —
+            # the original behavior.
+            sections = [None]
 
     artifact = context.phase_artifact(4)
     artifact.parent.mkdir(parents=True, exist_ok=True)

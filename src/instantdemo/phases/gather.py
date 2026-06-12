@@ -167,12 +167,12 @@ def _merge(doc: dict, payload: dict) -> None:
 
 
 async def run_for_section(
-    context: Context, doc: dict, section: str, session_id: str
+    context: Context, doc: dict, section: str | None, session_id: str
 ):
     """Enrich ONE chapter's scenes (M7): the scoped prompt/validator/
     merge from M5b, parameterized by section instead of reading
     context.section_scope. Returns the call's ResultMessage."""
-    scope_ids = _scoped_ids(doc, section)
+    scope_ids = _scoped_ids(doc, section) if section else None
     prompt = _build_prompt(doc, context.url, scope_ids, section)
     payload, result = await run_structured_query(
         context,
@@ -183,9 +183,11 @@ async def run_for_section(
     )
     _merge(doc, payload)
     storyboard.save(context.state_dir, doc)
-    print(
-        f"  Chapter {section!r}: {len(scope_ids or [])} scenes hypothesized"
-    )
+    if section:
+        print(
+            f"  Chapter {section!r}: "
+            f"{len(scope_ids or [])} scenes hypothesized"
+        )
     return result
 
 
@@ -205,14 +207,13 @@ async def run(context: Context) -> None:
     # revision ([2,3,4] with section_scope) is the single-chapter
     # special case of the same loop.
     if context.section_scope:
-        sections = [context.section_scope]
+        sections: list[str | None] = [context.section_scope]
     else:
         sections = [c["name"] for c in storyboard.chapters(doc)]
         if not sections:
-            raise RuntimeError(
-                "Phase 3: the storyboard has no chapters — re-run "
-                "phase 2 (every plan is chaptered since M7)."
-            )
+            # Legacy sectionless storyboard (pre-M5a project or old
+            # fixture): one full-board leg — the original behavior.
+            sections = [None]
     run8 = (context.run_id or "")[:8] or "norun"
 
     total_cost = 0.0
