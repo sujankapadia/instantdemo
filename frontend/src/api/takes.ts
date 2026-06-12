@@ -9,6 +9,31 @@ export interface Take {
   is_current: boolean
 }
 
+// The backend labels takes in the maker's register ("render",
+// "re-record"); the player speaks film. Pre-mutation snapshots are
+// described by what they preserve, not by the operation that
+// triggered them.
+const LABEL_TEXT: Record<string, string> = {
+  render: 'as recorded',
+  'edited cut': 'edited cut',
+  're-record': 'before a narration change',
+  cut: 'before a scene was cut',
+  style: 'before an adjust pass',
+}
+
+export function describeTake(t: Take): string {
+  const what = LABEL_TEXT[t.label] ?? t.label
+  const when = t.created_at
+    ? new Date(t.created_at).toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      })
+    : null
+  return when ? `Take ${t.n} — ${what} · ${when}` : `Take ${t.n} — ${what}`
+}
+
 export async function fetchTakes(): Promise<Take[]> {
   const res = await fetch('/api/project/takes')
   if (!res.ok) throw new Error(`HTTP ${res.status}`)

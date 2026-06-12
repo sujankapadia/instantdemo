@@ -203,8 +203,9 @@ async def revise_demo(body: ReviseRequest, request: Request) -> ReviseResponse:
             )
 
         # Mutating kinds: the current film becomes restorable history
-        # BEFORE anything changes.
-        take_n = takes.snapshot(project, "style")
+        # BEFORE anything changes (skipped when the newest take
+        # already is the current film).
+        take_n = takes.snapshot_unless_current(project, "style")
 
         changed: list[int] = []
         pace_factor: float | None = None

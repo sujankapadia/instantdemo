@@ -237,9 +237,10 @@ async def run(context: Context) -> None:
         # the newest take already IS the current film (is_current).
         try:
             if context.output.exists():
-                listing = takes.list_takes(context.project)
-                if not (listing and listing[0].get("is_current")):
-                    n = takes.snapshot(context.project, label="edited cut")
+                n = takes.snapshot_unless_current(
+                    context.project, "edited cut"
+                )
+                if n is not None:
                     print(f"[Phase 6] Kept your current film as version {n}")
         except OSError as exc:
             print(f"[Phase 6] WARNING: pre-render take failed: {exc}")

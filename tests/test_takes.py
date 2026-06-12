@@ -81,6 +81,17 @@ class TestSnapshot:
         (project / "demo.mp4").write_bytes(b"FILM-v1-different")
         assert takes.list_takes(project)[0]["is_current"] is False
 
+    def test_snapshot_unless_current(self, tmp_path: Path):  # T10
+        project = make_project(tmp_path)
+        takes.snapshot(project, "render")
+        # The first edit after a render must NOT duplicate the take
+        assert takes.snapshot_unless_current(project, "re-record") is None
+        assert [t["n"] for t in takes.list_takes(project)] == [1]
+        # Once the film has changed, the pre-mutation snapshot happens
+        (project / "demo.mp4").write_bytes(b"FILM-v1-different")
+        assert takes.snapshot_unless_current(project, "re-record") == 2
+        assert [t["n"] for t in takes.list_takes(project)] == [2, 1]
+
 
 class TestRestore:
     def test_round_trip(self, tmp_path: Path):  # T6
