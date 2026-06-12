@@ -574,7 +574,7 @@ async def run_for_section(
     shots_dir: Path,
     artifact: Path,
     session_id: str,
-) -> tuple[dict[str, Any] | None, str | None, str, int]:
+) -> tuple[dict[str, Any] | None, str | None, str, int, float]:
     """Rehearse ONE chapter (M7): the full convergence loop, scoped to
     the section — prefix scenes replay as verified setup (earlier
     chapters rehearsed first, so the prefix is verified by
@@ -681,7 +681,8 @@ async def run_for_section(
     else:
         overall = _legacy_overall(verified_text)
 
-    return findings, overall, verified_text, final_iteration
+    section_cost = float(getattr(result, "total_cost_usd", 0.0) or 0.0)
+    return findings, overall, verified_text, final_iteration, section_cost
 
 
 async def run(context: Context) -> None:
@@ -738,6 +739,7 @@ async def run(context: Context) -> None:
     any_findings = False
     blocked = False
     last_text = ""
+    phase_cost = 0.0
 
     try:
         for k, section in enumerate(sections):
@@ -749,10 +751,13 @@ async def run(context: Context) -> None:
                     "total": len(sections),
                     "name": section,
                 })
-            findings, overall, last_text, _ = await run_for_section(
-                context, doc, section, shots_dir, artifact,
-                f"phase4-{run8}-c{k + 1}",
+            findings, overall, last_text, _, section_cost = (
+                await run_for_section(
+                    context, doc, section, shots_dir, artifact,
+                    f"phase4-{run8}-c{k + 1}",
+                )
             )
+            phase_cost += section_cost
             if findings is not None:
                 any_findings = True
                 combined_segments.extend(findings.get("segments") or [])
@@ -802,6 +807,14 @@ async def run(context: Context) -> None:
             4,
             explore_overall=overall,
         )
+
+    # The per-iteration records overwrite state.json's cost with the
+    # last delta — write the true phase total (sum of the per-section
+    # session finals; sessions are per-chapter so finals are
+    # independent cumulative totals).
+    state_mod.record_phase_metrics(
+        context.state_dir, 4, cost_usd=round(phase_cost, 6)
+    )
 
     # Diff artifact — always emit, even when no revisions or no
     # parseable findings (the file documents the no-op case).

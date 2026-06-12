@@ -91,7 +91,9 @@ def make_context(tmp_path: Path, events: list | None = None) -> Context:
 
 
 class FakeResult:
-    total_cost_usd = 0.05
+    def __init__(self):
+        self.total_cost_usd = 0.05
+
     num_turns = 1
     duration_ms = 1000
     duration_api_ms = 900
@@ -102,10 +104,14 @@ class FakeResult:
 
 
 def install_canned(monkeypatch, *, continuity_rewrites=None, capture=None):
-    """run_structured_query stub: outline call → OUTLINE; chapter
-    calls → per-chapter payloads; continuity → rewrites."""
+    """run_structured_query stub for the SINGLE-session phase 2:
+    routes by prompt content (call 1 = outline; 'Now plan chapter k'
+    = that chapter; the script-editor ask = continuity) and emulates
+    a session's CUMULATIVE total_cost_usd."""
+    calls = {"n": 0, "chapter": 0}
 
     async def fake(context, prompt, session_id, *, validate, phase_number):
+        calls["n"] += 1
         record = {
             "session_id": session_id,
             "prompt": prompt,
@@ -113,21 +119,23 @@ def install_canned(monkeypatch, *, continuity_rewrites=None, capture=None):
         }
         if capture is not None:
             capture.append(record)
-        if session_id.endswith("-outline"):
+        if calls["n"] == 1:
             payload = json.loads(json.dumps(OUTLINE))
-        elif session_id.endswith("-cont"):
+        elif "script editor" in prompt:
             payload = {
                 "kind": "rewrite",
                 "explanation": "smoothed",
                 "rewrites": dict(continuity_rewrites or {}),
             }
         else:
-            k = int(session_id.rsplit("-c", 1)[1])
-            ch = OUTLINE["chapters"][k - 1]
+            calls["chapter"] += 1
+            ch = OUTLINE["chapters"][calls["chapter"] - 1]
             payload = chapter_payload(ch["name"], ch["est_scenes"])
         problems = validate(payload)
         assert problems == [], (session_id, problems)
-        return payload, FakeResult()
+        result = FakeResult()
+        result.total_cost_usd = 0.05 * calls["n"]  # cumulative
+        return payload, result
 
     monkeypatch.setattr(
         "instantdemo.phases.narrate.run_structured_query", fake
@@ -170,8 +178,7 @@ class TestChapteredBuild:
     def test_chapter_validator_pins_section(self, tmp_path, monkeypatch):  # CB2
         _, _, capture, _ = run_phase2(tmp_path, monkeypatch)
         chapter_calls = [
-            c for c in capture if "-c" in c["session_id"]
-            and not c["session_id"].endswith(("-outline", "-cont"))
+            c for c in capture if "Now plan chapter" in c["prompt"]
         ]
         wrong = chapter_payload("WrongChapter", 2)
         problems = chapter_calls[0]["validate"](wrong)
@@ -180,19 +187,27 @@ class TestChapteredBuild:
 
     def test_chapter_prompts_carry_context(self, tmp_path, monkeypatch):  # CB3
         _, _, capture, _ = run_phase2(tmp_path, monkeypatch)
-        prompts_by_session = {
-            c["session_id"]: c["prompt"] for c in capture
-        }
-        first = prompts_by_session["phase2-abcdef12-c1"]
+        # One session throughout.
+        assert {c["session_id"] for c in capture} == {"phase2-abcdef12"}
+        chapter_prompts = [
+            c["prompt"] for c in capture
+            if "Now plan chapter" in c["prompt"]
+        ]
+        first, second = chapter_prompts[0], chapter_prompts[1]
         assert "OPENS the film" in first
-        assert "1. Opening — Set the scene." in first  # the outline
-        second = prompts_by_session["phase2-abcdef12-c2"]
-        assert "Narration for Opening 2." in second  # boundary scene
-        assert "3. Close — Land the point." in second
+        assert "1. Opening — Set the scene." in first  # full context
+        assert "Codebase analysis" in first
+        # Continuations are short: boundary narration, no re-sent
+        # outline or analysis.
+        assert "Narration for Opening 2." in second
+        assert "Codebase analysis" not in second
+        assert "1. Opening — Set the scene." not in second
 
-    def test_cost_aggregation(self, tmp_path, monkeypatch):  # CB4
+    def test_cost_accounting(self, tmp_path, monkeypatch):  # CB4
         _, _, capture, recorded = run_phase2(tmp_path, monkeypatch)
-        # outline + 3 chapters + continuity = 5 calls × $0.05
+        # One session, 5 calls; the fake's cumulative total ends at
+        # 5 × $0.05 — the recorded phase cost is that final total.
+        assert len(capture) == 5
         assert recorded["cost_usd_total"] == pytest.approx(0.25)
         assert recorded["num_turns_total"] == 5
 
@@ -226,10 +241,13 @@ class TestGatherLoop:
 
         calls: list[dict] = []
 
+        counter = {"n": 0}
+
         async def fake(context, prompt, session_id, *, validate,
                        phase_number):
             doc = storyboard.load(context.state_dir)
-            k = int(session_id.rsplit("-c", 1)[1])
+            counter["n"] += 1
+            k = counter["n"]
             name = OUTLINE["chapters"][k - 1]["name"]
             ids = [s["id"] for s in doc["scenes"] if s["section"] == name]
             payload = {"scenes": [
@@ -242,7 +260,7 @@ class TestGatherLoop:
             problems = validate(payload)
             assert problems == [], (session_id, problems)
             calls.append({"session_id": session_id, "ids": ids,
-                          "validate": validate})
+                          "prompt": prompt, "validate": validate})
             return payload, FakeResult()
 
         monkeypatch.setattr(
@@ -256,9 +274,10 @@ class TestGatherLoop:
         context = make_planned_doc(tmp_path)
         asyncio.run(gather.run(context))
 
-        assert [c["session_id"] for c in calls] == [
-            "phase3-abcdef12-c1", "phase3-abcdef12-c2", "phase3-abcdef12-c3",
-        ]
+        assert {c["session_id"] for c in calls} == {"phase3-abcdef12"}
+        assert "app being demoed" in calls[0]["prompt"]
+        assert "Next chapter" in calls[1]["prompt"]
+        assert "app being demoed" not in calls[1]["prompt"]
         # Validator pins each chapter's ids: a foreign id is rejected.
         foreign = {"scenes": [
             {"id": "s1", "selector": [".x"], "wait_for": [".y"],
@@ -267,7 +286,8 @@ class TestGatherLoop:
         assert calls[1]["validate"](foreign)  # s1 belongs to chapter 1
         doc = storyboard.load(context.state_dir)
         assert storyboard.validate_storyboard(doc, stage="hypothesized") == []
-        assert recorded["cost_usd_total"] == pytest.approx(0.15)
+        # Single session: the phase cost is the last call's total.
+        assert recorded["cost_usd_total"] == pytest.approx(0.05)
 
 
 def explore_findings(doc: dict, section: str, status: str = "PASS") -> str:

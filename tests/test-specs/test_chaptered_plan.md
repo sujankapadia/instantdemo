@@ -24,9 +24,9 @@ Test: `tests/test_chaptered_plan.py`
 | ID | Scenario | Assertion | Risk if broken |
 |----|----------|-----------|----------------|
 | CB1 | Canned outline (3 chapters) + per-chapter payloads | Doc has all scenes in outline order; sections contiguous; ids sequential; planned-stage valid; phase2.md view written | The cold start builds a board later phases reject |
-| CB2 | Validator passed to chapter k pins section to chapter k's name | A payload with a wrong section fails validation (the canned harness asserts the validator it received rejects it) | A chapter call writes scenes into another chapter |
-| CB3 | Chapter-plan prompt content | Contains the full outline, the chapter's purpose, and the previous chapter's final narration (opening chapter: the opens-the-film line instead) | Chapters planned blind to the arc — the disjointed-film failure mode |
-| CB4 | Cost aggregation | record_phase_result called with cost_usd_total == sum of all (K+2) call costs | Long-form cost reporting understates by ~K× |
+| CB2 | Validator passed to chapter k pins section to chapter k's name | A payload with a wrong section fails validation (the harness identifies chapter calls by prompt content — all calls share one session id) | A chapter call writes scenes into another chapter |
+| CB3 | Chapter-plan prompt content | First chapter's prompt carries the full context (outline + opens-the-film + rules); later chapters are SHORT continuations (same session) carrying the boundary narration but NOT re-sending the outline/analysis | Chapters planned blind to the arc — or every chapter re-pays the whole context (the 10× cost bug found live) |
+| CB4 | Cost accounting | One session for outline+chapters+continuity; record_phase_result gets the session's FINAL cumulative total (the fake emulates cumulative totals) | Phase-2 cost over- or under-reported; the single-session economics regress to per-call context re-sends |
 | CB5 | chapter_progress events | Emitted per chapter with current/total/name | The GUI shows a silent multi-minute planning phase |
 
 ## Continuity pass
@@ -41,7 +41,7 @@ Test: `tests/test_chaptered_plan.py`
 
 | ID | Scenario | Assertion | Risk if broken |
 |----|----------|-----------|----------------|
-| GL1 | gather.run on a 3-chapter board | One call per chapter (session ids -c1..-c3); each validator pins that chapter's ids; doc hypothesized-valid after the loop; aggregate cost recorded | Phase 3 regresses to whole-board prompts — the length ceiling returns |
+| GL1 | gather.run on a 3-chapter board | One SESSION, three sequential calls: first prompt full (app URL + rules + chapter 1), later prompts short continuations ('Next chapter'); each validator pins that chapter's ids; doc hypothesized-valid after the loop; cost = the session's final total | Phase 3 regresses to whole-board prompts — or re-reads the source per chapter (the $2.48 bug found live) |
 | GL2 | gather scoped-validator dry-run during the loop | Chapter 1's validation passes while later chapters are still bare (scoped trial, not whole-doc) | Cold-start chapter 1 can never validate — the loop is unrunnable |
 | EL1 | explore.run on a 3-chapter board, all PASS | One section-runner per chapter in order; combined explore_findings carries all chapters' segments (global indices); scenes verified | Rehearsal regresses to one accumulating session — the real ceiling returns |
 | EL2 | Chapter 2 BLOCKED | Chapter 2 retries once in ITS session (convergence loop), then same-signature stop; its findings merged (failure visible at the gate); chapter 3 never rehearsed; run raises | A broken chapter's successors rehearse against a false prefix |

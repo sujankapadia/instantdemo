@@ -28,6 +28,8 @@ intent.json, which takes priority.
 
 from __future__ import annotations
 
+from typing import Any
+
 from .. import prompts, revise, storyboard
 from ..actions import CANONICAL_ACTIONS
 from ..agent_client import session_id_for_phase
@@ -130,25 +132,21 @@ def _build_chapter_plan_prompt(
     phase1_text: str,
     inputs: dict[str, object],
 ) -> str:
-    """One chapter's planning call (M7): the full outline for arc
-    awareness, this chapter's purpose, the previous chapter's final
-    scene for flow continuity, and the phase2 scene rules."""
+    """One chapter's planning call (M7). The chapter calls share ONE
+    session: the FIRST carries the heavy context (outline, phase-1
+    analysis, the scene rules) and every later call is a short
+    continuation — the context is already in the conversation, so
+    each chapter costs its own output, not a re-send of the world."""
     chapter = outline["chapters"][index]
-    lines = _inputs_header(inputs)
-    lines += [
-        "",
-        "You are planning ONE CHAPTER of this film. The full outline:",
-        "",
-        _outline_text(outline),
-        "",
-        f"Plan chapter {index + 1}: \"{chapter['name']}\" — "
+    ask = [
+        f"Now plan chapter {index + 1}: \"{chapter['name']}\" — "
         f"{chapter['purpose']} (around {chapter.get('est_scenes', 4)} "
         "scenes; use what the beat needs).",
         "",
     ]
     if prev_scene is not None:
         narration = prev_scene.get("narration") or "(silent)"
-        lines += [
+        ask += [
             "The previous chapter's final scene was "
             f"\"{prev_scene['title']}\" ({prev_scene['action']}) with the "
             f"narration: \"{narration}\" — your chapter continues from the "
@@ -157,17 +155,36 @@ def _build_chapter_plan_prompt(
             "",
         ]
     else:
-        lines += [
+        ask += [
             "This chapter OPENS the film — your first scene must get the "
             "app to its starting state itself (e.g. goto).",
             "",
         ]
-    lines += [
+    ask += [
         f"Every scene's `section` must be \"{chapter['name']}\". The "
-        "`title` and `summary` fields of your JSON are ignored (the film "
-        "keeps its own); only `scenes` is read. Later chapters in the "
-        "outline are planned separately — end your chapter in an app "
-        "state the next chapter's purpose can start from.",
+        "`title` and `summary` fields of your JSON are ignored; only "
+        "`scenes` is read. Later chapters are planned separately — end "
+        "your chapter in an app state the next chapter's purpose can "
+        "start from.",
+    ]
+    if index > 0:
+        # Continuation: the outline, analysis, and rules are already
+        # in the session.
+        return "\n".join(ask + [
+            "",
+            "Same output format and narration/grounding rules as before.",
+        ])
+    lines = _inputs_header(inputs)
+    lines += [
+        "",
+        "You will plan this film ONE CHAPTER AT A TIME, in order, in "
+        "this conversation. The full outline:",
+        "",
+        _outline_text(outline),
+        "",
+    ]
+    lines += ask
+    lines += [
         "",
         "---",
         "Codebase analysis (from Phase 1):",
@@ -485,7 +502,7 @@ def _continuity_validator(scene_count: int):
 
 async def _continuity_pass(
     context: Context, doc: dict, outline: dict, session_id: str
-) -> tuple[float, int]:
+) -> tuple[Any, int]:
     """One no-tools read-through of the whole narration (M7 beat 3).
     Mutates scene narrations in place via revise.apply_rewrites; the
     caller saves. Returns (cost, turns)."""
@@ -521,10 +538,7 @@ async def _continuity_pass(
         )
     else:
         print("  Continuity pass: narration reads as one film")
-    return (
-        float(getattr(result, "total_cost_usd", 0.0) or 0.0),
-        int(getattr(result, "num_turns", 0) or 0),
-    )
+    return result, int(getattr(result, "num_turns", 0) or 0)
 
 
 async def run(context: Context) -> None:
@@ -552,18 +566,21 @@ async def run(context: Context) -> None:
 
     inputs = _resolve_inputs(context, phase1_answers, phase2_answers)
     run8 = (context.run_id or "")[:8] or "norun"
-    total_cost = 0.0
+    # ONE session for outline + chapters + continuity (M7 cost fix):
+    # the heavy context is paid once; each chapter is a short
+    # continuation. The session's final total_cost_usd IS the phase
+    # cost (cumulative within a session).
+    session_id = f"phase2-{run8}"
     total_turns = 0
 
     # Beat 1 (M7): the outline — the film's arc before any scene.
     outline, result = await run_structured_query(
         context,
         _build_outline_prompt(phase1_text, inputs),
-        f"phase2-{run8}-outline",
+        session_id,
         validate=_validate_outline,
         phase_number=2,
     )
-    total_cost += float(getattr(result, "total_cost_usd", 0.0) or 0.0)
     total_turns += int(getattr(result, "num_turns", 0) or 0)
     chapters = outline["chapters"]
     print(
@@ -600,11 +617,10 @@ async def run(context: Context) -> None:
             _build_chapter_plan_prompt(
                 outline, k, prev_scene, phase1_text, inputs
             ),
-            f"phase2-{run8}-c{k + 1}",
+            session_id,
             validate=_scoped_validator(chapter["name"]),
             phase_number=2,
         )
-        total_cost += float(getattr(result, "total_cost_usd", 0.0) or 0.0)
         total_turns += int(getattr(result, "num_turns", 0) or 0)
         for scene in payload["scenes"]:
             storyboard.add_scene(
@@ -629,12 +645,12 @@ async def run(context: Context) -> None:
 
     # Beat 3: the continuity pass — one no-tools read-through so the
     # chapters speak as one film.
-    cont_cost, cont_turns = await _continuity_pass(
-        context, doc, outline, f"phase2-{run8}-cont"
+    result, cont_turns = await _continuity_pass(
+        context, doc, outline, session_id
     )
-    total_cost += cont_cost
     total_turns += cont_turns
     storyboard.save(context.state_dir, doc)
+    total_cost = float(getattr(result, "total_cost_usd", 0.0) or 0.0)
 
     artifact.write_text(storyboard.render_phase2_view(doc, inputs))
     record_phase_result(

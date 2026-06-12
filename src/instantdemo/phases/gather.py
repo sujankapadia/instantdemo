@@ -166,14 +166,34 @@ def _merge(doc: dict, payload: dict) -> None:
         scene["status"] = "hypothesized"
 
 
+def _continuation_prompt(doc: dict, scope_ids: list[str], section: str) -> str:
+    """Chapters after the first ride the SAME session (M7 cost fix):
+    the app URL, the rules, and — crucially — the agent's source
+    reading are already in the conversation. Short ask, same
+    contract."""
+    return (
+        f"Next chapter: \"{section}\" — enrich exactly the scenes "
+        "below, nothing else. Same rules and output format as before; "
+        "reuse what you already learned from the source.\n"
+        "\n"
+        "---\n"
+        f"{_scenes_for_prompt(doc, scope_ids)}\n"
+        "---\n"
+    )
+
+
 async def run_for_section(
-    context: Context, doc: dict, section: str | None, session_id: str
+    context: Context, doc: dict, section: str | None, session_id: str,
+    *, first: bool = True,
 ):
     """Enrich ONE chapter's scenes (M7): the scoped prompt/validator/
     merge from M5b, parameterized by section instead of reading
     context.section_scope. Returns the call's ResultMessage."""
     scope_ids = _scoped_ids(doc, section) if section else None
-    prompt = _build_prompt(doc, context.url, scope_ids, section)
+    if first or not section or not scope_ids:
+        prompt = _build_prompt(doc, context.url, scope_ids, section)
+    else:
+        prompt = _continuation_prompt(doc, scope_ids, section)
     payload, result = await run_structured_query(
         context,
         prompt,
@@ -215,8 +235,11 @@ async def run(context: Context) -> None:
             # fixture): one full-board leg — the original behavior.
             sections = [None]
     run8 = (context.run_id or "")[:8] or "norun"
+    # ONE session across chapters (M7 cost fix): the agent reads the
+    # source once; later chapters are short continuations. The
+    # session's final cumulative total IS the phase cost.
+    session_id = f"phase3-{run8}"
 
-    total_cost = 0.0
     total_turns = 0
     result = None
     for k, section in enumerate(sections):
@@ -229,10 +252,10 @@ async def run(context: Context) -> None:
                 "name": section,
             })
         result = await run_for_section(
-            context, doc, section, f"phase3-{run8}-c{k + 1}"
+            context, doc, section, session_id, first=(k == 0)
         )
-        total_cost += float(getattr(result, "total_cost_usd", 0.0) or 0.0)
         total_turns += int(getattr(result, "num_turns", 0) or 0)
+    total_cost = float(getattr(result, "total_cost_usd", 0.0) or 0.0)
 
     artifact.write_text(storyboard.render_phase3_view(doc))
     record_phase_result(
