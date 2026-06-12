@@ -27,6 +27,7 @@ from pathlib import Path
 
 from dataclasses import dataclass, field
 
+from instantdemo import captions
 from instantdemo import tts_config as tts_config_mod
 from instantdemo.actions import CANONICAL_ACTIONS, validate_segments
 from instantdemo.tts_config import PronunciationEntry, TTSConfig
@@ -467,6 +468,11 @@ def _write_segment_timing(
     (state_dir / "segment-timing.json").write_text(
         json.dumps(payload, indent=2) + "\n"
     )
+    # Captions ride every timing write (M6): demo.srt is always in
+    # sync with demo.mp4 — full render, re-voice, and delete all
+    # pass through here. (The M5b splice writes rows directly and
+    # calls write_srt itself.)
+    captions.write_srt(state_dir.parent, segments, out_segments)
 
 
 # Minimum inter-segment breath (#68): without it, a segment whose
@@ -811,6 +817,9 @@ def render_section_main(
         )
         shutil.move(str(spliced), str(output_path))
         timing_path.write_text(json.dumps(new_timing, indent=2) + "\n")
+        captions.write_srt(
+            output_path.parent, segments, new_timing["segments"]
+        )
     print(
         f"Scoped render complete: {output_path} "
         f"({new_timing['total_duration_s']:.1f}s)"

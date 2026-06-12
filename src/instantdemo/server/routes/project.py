@@ -380,6 +380,25 @@ def get_exploration_shot(filename: str) -> FileResponse:
     return FileResponse(path=str(path), media_type="image/png")
 
 
+@router.get("/project/captions")
+def get_captions() -> FileResponse:
+    """The film's SRT captions (M6) — regenerated at every timing
+    write, so always in sync with demo.mp4."""
+    pdir = _project_dir()
+    srt_path = pdir / "demo.srt"
+    if not srt_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="no captions yet — they're created when the demo "
+            "is recorded (or next re-voiced, for older projects)",
+        )
+    return FileResponse(
+        path=str(srt_path),
+        media_type="application/x-subrip",
+        filename="demo.srt",
+    )
+
+
 @router.get("/project/video")
 def get_video() -> FileResponse:
     pdir = _project_dir()

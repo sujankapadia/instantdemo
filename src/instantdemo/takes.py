@@ -26,6 +26,7 @@ KEEP_VIDEOS = 3
 # (project-relative source path, filename inside the take dir)
 SNAPSHOT_FILES: tuple[tuple[str, str], ...] = (
     ("demo.mp4", "demo.mp4"),
+    ("demo.srt", "demo.srt"),
     ("demo-script.json", "demo-script.json"),
     (".instantdemo/storyboard.json", "storyboard.json"),
     (".instantdemo/segment-timing.json", "segment-timing.json"),
