@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { History, Loader2, Undo2, Wand2 } from 'lucide-react'
+import { Download, History, Loader2, Undo2, Wand2 } from 'lucide-react'
 import { Button } from '../ui/button'
 import { VideoPlayer } from '../VideoPlayer'
 import { SegmentsList, type EditingProps } from '../SegmentsList'
@@ -399,6 +399,14 @@ export function StageFilm({
                 )}
                 Adjust
               </Button>
+              {/* The deliverable (M6): one click — film + captions. */}
+              <a
+                href="/api/project/download"
+                className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <Download className="size-3" />
+                Download
+              </a>
               {takeError ? (
                 <span className="text-destructive">{takeError}</span>
               ) : null}

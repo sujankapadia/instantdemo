@@ -27,6 +27,7 @@ from pathlib import Path
 
 from dataclasses import dataclass, field
 
+from instantdemo import captions
 from instantdemo import tts_config as tts_config_mod
 from instantdemo.actions import CANONICAL_ACTIONS, validate_segments
 from instantdemo.tts_config import PronunciationEntry, TTSConfig
@@ -467,6 +468,11 @@ def _write_segment_timing(
     (state_dir / "segment-timing.json").write_text(
         json.dumps(payload, indent=2) + "\n"
     )
+    # Captions ride every timing write (M6): demo.srt is always in
+    # sync with demo.mp4 — full render, re-voice, and delete all
+    # pass through here. (The M5b splice writes rows directly and
+    # calls write_srt itself.)
+    captions.write_srt(state_dir.parent, segments, out_segments)
 
 
 # Minimum inter-segment breath (#68): without it, a segment whose
@@ -811,6 +817,9 @@ def render_section_main(
         )
         shutil.move(str(spliced), str(output_path))
         timing_path.write_text(json.dumps(new_timing, indent=2) + "\n")
+        captions.write_srt(
+            output_path.parent, segments, new_timing["segments"]
+        )
     print(
         f"Scoped render complete: {output_path} "
         f"({new_timing['total_duration_s']:.1f}s)"
@@ -938,7 +947,10 @@ def remux_audio_only(
                 "-i", str(existing_video),
                 "-i", str(combined_audio),
                 "-filter_complex",
-                f"[0:v]tpad=stop_mode=clone:stop_duration={pad_seconds:.3f}[vpad]",
+                # fps=25 first: tpad under-pads on variable-rate
+                # screen recordings (clones spaced by the input's
+                # last frame duration — see the per-segment path).
+                f"[0:v]fps=25,tpad=stop_mode=clone:stop_duration={pad_seconds:.3f}[vpad]",
                 "-map", "[vpad]",
                 "-map", "1:a",
                 "-c:v", "libx264",
@@ -994,10 +1006,16 @@ def _remux_with_per_segment_extension(
         start = cursor
         end = cursor + rec
         cursor = end
-        # Trim segment i from the source video and reset its timestamps.
+        # Trim segment i from the source video and reset its
+        # timestamps. fps=25 normalizes to CONSTANT frame rate before
+        # tpad: screen recordings are variable-rate (frames only on
+        # change), and tpad clones the last frame spaced by the
+        # input's frame duration — on sparse VFR that adds ~zero
+        # frames, silently under-padding (found in the M6 outro gate;
+        # it had quietly weakened #37 extensions all along).
         trim_clauses.append(
             f"[0:v]trim=start={start:.3f}:end={end:.3f},"
-            f"setpts=PTS-STARTPTS[s{i}t]"
+            f"setpts=PTS-STARTPTS,fps=25[s{i}t]"
         )
         # If this segment overflows, freeze the last frame for the
         # missing duration. Otherwise pass through unchanged.
@@ -1010,13 +1028,15 @@ def _remux_with_per_segment_extension(
             pad_clauses.append(f"[s{i}t]null[s{i}]")
         concat_inputs.append(f"[s{i}]")
 
+    n_parts = len(recorded_durations_s)
+
     filter_graph = (
         ";".join(trim_clauses)
         + ";"
         + ";".join(pad_clauses)
         + ";"
         + "".join(concat_inputs)
-        + f"concat=n={len(recorded_durations_s)}:v=1:a=0[outv]"
+        + f"concat=n={n_parts}:v=1:a=0[outv]"
     )
 
     total_pad = sum(max(0.0, s - r) for r, s in zip(recorded_durations_s, slot_durations_s))
@@ -1343,61 +1363,8 @@ def combine_audio_video(
     recording starting when the action completed (page ready), excluding
     any loading/skeleton frames that preceded it.
     """
-    # Normalize all clips to WAV for consistent concatenation
-    wav_clips = [_ensure_wav(clip, i, tmp_dir) for i, clip in enumerate(audio_clips)]
-
-    # Build the ordered list of audio files (per-segment audio + gap silences).
-    audio_files: list[Path] = []
-    for i, wav in enumerate(wav_clips):
-        audio_files.append(wav)
-        pause_ms = segments[i].get("pause_after_ms", 0)
-        audio_ms = clip_durations[i] * 1000
-        gap_ms = max(
-            0, _slot_seconds(clip_durations[i], pause_ms) * 1000 - audio_ms
-        )
-        if gap_ms > 0:
-            gap_silence = tmp_dir / f"silence_{i}.wav"
-            subprocess.run(  # nosec B607
-                [
-                    "ffmpeg",
-                    "-y",
-                    "-f",
-                    "lavfi",
-                    "-i",
-                    "anullsrc=r=44100:cl=stereo",
-                    "-t",
-                    str(gap_ms / 1000),
-                    str(gap_silence),
-                ],
-                capture_output=True,
-            )
-            audio_files.append(gap_silence)
-
-    # Concatenate via filter_complex `concat` rather than the concat demuxer
-    # with `-c copy`. The demuxer doesn't normalize formats — when the
-    # silence helpers (44100 stereo) are mixed with a TTS provider that
-    # outputs a different format (e.g. Kokoro at 24000 mono), the output
-    # WAV header takes the first file's format and downstream byte counts
-    # produce a wildly wrong duration. filter_complex resamples to a common
-    # format and produces correct-duration output.
-    combined_audio = tmp_dir / "combined_audio.wav"
-    audio_inputs: list[str] = []
-    for path in audio_files:
-        audio_inputs.extend(["-i", str(path)])
-    n = len(audio_files)
-    audio_filter = (
-        "".join(f"[{i}:a]" for i in range(n))
-        + f"concat=n={n}:v=0:a=1[out]"
-    )
-    subprocess.run(  # nosec B607
-        ["ffmpeg", "-y"] + audio_inputs + [
-            "-filter_complex",
-            audio_filter,
-            "-map",
-            "[out]",
-            str(combined_audio),
-        ],
-        capture_output=True,
+    combined_audio = _build_combined_audio(
+        audio_clips, clip_durations, segments, tmp_dir
     )
 
     # Trim, concatenate, and mux in a single ffmpeg pass
@@ -1422,9 +1389,10 @@ def combine_audio_video(
             f"[0:v]trim=start={seg_start:.3f}:duration={duration:.3f},"
             f"setpts=PTS-STARTPTS[v{i}]"
         )
-    concat_inputs = "".join(f"[v{i}]" for i in range(len(timestamps)))
+    n_parts = len(timestamps)
+    concat_inputs = "".join(f"[v{i}]" for i in range(n_parts))
     filter_parts.append(
-        f"{concat_inputs}concat=n={len(timestamps)}:v=1:a=0[outv]"
+        f"{concat_inputs}concat=n={n_parts}:v=1:a=0[outv]"
     )
     filter_complex = ";".join(filter_parts)
 
