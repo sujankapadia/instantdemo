@@ -295,6 +295,11 @@ self-contained restoration of a prior run.
   three takes (original salesy cut → de-salesy Adjust pass → tone
   change + re-record), instructions verbatim in scene revisions;
   v1-vs-current A/B shows takes + style pass + the #68 breath
+- `chapter-revise-evernote-2026-06-12` — first chapter-revised film
+  (M5b): nine takes spanning the full M5 arc (gated regenerate →
+  two scoped splices → the GUI-driven Revise loop → the
+  timing-fixes healing render); the M5b L5 found six shipped
+  defects on this project (PR #86)
 
 To restore: `cp -r fixtures/<name>/. /tmp/restore && instantdemo
 serve --project /tmp/restore --port 8770`.
