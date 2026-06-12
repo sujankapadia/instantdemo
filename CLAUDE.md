@@ -374,6 +374,9 @@ serve --project /tmp/restore --port 8770`.
   dress-rehearsal instead
 - `DRESS_REHEARSAL_DESIGN.md` — Phase 4 dress-rehearsal design + prototype
   plan + convergence guarantees
+- `MAINTENANCE_RUN_DESIGN.md` — the maintenance run: CI re-runs that
+  repair instead of regenerate (issues labeled `maintenance-run`,
+  tracking #93)
 - `KOKORO_PRONUNCIATIONS.md` — pronunciation override design (issue #54)
 - `GUI-DECISIONS.md` / `GUI-IMPLEMENTATION.md` — GUI design and
   implementation notes from the M1-M3 milestones
