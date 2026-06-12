@@ -380,6 +380,56 @@ def get_exploration_shot(filename: str) -> FileResponse:
     return FileResponse(path=str(path), media_type="image/png")
 
 
+@router.get("/project/download")
+def download_package() -> "Response":
+    """The deliverable, one click (M6): a zip of the film + its
+    captions. Includes what exists — a film without captions yet
+    still downloads alone."""
+    import io
+    import zipfile
+
+    from fastapi import Response
+
+    pdir = _project_dir()
+    video = pdir / "demo.mp4"
+    if not video.exists():
+        raise HTTPException(
+            status_code=404, detail="no film to download yet"
+        )
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.write(video, "demo.mp4")
+        srt = pdir / "demo.srt"
+        if srt.exists():
+            zf.write(srt, "demo.srt")
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": 'attachment; filename="demo.zip"'
+        },
+    )
+
+
+@router.get("/project/captions")
+def get_captions() -> FileResponse:
+    """The film's SRT captions (M6) — regenerated at every timing
+    write, so always in sync with demo.mp4."""
+    pdir = _project_dir()
+    srt_path = pdir / "demo.srt"
+    if not srt_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="no captions yet — they're created when the demo "
+            "is recorded (or next re-voiced, for older projects)",
+        )
+    return FileResponse(
+        path=str(srt_path),
+        media_type="application/x-subrip",
+        filename="demo.srt",
+    )
+
+
 @router.get("/project/video")
 def get_video() -> FileResponse:
     pdir = _project_dir()
