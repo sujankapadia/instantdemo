@@ -6,7 +6,12 @@ from __future__ import annotations
 from argparse import Namespace
 from pathlib import Path
 
-from instantdemo.render import BREATH_S, _resolve_tts, _slot_seconds
+from instantdemo.render import (
+    BREATH_S,
+    _load_tts_config_file,
+    _resolve_tts,
+    _slot_seconds,
+)
 from instantdemo.tts_config import PronunciationEntry, TTSConfig
 
 
@@ -73,6 +78,28 @@ def test_pronunciations_survive_provider_override():  # T7
     )
     r = _resolve_tts(make_args(tts="kokoro"), config, None)
     assert r.pronunciations == config.pronunciations
+
+
+def test_section_render_loads_config_from_file_path(tmp_path: Path):  # T8
+    import json
+
+    (tmp_path / ".instantdemo").mkdir()
+    wav = tmp_path / ".instantdemo" / "voice-reference.wav"
+    wav.write_bytes(b"RIFF")
+    tts_json = tmp_path / "tts.json"
+    tts_json.write_text(json.dumps({
+        "provider": "pocket-tts",
+        "voice": "alba",
+        "ref_wav": ".instantdemo/voice-reference.wav",
+    }))
+    config = _load_tts_config_file(tts_json)
+    assert config is not None and config.ref_wav
+    # Chained through _resolve_tts exactly as render_section_main does:
+    # the clone must survive into the spliced chapter's audio.
+    r = _resolve_tts(make_args(), config, tts_json.parent)
+    assert r.ref == wav.resolve()
+    # Absent file → None, no crash.
+    assert _load_tts_config_file(tmp_path / "missing" / "tts.json") is None
 
 
 def test_breath_when_audio_fills_slot():  # B1

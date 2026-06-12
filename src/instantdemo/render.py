@@ -737,6 +737,17 @@ def rebuild_section_timing(
     }
 
 
+def _load_tts_config_file(tts_config_path: Path | None) -> TTSConfig | None:
+    """`tts_config.load` takes the PROJECT DIR (it appends tts.json
+    itself); callers holding the FILE path go through this guard.
+    Passing the file path to load() silently returns None — the
+    chapter splice re-voiced in stock alba while the rest of the film
+    kept the clone."""
+    if not tts_config_path or not tts_config_path.exists():
+        return None
+    return tts_config_mod.load(tts_config_path.parent)
+
+
 def render_section_main(
     script_path: Path,
     output_path: Path,
@@ -773,17 +784,15 @@ def render_section_main(
         tts=tts_override, kokoro_voice=None, kokoro_speed=None,
         pocket_voice=None, pocket_ref=None,
     )
-    config = (
-        tts_config_mod.load(tts_config_path)
-        if tts_config_path and tts_config_path.exists()
-        else None
-    )
+    config = _load_tts_config_file(tts_config_path)
     resolved = _resolve_tts(
         args, config, tts_config_path.parent if tts_config_path else None
     )
     print(
         f"Scoped render: segments {start_idx}..{end_idx} "
         f"({len(chapter)} of {len(segments)}); voice: {resolved.provider}"
+        + (f" (cloned ref: {resolved.ref.name})" if resolved.ref else
+           f" (stock voice {resolved.voice})")
     )
 
     with tempfile.TemporaryDirectory(prefix="instantdemo-section-") as td:
