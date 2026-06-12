@@ -593,6 +593,13 @@ async def run_for_section(
         budget_count = len(scope_indices)
     iteration_budget = _iteration_budget_s(budget_count)
 
+    # Cost snapshot: session_cost_totals is keyed by the SDK's own
+    # session UUID (result.session_id), not our logical session ids,
+    # so the section's cost is measured as dispatcher-total growth.
+    cost_before = 0.0
+    if context.dispatcher is not None:
+        cost_before = sum(context.dispatcher.session_cost_totals.values())
+
     findings: dict[str, Any] | None = None
     overall: str | None = None
     verified_text = ""
@@ -681,13 +688,15 @@ async def run_for_section(
     else:
         overall = _legacy_overall(verified_text)
 
-    # The section's true cost: the dispatcher's per-session running
-    # total, maintained by record_phase_result's delta accounting —
-    # robust regardless of how the SDK accumulates total_cost_usd.
+    # The section's true cost: how much the dispatcher's summed
+    # session totals grew during this section — robust regardless of
+    # which key the SDK reports results under.
     section_cost = 0.0
     if context.dispatcher is not None:
-        section_cost = float(
-            context.dispatcher.session_cost_totals.get(session_id, 0.0)
+        section_cost = max(
+            0.0,
+            sum(context.dispatcher.session_cost_totals.values())
+            - cost_before,
         )
     return findings, overall, verified_text, final_iteration, section_cost
 

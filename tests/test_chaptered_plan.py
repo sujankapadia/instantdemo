@@ -299,7 +299,8 @@ def explore_findings(doc: dict, section: str, status: str = "PASS") -> str:
 
 
 class TestExploreLoop:
-    def _run(self, tmp_path, monkeypatch, blocked_chapter=None):
+    def _run(self, tmp_path, monkeypatch, blocked_chapter=None,
+             dispatcher=None):
         import asyncio
 
         from instantdemo.phases import explore
@@ -308,6 +309,14 @@ class TestExploreLoop:
 
         async def fake_query(context, prompt, *, session_id):
             sessions.append(session_id)
+            if dispatcher is not None:
+                # Emulate the live delta accounting: the SDK reports
+                # every result under ITS OWN session UUID (one key for
+                # the whole client), never our logical phase4-…-cN ids.
+                totals = dispatcher.session_cost_totals
+                totals["0d673829-sdk-uuid"] = (
+                    totals.get("0d673829-sdk-uuid", 0.0) + 0.10
+                )
             doc = storyboard.load(context.state_dir)
             k = int(session_id.rsplit("-c", 1)[1])
             name = OUTLINE["chapters"][k - 1]["name"]
@@ -331,6 +340,7 @@ class TestExploreLoop:
             lambda c, n, r, **kw: None,
         )
         context = make_planned_doc(tmp_path)
+        context.dispatcher = dispatcher
         # Phase 4 needs hypothesized scenes; bulk-enrich them.
         doc = storyboard.load(context.state_dir)
         for s in doc["scenes"]:
@@ -363,6 +373,23 @@ class TestExploreLoop:
         combined = st["phases"]["4"]["explore_findings"]["segments"]
         assert sorted(s["index"] for s in combined) == list(range(1, 7))
         assert st["phases"]["4"]["explore_overall"] == "OK"
+
+    def test_state_cost_is_key_agnostic(self, tmp_path, monkeypatch):  # EL4
+        import json as _json
+        from types import SimpleNamespace
+
+        dispatcher = SimpleNamespace(session_cost_totals={})
+        context, sessions, err = self._run(
+            tmp_path, monkeypatch, dispatcher=dispatcher
+        )
+        assert err is None
+        assert len(sessions) == 3
+        st = _json.loads(
+            (context.state_dir / "state.json").read_text()
+        )
+        # Three chapter calls at $0.10 each, all accumulated under the
+        # SDK's UUID key — the phase total must still come out right.
+        assert st["phases"]["4"]["cost_usd"] == pytest.approx(0.30)
 
     def test_blocked_fails_fast(self, tmp_path, monkeypatch):  # EL2
         context, sessions, err = self._run(
