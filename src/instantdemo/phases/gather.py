@@ -21,7 +21,6 @@ from __future__ import annotations
 import json
 
 from .. import prompts, storyboard
-from ..agent_client import session_id_for_phase
 from . import (
     Context,
     record_phase_result,
@@ -67,10 +66,9 @@ def _build_prompt(
     template = prompts.load("phase3")
     scoped_note = (
         (
-            f"This is a CHAPTER REVISION: only the scenes below (the "
-            f"\"{section}\" chapter) need enrichment — the rest of the "
-            "demo is already verified and recorded. Enrich exactly "
-            "these scenes, nothing else.\n\n"
+            f"You are enriching ONE chapter of the storyboard: the "
+            f"\"{section}\" chapter — exactly the scenes below, nothing "
+            "else. Other chapters are handled in their own passes.\n\n"
         )
         if scope_ids
         else ""
@@ -128,11 +126,21 @@ def _make_validator(doc: dict, scope_ids: list[str] | None = None):
         if problems:
             return problems
 
-        # Dry-run the merge on a copy; the merged doc must validate.
+        # Dry-run the merge on a copy; the merged SCOPED scenes must
+        # validate at hypothesized. Only the scenes in scope — during
+        # the M7 cold-start loop, later chapters are still bare
+        # (planned, no selectors) and must not fail this chapter's
+        # validation.
         trial = json.loads(json.dumps(doc))
         _merge(trial, payload)
+        scoped_trial = dict(
+            trial,
+            scenes=[
+                s for s in trial["scenes"] if s["id"] in expected_ids
+            ],
+        )
         problems.extend(
-            storyboard.validate_storyboard(trial, stage="hypothesized")
+            storyboard.validate_storyboard(scoped_trial, stage="hypothesized")
         )
         return problems
 
@@ -158,6 +166,29 @@ def _merge(doc: dict, payload: dict) -> None:
         scene["status"] = "hypothesized"
 
 
+async def run_for_section(
+    context: Context, doc: dict, section: str, session_id: str
+):
+    """Enrich ONE chapter's scenes (M7): the scoped prompt/validator/
+    merge from M5b, parameterized by section instead of reading
+    context.section_scope. Returns the call's ResultMessage."""
+    scope_ids = _scoped_ids(doc, section)
+    prompt = _build_prompt(doc, context.url, scope_ids, section)
+    payload, result = await run_structured_query(
+        context,
+        prompt,
+        session_id,
+        validate=_make_validator(doc, scope_ids),
+        phase_number=3,
+    )
+    _merge(doc, payload)
+    storyboard.save(context.state_dir, doc)
+    print(
+        f"  Chapter {section!r}: {len(scope_ids or [])} scenes hypothesized"
+    )
+    return result
+
+
 async def run(context: Context) -> None:
     if context.client is None:
         raise RuntimeError(
@@ -166,32 +197,49 @@ async def run(context: Context) -> None:
         )
 
     doc = storyboard.load(context.state_dir)
-    scope_ids = _scoped_ids(doc, context.section_scope)
 
     artifact = context.phase_artifact(3)
     artifact.parent.mkdir(parents=True, exist_ok=True)
 
-    prompt = _build_prompt(
-        doc, context.url, scope_ids, context.section_scope
-    )
-    payload, result = await run_structured_query(
-        context,
-        prompt,
-        session_id_for_phase(3, context.run_id),
-        validate=_make_validator(doc, scope_ids),
-        phase_number=3,
-    )
+    # Chaptered always (M7): one bounded call per chapter. A scoped
+    # revision ([2,3,4] with section_scope) is the single-chapter
+    # special case of the same loop.
+    if context.section_scope:
+        sections = [context.section_scope]
+    else:
+        sections = [c["name"] for c in storyboard.chapters(doc)]
+        if not sections:
+            raise RuntimeError(
+                "Phase 3: the storyboard has no chapters — re-run "
+                "phase 2 (every plan is chaptered since M7)."
+            )
+    run8 = (context.run_id or "")[:8] or "norun"
 
-    _merge(doc, payload)
-    storyboard.save(context.state_dir, doc)
+    total_cost = 0.0
+    total_turns = 0
+    result = None
+    for k, section in enumerate(sections):
+        if context.event_emitter is not None and len(sections) > 1:
+            context.event_emitter({
+                "type": "chapter_progress",
+                "phase": 3,
+                "current": k + 1,
+                "total": len(sections),
+                "name": section,
+            })
+        result = await run_for_section(
+            context, doc, section, f"phase3-{run8}-c{k + 1}"
+        )
+        total_cost += float(getattr(result, "total_cost_usd", 0.0) or 0.0)
+        total_turns += int(getattr(result, "num_turns", 0) or 0)
 
     artifact.write_text(storyboard.render_phase3_view(doc))
-    record_phase_result(context, 3, result)
+    record_phase_result(
+        context, 3, result,
+        cost_usd_total=total_cost, num_turns_total=total_turns,
+    )
     print(summarize_run(3, artifact, result))
-    if scope_ids:
-        print(
-            f"  (chapter {context.section_scope!r}: "
-            f"{len(scope_ids)} scenes hypothesized)"
-        )
-    else:
-        print(f"  (storyboard: {len(doc['scenes'])} scenes hypothesized)")
+    print(
+        f"  (storyboard: {len(doc['scenes'])} scenes hypothesized in "
+        f"{len(sections)} chapter(s); phase total ${total_cost:.2f})"
+    )

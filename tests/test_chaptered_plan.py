@@ -204,6 +204,164 @@ class TestChapteredBuild:
         ]
 
 
+def make_planned_doc(tmp_path: Path) -> Context:
+    """A 3-chapter planned board on disk, ready for phase 3/4."""
+    context = make_context(tmp_path)
+    doc = storyboard.new_document(title="Tour", url="http://x/")
+    for ch in OUTLINE["chapters"]:
+        for i in range(2):
+            storyboard.add_scene(
+                doc, title=f"{ch['name']} {i + 1}", narration="x",
+                action="wait", section=ch["name"],
+            )
+    storyboard.save(context.state_dir, doc)
+    return context
+
+
+class TestGatherLoop:
+    def test_loop_per_chapter(self, tmp_path, monkeypatch):  # GL1 + GL2
+        import asyncio
+
+        from instantdemo.phases import gather
+
+        calls: list[dict] = []
+
+        async def fake(context, prompt, session_id, *, validate,
+                       phase_number):
+            doc = storyboard.load(context.state_dir)
+            k = int(session_id.rsplit("-c", 1)[1])
+            name = OUTLINE["chapters"][k - 1]["name"]
+            ids = [s["id"] for s in doc["scenes"] if s["section"] == name]
+            payload = {"scenes": [
+                {"id": i, "selector": [".x"], "wait_for": [".y"],
+                 "pause_after_ms": 500}
+                for i in ids
+            ]}
+            # GL2: this chapter's validation must pass while later
+            # chapters are still bare.
+            problems = validate(payload)
+            assert problems == [], (session_id, problems)
+            calls.append({"session_id": session_id, "ids": ids,
+                          "validate": validate})
+            return payload, FakeResult()
+
+        monkeypatch.setattr(
+            "instantdemo.phases.gather.run_structured_query", fake
+        )
+        recorded: dict = {}
+        monkeypatch.setattr(
+            "instantdemo.phases.gather.record_phase_result",
+            lambda c, n, r, **kw: recorded.update(kw),
+        )
+        context = make_planned_doc(tmp_path)
+        asyncio.run(gather.run(context))
+
+        assert [c["session_id"] for c in calls] == [
+            "phase3-abcdef12-c1", "phase3-abcdef12-c2", "phase3-abcdef12-c3",
+        ]
+        # Validator pins each chapter's ids: a foreign id is rejected.
+        foreign = {"scenes": [
+            {"id": "s1", "selector": [".x"], "wait_for": [".y"],
+             "pause_after_ms": 1}
+        ]}
+        assert calls[1]["validate"](foreign)  # s1 belongs to chapter 1
+        doc = storyboard.load(context.state_dir)
+        assert storyboard.validate_storyboard(doc, stage="hypothesized") == []
+        assert recorded["cost_usd_total"] == pytest.approx(0.15)
+
+
+def explore_findings(doc: dict, section: str, status: str = "PASS") -> str:
+    segs = [
+        {"index": s["index"], "status": status, "reason": "ok"}
+        for s in doc["scenes"] if s["section"] == section
+    ]
+    return "report\n```json\n" + json.dumps({"segments": segs}) + "\n```\n"
+
+
+class TestExploreLoop:
+    def _run(self, tmp_path, monkeypatch, blocked_chapter=None):
+        import asyncio
+
+        from instantdemo.phases import explore
+
+        sessions: list[str] = []
+
+        async def fake_query(context, prompt, *, session_id):
+            sessions.append(session_id)
+            doc = storyboard.load(context.state_dir)
+            k = int(session_id.rsplit("-c", 1)[1])
+            name = OUTLINE["chapters"][k - 1]["name"]
+            status = (
+                "FAIL_SELECTOR" if name == blocked_chapter else "PASS"
+            )
+            return explore_findings(doc, name, status), FakeResult()
+
+        monkeypatch.setattr(
+            "instantdemo.phases.explore.run_query_on_client", fake_query
+        )
+
+        async def fake_ensure(*args, **kwargs):
+            return None
+
+        monkeypatch.setattr(
+            "instantdemo.phases.explore._ensure_screenshots", fake_ensure
+        )
+        monkeypatch.setattr(
+            "instantdemo.phases.explore.record_phase_result",
+            lambda c, n, r, **kw: None,
+        )
+        context = make_planned_doc(tmp_path)
+        # Phase 4 needs hypothesized scenes; bulk-enrich them.
+        doc = storyboard.load(context.state_dir)
+        for s in doc["scenes"]:
+            s["selector"] = [".x"]
+            s["wait_for"] = [".y"]
+            s["pause_after_ms"] = 500
+            s["status"] = "hypothesized"
+        storyboard.save(context.state_dir, doc)
+
+        err = None
+        try:
+            asyncio.run(explore.run(context))
+        except RuntimeError as exc:
+            err = exc
+        return context, sessions, err
+
+    def test_all_pass(self, tmp_path, monkeypatch):  # EL1
+        import json as _json
+
+        context, sessions, err = self._run(tmp_path, monkeypatch)
+        assert err is None
+        assert sessions == [
+            "phase4-abcdef12-c1", "phase4-abcdef12-c2", "phase4-abcdef12-c3",
+        ]
+        doc = storyboard.load(context.state_dir)
+        assert all(s["status"] == "verified" for s in doc["scenes"])
+        st = _json.loads(
+            (context.state_dir / "state.json").read_text()
+        )
+        combined = st["phases"]["4"]["explore_findings"]["segments"]
+        assert sorted(s["index"] for s in combined) == list(range(1, 7))
+        assert st["phases"]["4"]["explore_overall"] == "OK"
+
+    def test_blocked_fails_fast(self, tmp_path, monkeypatch):  # EL2
+        context, sessions, err = self._run(
+            tmp_path, monkeypatch, blocked_chapter="Search"
+        )
+        assert err is not None and "block the render" in str(err)
+        # Chapter 2 retried once in its own session (convergence),
+        # then stopped on the unchanged failure signature; chapter 3
+        # never rehearsed.
+        assert sessions == [
+            "phase4-abcdef12-c1",
+            "phase4-abcdef12-c2",
+            "phase4-abcdef12-c2",
+        ]
+        doc = storyboard.load(context.state_dir)
+        search = [s for s in doc["scenes"] if s["section"] == "Search"]
+        assert all(s["status"] == "failed" for s in search)
+
+
 class TestContinuityPass:
     def test_rewrites_applied(self, tmp_path, monkeypatch):  # CN1
         context, _, _, _ = run_phase2(
