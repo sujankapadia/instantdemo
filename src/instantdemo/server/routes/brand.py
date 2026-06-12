@@ -110,6 +110,35 @@ async def upload_logo(file: UploadFile) -> BrandState:
     return _state(project)
 
 
+class OutroSyncResult(BaseModel):
+    changed: bool
+    applied: bool
+
+
+@router.post("/project/brand/outro/sync", response_model=OutroSyncResult)
+async def sync_outro() -> OutroSyncResult:
+    """Apply/refresh/remove the outro card on the EXISTING film to
+    match brand.json (M6 post-op, ~20-40s, no re-record)."""
+    import asyncio
+
+    from instantdemo.render import sync_outro_card
+
+    project = _project_dir()
+    loop = asyncio.get_running_loop()
+    try:
+        changed = await loop.run_in_executor(
+            None,
+            sync_outro_card,
+            project,
+            project / "demo.mp4",
+            project / ".instantdemo",
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    config = brand_mod.load_or_default(project)
+    return OutroSyncResult(changed=changed, applied=config.outro_enabled)
+
+
 @router.delete("/project/brand/logo", response_model=BrandState)
 def delete_logo() -> BrandState:
     project = _project_dir()

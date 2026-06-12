@@ -566,33 +566,6 @@ def _build_combined_audio(
     return combined_audio
 
 
-def _logo_init_script(logo_path: Path) -> str:
-    """Page-level logo watermark (M6) — the cursor-inject pattern: a
-    fixed bottom-right element burned into the recording naturally,
-    identical across full records and scoped splice records, zero
-    ffmpeg cost. data: URI so no server dependency (CLI renders)."""
-    import base64
-
-    suffix = logo_path.suffix.lower()
-    mime = "image/jpeg" if suffix in (".jpg", ".jpeg") else "image/png"
-    b64 = base64.b64encode(logo_path.read_bytes()).decode("ascii")
-    return (
-        "(() => {\n"
-        "  const mount = () => {\n"
-        "    const img = document.createElement('img');\n"
-        f"    img.src = 'data:{mime};base64,{b64}';\n"
-        "    img.style.cssText = 'position:fixed;right:16px;bottom:14px;"
-        "max-height:48px;max-width:160px;opacity:.92;z-index:2147483646;"
-        "pointer-events:none;';\n"
-        "    document.documentElement.appendChild(img);\n"
-        "  };\n"
-        "  if (document.readyState === 'loading') {\n"
-        "    document.addEventListener('DOMContentLoaded', mount);\n"
-        "  } else { mount(); }\n"
-        "})();\n"
-    )
-
-
 def _outro_data_url(title: str, text: str, logo_path: Path | None) -> str:
     """The outro card (M6): screening-room dark, the film's title in
     a generous register, the user's line beneath, logo centered when
@@ -623,6 +596,143 @@ def _outro_data_url(title: str, text: str, logo_path: Path | None) -> str:
     return "data:text/html;charset=utf-8," + urllib.parse.quote(html)
 
 
+def _shoot_outro_card(
+    title: str, text: str, logo_path: Path | None,
+    width: int, height: int, dest: Path,
+) -> None:
+    """Render the outro card to a PNG via a headless page screenshot
+    — keeps real HTML typography without filming anything."""
+    from playwright.sync_api import sync_playwright
+
+    url = _outro_data_url(title, text, logo_path)
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": width, "height": height})
+        page.goto(url, wait_until="domcontentloaded")
+        page.screenshot(path=str(dest))
+        browser.close()
+
+
+def sync_outro_card(project: Path, output_path: Path, state_dir: Path) -> bool:
+    """Make the film's tail match brand.json (M6): strip any existing
+    outro card (its span is known from timing's outro_s), then append
+    a fresh one when enabled. A post-op — no recording, no agent,
+    ~20-40s — so changing the outro never costs a re-record.
+
+    Cost honesty: ONE decode/re-encode pass of the body per sync (a
+    lossless packet-copy concat was tried and failed live — our film
+    bodies come from three different encoders, and copy-joins across
+    them corrupt timestamps). Encoded at crf 18 to match the
+    original render quality; the common case is a single application
+    right after a render. Returns True when the film changed."""
+    timing_path = state_dir / "segment-timing.json"
+    if not (output_path.exists() and timing_path.exists()):
+        return False
+    timing = json.loads(timing_path.read_text())
+    rows = timing.get("segments") or []
+    if not rows:
+        return False
+    old_outro = timing.get("outro_s")
+    old_outro = float(old_outro) if isinstance(old_outro, (int, float)) else 0.0
+    config = brand_mod.load_or_default(project)
+    want = config.outro_enabled
+    if not want and old_outro == 0:
+        return False  # nothing to do
+
+    rows_end = rows[-1]["end_s"]
+    probe = subprocess.run(  # nosec B607
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height",
+         "-of", "csv=p=0", str(output_path)],
+        capture_output=True, text=True,
+    )
+    try:
+        width, height = (int(x) for x in probe.stdout.strip().split(","))
+    except ValueError:
+        width, height = 1280, 720
+
+    with tempfile.TemporaryDirectory(prefix="instantdemo-outro-") as td:
+        tmp_dir = Path(td)
+        inputs = ["-i", str(output_path)]
+        graph: list[str] = []
+        v_parts: list[str] = []
+        a_parts: list[str] = []
+        AFMT = ",aformat=sample_rates=44100:channel_layouts=stereo"
+        # The film body: decode-accurate trim to the rows' end drops
+        # any previous card regardless of which encoder made it.
+        graph.append(
+            f"[0:v]trim=start=0:end={rows_end},setpts=PTS-STARTPTS,"
+            f"fps=25[vbody]"
+        )
+        graph.append(
+            f"[0:a]atrim=start=0:end={rows_end},asetpts=PTS-STARTPTS"
+            f"{AFMT}[abody]"
+        )
+        v_parts.append("[vbody]")
+        a_parts.append("[abody]")
+        outro_s = 0.0
+        if want:
+            outro_s = config.outro_duration_s
+            script_path = project / "demo-script.json"
+            title = "Demo"
+            if script_path.exists():
+                try:
+                    title = (
+                        json.loads(script_path.read_text()).get("title")
+                        or "Demo"
+                    )
+                except (json.JSONDecodeError, OSError):
+                    pass
+            card_png = tmp_dir / "card.png"
+            _shoot_outro_card(
+                title, config.outro_text,
+                brand_mod.resolve_logo(project, config),
+                width, height, card_png,
+            )
+            inputs += ["-loop", "1", "-t", str(outro_s), "-i", str(card_png)]
+            graph.append(
+                "[1:v]fps=25,format=yuv420p,setpts=PTS-STARTPTS[vcard]"
+            )
+            graph.append(
+                f"anullsrc=r=44100:cl=stereo:d={outro_s}{AFMT}[acard]"
+            )
+            v_parts.append("[vcard]")
+            a_parts.append("[acard]")
+        graph.append(
+            "".join(v_parts) + f"concat=n={len(v_parts)}:v=1:a=0[outv]"
+        )
+        graph.append(
+            "".join(a_parts) + f"concat=n={len(a_parts)}:v=0:a=1[outa]"
+        )
+        out_tmp = tmp_dir / "out.mp4"
+        result = subprocess.run(  # nosec B607
+            ["ffmpeg", "-y"] + inputs + [
+                "-filter_complex", ";".join(graph),
+                "-map", "[outv]", "-map", "[outa]",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                "-pix_fmt", "yuv420p",
+                "-c:a", "aac", "-b:a", "192k",
+                str(out_tmp),
+            ],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"ffmpeg outro sync failed: {result.stderr}")
+        shutil.move(str(out_tmp), str(output_path))
+
+    timing["total_duration_s"] = round(rows_end + outro_s, 3)
+    if outro_s > 0:
+        timing["outro_s"] = round(outro_s, 3)
+    else:
+        timing.pop("outro_s", None)
+    timing_path.write_text(json.dumps(timing, indent=2) + "\n")
+    print(
+        f"Outro card {'applied' if want else 'removed'} "
+        f"({output_path.name}: {timing['total_duration_s']:.1f}s)"
+    )
+    return True
+
+
 PREFIX_BEAT_S = 0.35
 """Settle time per fast-forwarded prefix action during a scoped
 chapter record (M5b) — the prefix only establishes app state, it
@@ -637,7 +747,6 @@ def record_section_video(
     clip_durations: list[float],
     tmp_dir: Path,
     resolution: dict,
-    logo_path: Path | None = None,
 ) -> tuple[Path, list[tuple[float, float]]]:
     """Record ONLY segments [start_idx..end_idx] (M5b): one browser
     context with capture on throughout — the prefix segments'
@@ -663,8 +772,6 @@ def record_section_video(
             },
         )
         context.add_init_script(_CURSOR_INJECT_SCRIPT)
-        if logo_path is not None:
-            context.add_init_script(_logo_init_script(logo_path))
         page = context.new_page()
         recording_start = time.monotonic()
 
@@ -895,17 +1002,9 @@ def render_section_main(
         section_audio = _build_combined_audio(
             clips, clip_durations, chapter, tmp_dir
         )
-        brand_dir = (
-            brand_config_path.resolve().parent
-            if brand_config_path
-            else script_path.parent
-        )
-        logo = brand_mod.resolve_logo(
-            brand_dir, brand_mod.load_or_default(brand_dir)
-        )
         raw_video, timestamps = record_section_video(
             segments, start_idx, end_idx, clip_durations, tmp_dir,
-            resolution, logo_path=logo,
+            resolution,
         )
         slots = [
             _slot_seconds(clip_durations[j], chapter[j].get("pause_after_ms"))
@@ -928,6 +1027,12 @@ def render_section_main(
         captions.write_srt(
             output_path.parent, segments, new_timing["segments"]
         )
+    project_dir = (
+        brand_config_path.resolve().parent
+        if brand_config_path
+        else script_path.parent
+    )
+    sync_outro_card(project_dir, output_path, state_dir)
     print(
         f"Scoped render complete: {output_path} "
         f"({new_timing['total_duration_s']:.1f}s)"
@@ -1403,10 +1508,7 @@ def record_browser_video(
     clip_durations: list[float],
     resolution: dict,
     tmp_dir: Path,
-    logo_path: Path | None = None,
-    outro_url: str | None = None,
-    outro_s: float = 0.0,
-) -> tuple[Path, list[tuple[float, float]], float | None]:
+) -> tuple[Path, list[tuple[float, float]]]:
     """Record browser interactions with video capture, tracking segment timestamps.
 
     Returns (video_path, timestamps) where timestamps is a list of
@@ -1432,8 +1534,6 @@ def record_browser_video(
             },
         )
         context.add_init_script(_CURSOR_INJECT_SCRIPT)
-        if logo_path is not None:
-            context.add_init_script(_logo_init_script(logo_path))
         page = context.new_page()
         recording_start = time.monotonic()
 
@@ -1455,16 +1555,6 @@ def record_browser_video(
             seg_end = time.monotonic() - recording_start
             timestamps.append((seg_start, seg_end))
 
-        # The outro card (M6): captured as trailing frames after the
-        # final slot. combine_audio_video appends them as one more
-        # trim part; the audio track is padded by the same duration.
-        outro_start: float | None = None
-        if outro_url is not None and outro_s > 0:
-            print(f"  Outro card: holding {outro_s:.1f}s")
-            page.goto(outro_url, wait_until="domcontentloaded")
-            outro_start = time.monotonic() - recording_start
-            time.sleep(outro_s + 0.2)  # small margin past the hold
-
         # Close context to finalize video
         video = page.video
         if video is None:
@@ -1474,7 +1564,7 @@ def record_browser_video(
         context.close()
         browser.close()
 
-    return Path(video_path), timestamps, outro_start
+    return Path(video_path), timestamps
 
 
 # ---------------------------------------------------------------------------
@@ -1490,22 +1580,16 @@ def combine_audio_video(
     output_path: Path,
     tmp_dir: Path,
     timestamps: list[tuple[float, float]],
-    outro_start: float | None = None,
-    outro_s: float = 0.0,
 ) -> None:
     """Merge audio clips with video into final MP4 using ffmpeg.
 
     Uses segment timestamps to trim loading frames from the video before
     merging with audio. Each segment's video is extracted from the continuous
     recording starting when the action completed (page ready), excluding
-    any loading/skeleton frames that preceded it. When an outro was
-    recorded (M6), its frames append as one more trim part and the
-    audio is padded by the same duration.
+    any loading/skeleton frames that preceded it.
     """
-    has_outro = outro_start is not None and outro_s > 0
     combined_audio = _build_combined_audio(
-        audio_clips, clip_durations, segments, tmp_dir,
-        tail_silence_s=outro_s if has_outro else 0.0,
+        audio_clips, clip_durations, segments, tmp_dir
     )
 
     # Trim, concatenate, and mux in a single ffmpeg pass
@@ -1531,12 +1615,6 @@ def combine_audio_video(
             f"setpts=PTS-STARTPTS[v{i}]"
         )
     n_parts = len(timestamps)
-    if has_outro:
-        filter_parts.append(
-            f"[0:v]trim=start={outro_start:.3f}:duration={outro_s:.3f},"
-            f"setpts=PTS-STARTPTS[v{n_parts}]"
-        )
-        n_parts += 1
     concat_inputs = "".join(f"[v{i}]" for i in range(n_parts))
     filter_parts.append(
         f"{concat_inputs}concat=n={n_parts}:v=1:a=0[outv]"
@@ -1858,25 +1936,8 @@ def main(argv=None):
 
     # Phase B: Record browser video
     print("\nPhase B: Recording browser with Playwright...")
-    brand_dir = (
-        args.brand_config.resolve().parent
-        if args.brand_config
-        else script_path.parent
-    )
-    brand_cfg = brand_mod.load_or_default(brand_dir)
-    logo = brand_mod.resolve_logo(brand_dir, brand_cfg)
-    if logo is not None:
-        print(f"  Logo watermark: {logo.name}")
-    outro_url: str | None = None
-    outro_hold = 0.0
-    if brand_cfg.outro_enabled:
-        outro_url = _outro_data_url(
-            script.get("title") or "Demo", brand_cfg.outro_text, logo
-        )
-        outro_hold = brand_cfg.outro_duration_s
-    video_path, timestamps, outro_start = record_browser_video(
-        segments, clip_durations, resolution, tmp_dir, logo_path=logo,
-        outro_url=outro_url, outro_s=outro_hold,
+    video_path, timestamps = record_browser_video(
+        segments, clip_durations, resolution, tmp_dir
     )
     print(f"  Video saved: {video_path}")
 
@@ -1884,7 +1945,7 @@ def main(argv=None):
     print("\nPhase C: Combining audio + video with ffmpeg...")
     combine_audio_video(
         video_path, audio_clips, clip_durations, segments, output_path, tmp_dir,
-        timestamps, outro_start=outro_start, outro_s=outro_hold,
+        timestamps,
     )
 
     # Phase D: Write per-segment timing for the GUI segments view
@@ -1904,9 +1965,17 @@ def main(argv=None):
     _write_segment_timing(
         state_dir, segments, clip_durations, output_path.name,
         recorded_durations_s=recorded_durations,
-        outro_s=outro_hold if outro_start is not None else 0.0,
     )
     print(f"  Timing: {state_dir / 'segment-timing.json'}")
+
+    # The outro card (M6) is a post-op — applied/refreshed after
+    # every render so the film always matches brand.json.
+    brand_dir = (
+        args.brand_config.resolve().parent
+        if args.brand_config
+        else script_path.parent
+    )
+    sync_outro_card(brand_dir, output_path, state_dir)
 
     print(f"\nDone! Output: {output_path}")
     print(f"Temp files at: {tmp_dir}")

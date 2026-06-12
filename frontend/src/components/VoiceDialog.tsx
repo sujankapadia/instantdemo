@@ -83,6 +83,7 @@ export function VoiceDialog({
               data={state.data}
               apply={apply}
               runActive={runActive}
+              onFilmChanged={onReVoiced}
             />
             {videoExists && state.data.pocket_installed ? (
               <ReVoiceBar runActive={runActive} onReVoiced={onReVoiced} />
@@ -164,10 +165,14 @@ function VoiceDialogBody({
   data,
   apply,
   runActive,
+  onFilmChanged,
 }: {
   data: VoiceState
   apply: (data: VoiceState) => void
   runActive: boolean
+  /** The film was modified outside a run (re-voice / outro sync) —
+   * the layout refreshes segments + busts the video cache. */
+  onFilmChanged: () => void
 }) {
   if (!data.pocket_installed) {
     return (
@@ -209,7 +214,7 @@ function VoiceDialogBody({
         <PronunciationTab data={data} apply={apply} runActive={runActive} />
       </TabsContent>
       <TabsContent value="brand">
-        <BrandTab />
+        <BrandTab onFilmChanged={onFilmChanged} />
       </TabsContent>
     </Tabs>
   )
@@ -220,7 +225,7 @@ function VoiceDialogBody({
  * RECORD time, so changes apply to the next recording — never
  * retroactively to the current film.
  */
-function BrandTab() {
+function BrandTab({ onFilmChanged }: { onFilmChanged: () => void }) {
   const [state, setState] = useState<{
     logo_exists: boolean
     outro_enabled: boolean
@@ -229,6 +234,7 @@ function BrandTab() {
   } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [syncing, setSyncing] = useState(false)
   const [logoBust, setLogoBust] = useState(0)
 
   const refresh = () =>
@@ -240,6 +246,28 @@ function BrandTab() {
   useEffect(() => {
     void refresh()
   }, [])
+
+  // The outro post-op (M6): make the existing film match the saved
+  // settings — ~20-40s, no re-record.
+  const syncFilm = async () => {
+    setSyncing(true)
+    try {
+      const res = await fetch('/api/project/brand/outro/sync', {
+        method: 'POST',
+      })
+      if (res.ok) {
+        const result = (await res.json()) as { changed: boolean }
+        if (result.changed) onFilmChanged()
+      } else {
+        const detail = (await res.json().catch(() => null)) as {
+          detail?: string
+        } | null
+        setError(detail?.detail ?? `HTTP ${res.status}`)
+      }
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   if (state === null) {
     return (
@@ -267,6 +295,7 @@ function BrandTab() {
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       setState(await res.json())
+      void syncFilm()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -277,8 +306,9 @@ function BrandTab() {
   return (
     <div className="flex flex-col gap-5 py-1">
       <p className="text-xs text-muted-foreground">
-        The logo and outro are filmed into the recording — they appear
-        in your next recording, and the current film stays as it is.
+        End your film with a closing card — your title, a line, and
+        your logo. Changes apply to the current film in about half a
+        minute; nothing is re-recorded.
       </p>
 
       <div className="flex items-center gap-3">
@@ -289,7 +319,9 @@ function BrandTab() {
             className="h-10 max-w-32 rounded border border-border bg-muted/30 object-contain p-1"
           />
         ) : (
-          <span className="text-sm text-muted-foreground">No logo yet</span>
+          <span className="text-sm text-muted-foreground">
+            No logo yet — it appears on the outro card
+          </span>
         )}
         <label className="cursor-pointer rounded-md border border-input px-2.5 py-1.5 text-xs hover:bg-secondary">
           {state.logo_exists ? 'Replace logo' : 'Upload logo'}
@@ -316,6 +348,7 @@ function BrandTab() {
               }
               setState(await res.json())
               setLogoBust((n) => n + 1)
+              void syncFilm()
             }}
           />
         </label>
@@ -327,7 +360,10 @@ function BrandTab() {
               const res = await fetch('/api/project/brand/logo', {
                 method: 'DELETE',
               })
-              if (res.ok) setState(await res.json())
+              if (res.ok) {
+                setState(await res.json())
+                void syncFilm()
+              }
             }}
           >
             Remove
@@ -382,6 +418,17 @@ function BrandTab() {
         ) : null}
       </div>
 
+      {syncing ? (
+        <p className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="meter-pulse" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+            <span />
+          </span>
+          Updating your film…
+        </p>
+      ) : null}
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
     </div>
   )
