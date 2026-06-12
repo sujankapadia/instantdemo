@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import {
   AudioLines,
   Loader2,
@@ -65,7 +65,7 @@ export function VoiceDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Voice &amp; brand</DialogTitle>
+          <DialogTitle>Voice &amp; pronunciation</DialogTitle>
           <DialogDescription>
             How your demos sound. Saved with the project — every render
             and narration edit uses this voice.
@@ -83,7 +83,6 @@ export function VoiceDialog({
               data={state.data}
               apply={apply}
               runActive={runActive}
-              onFilmChanged={onReVoiced}
             />
             {videoExists && state.data.pocket_installed ? (
               <ReVoiceBar runActive={runActive} onReVoiced={onReVoiced} />
@@ -165,14 +164,10 @@ function VoiceDialogBody({
   data,
   apply,
   runActive,
-  onFilmChanged,
 }: {
   data: VoiceState
   apply: (data: VoiceState) => void
   runActive: boolean
-  /** The film was modified outside a run (re-voice / outro sync) —
-   * the layout refreshes segments + busts the video cache. */
-  onFilmChanged: () => void
 }) {
   if (!data.pocket_installed) {
     return (
@@ -200,9 +195,6 @@ function VoiceDialogBody({
         <TabsTrigger value="pronunciation" className="flex-1">
           Pronunciation
         </TabsTrigger>
-        <TabsTrigger value="brand" className="flex-1">
-          Brand
-        </TabsTrigger>
       </TabsList>
       <TabsContent value="voice">
         <StockVoiceTab data={data} apply={apply} runActive={runActive} />
@@ -213,224 +205,7 @@ function VoiceDialogBody({
       <TabsContent value="pronunciation">
         <PronunciationTab data={data} apply={apply} runActive={runActive} />
       </TabsContent>
-      <TabsContent value="brand">
-        <BrandTab onFilmChanged={onFilmChanged} />
-      </TabsContent>
     </Tabs>
-  )
-}
-
-/**
- * Brand (M6): logo watermark + outro card. Both are burned in at
- * RECORD time, so changes apply to the next recording — never
- * retroactively to the current film.
- */
-function BrandTab({ onFilmChanged }: { onFilmChanged: () => void }) {
-  const [state, setState] = useState<{
-    logo_exists: boolean
-    outro_enabled: boolean
-    outro_text: string
-    outro_duration_s: number
-  } | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [syncing, setSyncing] = useState(false)
-  const [logoBust, setLogoBust] = useState(0)
-
-  const refresh = () =>
-    fetch('/api/project/brand')
-      .then((r) => r.json())
-      .then(setState)
-      .catch((e) => setError(String(e)))
-
-  useEffect(() => {
-    void refresh()
-  }, [])
-
-  // The outro post-op (M6): make the existing film match the saved
-  // settings — ~20-40s, no re-record.
-  const syncFilm = async () => {
-    setSyncing(true)
-    try {
-      const res = await fetch('/api/project/brand/outro/sync', {
-        method: 'POST',
-      })
-      if (res.ok) {
-        const result = (await res.json()) as { changed: boolean }
-        if (result.changed) onFilmChanged()
-      } else {
-        const detail = (await res.json().catch(() => null)) as {
-          detail?: string
-        } | null
-        setError(detail?.detail ?? `HTTP ${res.status}`)
-      }
-    } finally {
-      setSyncing(false)
-    }
-  }
-
-  if (state === null) {
-    return (
-      <div className="flex h-32 items-center justify-center text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" />
-      </div>
-    )
-  }
-
-  const putOutro = async (
-    patch: Partial<Pick<typeof state, 'outro_enabled' | 'outro_text' | 'outro_duration_s'>>,
-  ) => {
-    setSaving(true)
-    setError(null)
-    try {
-      const res = await fetch('/api/project/brand', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          outro_enabled: state.outro_enabled,
-          outro_text: state.outro_text,
-          outro_duration_s: state.outro_duration_s,
-          ...patch,
-        }),
-      })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      setState(await res.json())
-      void syncFilm()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="flex flex-col gap-5 py-1">
-      <p className="text-xs text-muted-foreground">
-        End your film with a closing card — your title, a line, and
-        your logo. Changes apply to the current film in about half a
-        minute; nothing is re-recorded.
-      </p>
-
-      <div className="flex items-center gap-3">
-        {state.logo_exists ? (
-          <img
-            src={`/api/project/brand/logo?v=${logoBust}`}
-            alt="Your logo"
-            className="h-10 max-w-32 rounded border border-border bg-muted/30 object-contain p-1"
-          />
-        ) : (
-          <span className="text-sm text-muted-foreground">
-            No logo yet — it appears on the outro card
-          </span>
-        )}
-        <label className="cursor-pointer rounded-md border border-input px-2.5 py-1.5 text-xs hover:bg-secondary">
-          {state.logo_exists ? 'Replace logo' : 'Upload logo'}
-          <input
-            type="file"
-            accept="image/png,image/jpeg"
-            className="hidden"
-            onChange={async (e) => {
-              const file = e.target.files?.[0]
-              if (!file) return
-              setError(null)
-              const body = new FormData()
-              body.append('file', file)
-              const res = await fetch('/api/project/brand/logo', {
-                method: 'POST',
-                body,
-              })
-              if (!res.ok) {
-                const detail = (await res.json().catch(() => null)) as {
-                  detail?: string
-                } | null
-                setError(detail?.detail ?? `HTTP ${res.status}`)
-                return
-              }
-              setState(await res.json())
-              setLogoBust((n) => n + 1)
-              void syncFilm()
-            }}
-          />
-        </label>
-        {state.logo_exists ? (
-          <Button
-            size="xs"
-            variant="ghost"
-            onClick={async () => {
-              const res = await fetch('/api/project/brand/logo', {
-                method: 'DELETE',
-              })
-              if (res.ok) {
-                setState(await res.json())
-                void syncFilm()
-              }
-            }}
-          >
-            Remove
-          </Button>
-        ) : null}
-      </div>
-
-      <div className="flex flex-col gap-2 border-t border-border pt-4">
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={state.outro_enabled}
-            disabled={saving}
-            onChange={(e) => void putOutro({ outro_enabled: e.target.checked })}
-          />
-          End the film with an outro card
-        </label>
-        {state.outro_enabled ? (
-          <div className="flex flex-col gap-2 pl-6">
-            <input
-              value={state.outro_text}
-              placeholder={'A closing line — "Try it yourself at example.com"'}
-              disabled={saving}
-              onChange={(e) =>
-                setState({ ...state, outro_text: e.target.value })
-              }
-              onBlur={() => void putOutro({})}
-              className="rounded-md border border-input bg-background px-2.5 py-1.5 text-sm placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            />
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              Hold for
-              <input
-                type="number"
-                min={2}
-                max={10}
-                step={1}
-                value={state.outro_duration_s}
-                disabled={saving}
-                onChange={(e) =>
-                  setState({
-                    ...state,
-                    outro_duration_s: Number(e.target.value),
-                  })
-                }
-                onBlur={() => void putOutro({})}
-                className="w-16 rounded-md border border-input bg-background px-2 py-1 text-xs"
-              />
-              seconds — the card shows your film's title, this line, and
-              your logo.
-            </label>
-          </div>
-        ) : null}
-      </div>
-
-      {syncing ? (
-        <p className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span className="meter-pulse" aria-hidden="true">
-            <span />
-            <span />
-            <span />
-            <span />
-          </span>
-          Updating your film…
-        </p>
-      ) : null}
-      {error ? <p className="text-xs text-destructive">{error}</p> : null}
-    </div>
   )
 }
 

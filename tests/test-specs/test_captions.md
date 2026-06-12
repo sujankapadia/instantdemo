@@ -24,3 +24,4 @@ Test: `tests/test_captions.py`
 |----|----------|-----------|----------------|
 | CP5 | _write_segment_timing called | demo.srt exists next to the project's demo.mp4, cues match rows | Full render / re-voice / delete leave stale captions — desync the user can't see until a platform shows it |
 | CP6 | takes.SNAPSHOT_FILES includes demo.srt | snapshot copies it; restore brings it back | A restored take's captions describe a different film |
+| CP7 | GET /api/project/download | A zip containing demo.mp4 + demo.srt (srt omitted when absent; 404 with no film) | The one-click deliverable ships broken or half-empty |

@@ -366,7 +366,6 @@ def _do_delete_segment(
         # the remaining recorded durations so per-segment overflow
         # extension can fire if needed (#37).
         output_tmp = tmp_dir / "demo.mp4"
-        outro_s = _load_outro_s(state_dir)
         remux_audio_only(
             existing_video=trimmed_video,
             audio_clips=clips,
@@ -375,7 +374,6 @@ def _do_delete_segment(
             output_path=output_tmp,
             tmp_dir=tmp_dir,
             recorded_durations_s=remaining_durations,
-            outro_s=outro_s,
         )
         shutil.move(str(output_tmp), str(video_path))
 
@@ -392,7 +390,6 @@ def _do_delete_segment(
             clip_durations,
             video_path.name,
             recorded_durations_s=remaining_durations,
-            outro_s=outro_s,
         )
 
         new_total_s = sum(
@@ -437,21 +434,6 @@ def _load_recorded_durations(
     return out
 
 
-def _load_outro_s(state_dir: Path) -> float:
-    """The outro card's duration from segment-timing.json (M6) — the
-    audio-only paths pad their rebuilt audio by it so the card's
-    frames survive `-shortest`."""
-    timing_path = state_dir / "segment-timing.json"
-    if not timing_path.exists():
-        return 0.0
-    try:
-        data = json.loads(timing_path.read_text())
-    except (json.JSONDecodeError, OSError):
-        return 0.0
-    value = data.get("outro_s")
-    return float(value) if isinstance(value, (int, float)) else 0.0
-
-
 def _do_re_render_audio(
     project: Path,
     segments: list[dict[str, Any]],
@@ -493,7 +475,6 @@ def _do_re_render_audio(
         # the rebuild-with-extension path instead of producing a
         # video where audio bleeds into the next segment (#37).
         output_tmp = tmp_dir / "demo.mp4"
-        outro_s = _load_outro_s(state_dir)
         remux_audio_only(
             existing_video=video_path,
             audio_clips=clips,
@@ -502,7 +483,6 @@ def _do_re_render_audio(
             output_path=output_tmp,
             tmp_dir=tmp_dir,
             recorded_durations_s=recorded_durations,
-            outro_s=outro_s,
         )
         shutil.move(str(output_tmp), str(video_path))
 
@@ -512,7 +492,6 @@ def _do_re_render_audio(
         _write_segment_timing(
             state_dir, segments, clip_durations, video_path.name,
             recorded_durations_s=recorded_durations,
-            outro_s=outro_s,
         )
 
         # Compute response fields.

@@ -399,21 +399,13 @@ export function StageFilm({
                 )}
                 Adjust
               </Button>
-              {/* The deliverables (M6): the film and its captions. */}
+              {/* The deliverable (M6): one click — film + captions. */}
               <a
-                href="/api/project/video"
-                download="demo.mp4"
+                href="/api/project/download"
                 className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <Download className="size-3" />
-                Film
-              </a>
-              <a
-                href="/api/project/captions"
-                className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <Download className="size-3" />
-                Captions
+                Download
               </a>
               {takeError ? (
                 <span className="text-destructive">{takeError}</span>

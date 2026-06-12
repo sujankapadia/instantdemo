@@ -59,6 +59,28 @@ class TestHooks:
         assert "Hello." in srt
         assert srt.count("-->") == 1  # silent segment has no cue
 
+    def test_download_zip(self, tmp_path, monkeypatch):  # CP7
+        import io
+        import zipfile
+
+        monkeypatch.setenv("INSTANTDEMO_PROJECT_DIR", str(tmp_path))
+        (tmp_path / ".instantdemo").mkdir()
+        from fastapi.testclient import TestClient
+        from instantdemo.server.app import create_app
+
+        with TestClient(create_app()) as c:
+            assert c.get("/api/project/download").status_code == 404
+            (tmp_path / "demo.mp4").write_bytes(b"FILM")
+            res = c.get("/api/project/download")
+            assert res.status_code == 200
+            with zipfile.ZipFile(io.BytesIO(res.content)) as zf:
+                assert zf.namelist() == ["demo.mp4"]
+            (tmp_path / "demo.srt").write_text("1\n00:00:00,000 --> 00:00:01,000\nHi.\n")
+            res = c.get("/api/project/download")
+            with zipfile.ZipFile(io.BytesIO(res.content)) as zf:
+                assert sorted(zf.namelist()) == ["demo.mp4", "demo.srt"]
+                assert zf.read("demo.mp4") == b"FILM"
+
     def test_take_snapshot_carries_srt(self, tmp_path: Path):  # CP6
         (tmp_path / ".instantdemo").mkdir()
         (tmp_path / "demo.mp4").write_bytes(b"F")

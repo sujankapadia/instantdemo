@@ -233,7 +233,6 @@ Each project directory has:
 ├── demo-script.json           # Phase 5 output (consumed by Phase 6)
 ├── demo.mp4                   # Phase 6 output
 ├── demo.srt                   # Captions (M6) — display narration over timing rows; regenerated at every timing write
-├── brand.json                 # Logo watermark + outro card config (M6); logo at .instantdemo/logo.png
 └── .instantdemo/
     ├── state.json             # Persistent run state: per-phase status, cost, metrics
     ├── metrics.jsonl          # Append-only per-run-per-phase records
