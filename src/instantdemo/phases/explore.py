@@ -681,7 +681,14 @@ async def run_for_section(
     else:
         overall = _legacy_overall(verified_text)
 
-    section_cost = float(getattr(result, "total_cost_usd", 0.0) or 0.0)
+    # The section's true cost: the dispatcher's per-session running
+    # total, maintained by record_phase_result's delta accounting —
+    # robust regardless of how the SDK accumulates total_cost_usd.
+    section_cost = 0.0
+    if context.dispatcher is not None:
+        section_cost = float(
+            context.dispatcher.session_cost_totals.get(session_id, 0.0)
+        )
     return findings, overall, verified_text, final_iteration, section_cost
 
 
