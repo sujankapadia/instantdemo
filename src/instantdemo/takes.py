@@ -76,6 +76,17 @@ def snapshot(project: Path, label: str) -> int:
     return n
 
 
+def snapshot_unless_current(project: Path, label: str) -> int | None:
+    """Snapshot, unless the newest take already IS the current film
+    (its video matches demo.mp4 by size+mtime) — the pre-mutation
+    snapshot pattern: a fresh post-render take must not be duplicated
+    by the first edit that follows it. Returns N, or None if skipped."""
+    listing = list_takes(project)
+    if listing and listing[0].get("is_current"):
+        return None
+    return snapshot(project, label)
+
+
 def prune_videos(project: Path, *, keep: int = KEEP_VIDEOS) -> list[int]:
     """Delete demo.mp4 from all but the newest `keep` takes. JSON +
     meta stay forever. Returns the take numbers pruned."""

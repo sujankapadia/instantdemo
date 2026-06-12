@@ -258,6 +258,7 @@ export function Layout() {
         loading={isLoading}
         runStatus={run.status}
         currentPhase={run.currentPhase}
+        chapterProgress={run.chapterProgress}
         onCancel={() => void run.cancel()}
         onNewProject={() => setNewProjectOpen(true)}
         showNewProject={!empty}

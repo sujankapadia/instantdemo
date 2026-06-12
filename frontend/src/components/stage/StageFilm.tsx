@@ -15,7 +15,13 @@ import {
   patchSegmentNarration,
   reRenderSegmentAudio,
 } from '@/api/segments'
-import { fetchTakes, restoreTake, takeVideoUrl, type Take } from '@/api/takes'
+import {
+  describeTake,
+  fetchTakes,
+  restoreTake,
+  takeVideoUrl,
+  type Take,
+} from '@/api/takes'
 import { reviseDemo, type ReviseResponse } from '@/api/revise'
 import type { RunStatus } from '@/hooks/useRun'
 
@@ -413,7 +419,11 @@ export function StageFilm({
               {playableTakes.length > 0 && viewingTake !== null ? (
                 <>
                   <span className="text-muted-foreground">
-                    Viewing version {viewingTake} — your current cut is kept
+                    {(() => {
+                      const t = allTakes.find((x) => x.n === viewingTake)
+                      return t ? `Viewing ${describeTake(t)}` : `Viewing take ${viewingTake}`
+                    })()}{' '}
+                    — your current cut is kept
                   </span>
                   <Button
                     size="xs"
@@ -426,7 +436,7 @@ export function StageFilm({
                     ) : (
                       <Undo2 className="size-3" />
                     )}
-                    Restore this version
+                    Make this the current cut
                   </Button>
                   <Button
                     size="xs"
@@ -449,11 +459,11 @@ export function StageFilm({
                       }}
                     >
                       <option value="" disabled>
-                        older…
+                        earlier takes…
                       </option>
                       {playableTakes.slice(1).map((t) => (
                         <option key={t.n} value={t.n}>
-                          v{t.n} · {t.label}
+                          {describeTake(t)}
                         </option>
                       ))}
                     </select>
@@ -464,7 +474,7 @@ export function StageFilm({
                     onClick={() => setViewingTake(playableTakes[0]!.n)}
                   >
                     <History className="size-3" />
-                    Previous version
+                    Previous take
                   </Button>
                 </>
               ) : null}

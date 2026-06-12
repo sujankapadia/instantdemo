@@ -16,6 +16,8 @@ interface HeaderProps {
   /** Currently-executing phase (1-6). Null when no phase is in
    *  flight. Rendered as a film-register sentence, never a number. */
   currentPhase: number | null
+  /** Per-chapter progress within phases 2-4 (M7). */
+  chapterProgress?: { current: number; total: number; name: string } | null
   onCancel: () => void
   onNewProject: () => void
   /** Hide the "Regenerate" button when the front door is the
@@ -39,6 +41,7 @@ export function Header({
   loading,
   runStatus,
   currentPhase,
+  chapterProgress,
   onCancel,
   onNewProject,
   showNewProject = true,
@@ -74,7 +77,12 @@ export function Header({
             aria-label="The studio is working"
           >
             <Loader2 className="size-3 animate-spin text-foreground/80" />
-            <span>{stageSentence(currentPhase)}</span>
+            <span>
+              {stageSentence(currentPhase)}
+              {chapterProgress
+                ? ` — chapter ${chapterProgress.current} of ${chapterProgress.total}: “${chapterProgress.name}”`
+                : ''}
+            </span>
           </span>
         ) : null}
         {isActive ? (

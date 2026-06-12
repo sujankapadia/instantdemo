@@ -19,6 +19,7 @@ Test: `tests/test_takes.py`
 | T4 | Five snapshots with videos | Only the newest 3 keep demo.mp4; ALL five keep JSON + meta; prune returns the pruned numbers | Disk fills with videos, or text history lost with the video |
 | T5 | list_takes ordering + fields | Newest first; {n, label, created_at, video_exists} correct incl. pruned takes (video_exists false) | The Previous-version toggle shows wrong/unplayable takes |
 | T9 | is_current flag | A post-render snapshot (video byte-copy of current demo.mp4) has is_current=true; after the project's film changes, is_current=false | "Previous version" offers a no-op comparison between identical videos right after a render |
+| T10 | snapshot_unless_current: newest take already IS the current film | Returns None, no new take dir; after the film changes, it snapshots and returns N | The first edit after a render duplicates the post-render take (the live v1==v2 bug) — the dropdown offers two identical "previous versions" |
 
 ## restore
 
