@@ -145,13 +145,34 @@ def _section_render_plan(context: Context) -> tuple[int, int, int] | None:
     return start_idx, start_idx + chapter_len - 1, old_chapter_len
 
 
-def _invoke_renderer(context: Context) -> None:
+def _progress_emitter(loop, emit):
+    """Thread-safe render progress (M8/#85): the renderer runs in an
+    executor thread, and the SSE queue's put_nowait is NOT thread-safe
+    from there — marshal each event onto the loop with
+    call_soon_threadsafe. Returns None when there's no emitter (CLI)."""
+    if emit is None:
+        return None
+
+    def on_progress(stage: str, current: int, total: int) -> None:
+        loop.call_soon_threadsafe(emit, {
+            "type": "render_progress",
+            "phase": 6,
+            "stage": stage,
+            "current": current,
+            "total": total,
+        })
+
+    return on_progress
+
+
+def _invoke_renderer(context: Context, on_progress=None) -> None:
     """Call the bundled renderer in-process. The project's tts.json
     carries the voice (provider/stock voice/cloned reference/
     pronunciations); an explicit Context.tts (CLI --tts) overrides
     the config's provider. A scoped chapter revision (M5b) records
     and splices only the chapter when the project's film/timing
-    allow it."""
+    allow it. `on_progress(stage, current, total)` (M8) reports
+    per-segment narrating/recording progress; None in the CLI."""
     plan = _section_render_plan(context)
     if plan is not None:
         start_idx, end_idx, old_chapter_len = plan
@@ -169,6 +190,7 @@ def _invoke_renderer(context: Context) -> None:
             old_chapter_len,
             tts_config_path=context.project / "tts.json",
             tts_override=context.tts,
+            on_progress=on_progress,
         )
         return
     argv = [
@@ -182,7 +204,7 @@ def _invoke_renderer(context: Context) -> None:
         argv += ["--tts", context.tts]
     print(f"\n[Phase 6] Drift check passed — running renderer:")
     print(f"           instantdemo render {' '.join(argv)}\n")
-    render_main(argv)
+    render_main(argv, on_progress=on_progress)
 
 
 async def run(context: Context) -> None:
@@ -244,7 +266,10 @@ async def run(context: Context) -> None:
                     print(f"[Phase 6] Kept your current film as version {n}")
         except OSError as exc:
             print(f"[Phase 6] WARNING: pre-render take failed: {exc}")
-        await loop.run_in_executor(None, _invoke_renderer, context)
+        on_progress = _progress_emitter(loop, context.event_emitter)
+        await loop.run_in_executor(
+            None, _invoke_renderer, context, on_progress
+        )
         # Versioned take after every successful render (M4): the
         # film just made becomes restorable history. A snapshot
         # failure must never fail the phase.
