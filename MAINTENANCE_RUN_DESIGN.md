@@ -46,29 +46,101 @@ The button-label case is precisely Level 2, which exists today
 deliberately). What's missing is a run mode that applies the ladder
 to an **existing** board instead of a freshly planned one.
 
-## Detection: mechanical first, agent only on failure
+## What we're actually checking (and what we're not)
 
-The expensive way to find drift is to re-run the rehearsal agent
-over everything. The CI-shaped way is a two-tier check:
+A maintenance run is **not** diffing the app against itself — a
+thousand things change between builds (CSS, a feature three screens
+away, a backend refactor) and none of them matter. It checks one
+narrow thing: **does this demo still faithfully represent the app?**
+A demo is a bet — *do these actions, see these states, here's what
+they mean* — and the run re-settles that bet against a new build.
+The demo declares a small set of dependencies; the check verifies
+ONLY those; everything outside the set is free to change. The
+assertion set IS the demo's contract with the app surface, and
+nothing more — which is what keeps the check cheap and tractable.
 
-1. **Mechanical replay (no LLM, ~$0).** Replay the demo script with
-   plain Playwright. Selectors that miss and waits that time out
-   flag their scenes.
-2. **Grounding assertions.** The selector can survive while the
-   words go stale (the label case). Phase 4 already verifies
-   narration claims against the live app during rehearsal — it just
-   throws that knowledge away. Persist it: each verified scene
-   records the visible-text facts its narration depends on
-   (`assert_text: [{selector, text}]` on the scene). The mechanical
-   replay checks them as cheap text assertions.
-3. **Scoped repair.** Only flagged scenes go to an agent, chapter by
-   chapter (M7's unit of work), with Level 1/2 authority and BLOCKED
-   as the stop. Untouched chapters never enter a prompt.
+## The assertion taxonomy (three layers)
+
+A scene stacks an **action** (anchored by a selector), the **state**
+it produces, and **narration** that makes **claims** about that
+state. Faithfulness decomposes into three checkable layers, and the
+layer that fails determines the repair authority:
+
+| Layer | Question | Failure → repair |
+|---|---|---|
+| 1 **Reachability** | Can the action still be performed? (selector resolves, interactable) | selector drift → **Level 1** (swap selector; narration untouched) |
+| 2 **Consequence** | Does the action still produce the expected state? (pill changes, list re-renders, N rows) | behavior drift → **BLOCKED** (a feature changed; human regenerates) |
+| 3 **Truthfulness** | Do the narration's claims still match the screen? | label/wording drift → **Level 2** (reground that one sentence) |
+
+Layer 3 is a spectrum by checkability: **structural** claims ("click
+**Save**" → a button labeled Save exists) and **relational** claims
+("the list **narrows**" → row count dropped) are mechanically
+checkable and gate the build; **quantitative** claims ("**fifty**
+notes") are the volatile-data trap; **subjective** claims ("looks
+just like Evernote") aren't checkable at all. Only the stable end
+gates; volatile values are advisory; subjective claims aren't
+asserted.
+
+Layers 1 and 2 are the spine — almost entirely mechanical, and
+where most real breakage lives. The whole volatile problem lives in
+exactly one cell (Layer-3 quantitative), handled by a mechanical
+threshold (100→102 is data; 100→0 is drift) and engineered out at
+generate time (don't pin volatile specifics in narration).
+
+## Detection: strictly mechanical; LLM is repair-only
+
+**Decision (design discussion):** the drift check is one mode —
+**mechanical, no LLM escalation inside detection.** This beats
+letting the check escalate "ambiguous" cases to a cheap model on
+all three axes: simplicity (no confidence-scoring/escalation policy;
+detection never costs money), cost (CI spend is flat and
+predictable, not variable with build noise), and correctness (the
+*damaging* drift — a broken path — is caught mechanically 100%; the
+rare residue is covered by the backstop below, not per-run spend).
+
+1. **Mechanical replay (no LLM, ~$0).** A deterministic harness —
+   a stripped renderer that drives but doesn't record — replays each
+   scene's action via the renderer's existing `_dispatch_action` +
+   `_wait_first_match` (try candidates, first that resolves). The
+   script IS the existing demo-script; nothing is composed.
+2. **Assertion evaluation (no LLM).** After each action, evaluate
+   that scene's captured predicates against the live DOM with plain
+   queries (`query_selector`, `inner_text`, `count()`). This works
+   because the prior verified state is written down (the
+   assertions), so "is it still correct?" collapses from a
+   *judgment* (what Phase 4 needs an LLM for) into a *comparison*.
+   The expensive part moved from runtime-LLM to generate-time
+   capture. Per-scene verdict: ok / selector-drift / behavior-drift
+   / text-drift / volatile-advisory.
+3. **Scoped repair (LLM, summoned per failure).** Only a *failed*
+   scene at a *repairable* layer spends a token — try captured
+   fallbacks mechanically first; only then an LLM probe (L1) or a
+   one-sentence reground (L2); behavior drift is BLOCKED with no
+   repair call. Chapter-scoped (M7's unit); untouched chapters never
+   enter a prompt.
+
+**The blind spot, named honestly:** a green mechanical check means
+"no declared dependency broke," NOT "provably still perfect" — a
+button whose selector and label are unchanged but that now *does*
+something different can pass. The backstop is a **full re-rehearsal
+(the real Phase 4) the operator triggers** (`--full`, or a cadence
+they set), where the false negatives get caught at a predictable,
+bounded cost — never per-run escalation. Certainty is something you
+*buy when you want it*, not a tax on every run.
+
+**Where the correctness actually comes from** — input quality, not
+runtime cleverness: (a) the #88 schema must force **evaluable
+predicates, not prose** (`{selector, check, expected, layer,
+volatile}`) so the mechanical check is *sufficient*; (b) a Phase-2
+narration discipline — don't pin volatile specifics unless they're
+a stable archive (the 500-note case) — which kills the #1
+false-positive source before it exists.
 
 Cost shape: a green build is **zero agent calls** — Playwright +
 TTS cache + ffmpeg. A one-label release costs one bounded repair
-call and one segment re-voice. The full creative pipeline runs only
-when a human decides the demo should *say something new*.
+call and one segment re-voice. The full creative pipeline (or the
+`--full` re-rehearsal) runs only when a human asks for the thorough
+answer.
 
 ## What re-records vs. what's reused
 
