@@ -338,6 +338,9 @@ def generate_audio_pocket_tts(
         raise
     sample_rate = int(model.sample_rate)
 
+    def _samples(a):
+        return a.numpy() if hasattr(a, "numpy") else a
+
     clips = []
     for i, seg in enumerate(segments):
         text = seg["narration"]
@@ -347,12 +350,23 @@ def generate_audio_pocket_tts(
             continue
         output_path = tmp_dir / f"segment_{i}.wav"
         print(f"  Generating audio for segment {i}: {text[:50]}...")
-        audio = model.generate_audio(voice_state, text)
-        sf.write(
-            str(output_path),
-            audio.numpy() if hasattr(audio, "numpy") else audio,
-            sample_rate,
-        )
+        audio = _samples(model.generate_audio(voice_state, text))
+        # Hallucination guard (M8/#85): pocket-tts occasionally appends
+        # a stray word + repeated phrase, inflating the clip well past
+        # what the text predicts and corrupting downstream timing.
+        # One re-synthesis; keep the SHORTER clip (hallucinations add
+        # length).
+        duration_s = len(audio) / sample_rate
+        if clip_is_suspicious(text, duration_s):
+            words = len(text.split())
+            print(
+                f"  Segment {i}: clip {duration_s:.1f}s exceeds the "
+                f"bound for {words} words — re-synthesizing once"
+            )
+            retry = _samples(model.generate_audio(voice_state, text))
+            if len(retry) < len(audio):
+                audio = retry
+        sf.write(str(output_path), audio, sample_rate)
         clips.append(output_path)
     return clips
 
@@ -481,6 +495,24 @@ def _write_segment_timing(
 # when longer. Applied identically at recording time and both audio
 # concat paths so full renders, re-records, and re-voices agree.
 BREATH_S = 0.4
+
+
+# TTS hallucination guard (M8/#85 item 5). 0.75 s/word ≈ 80 wpm —
+# slower than any sane narration (~0.4 s/word typical), so ~85% slack
+# before flagging; the floor keeps 1–2-word lines from ever flagging.
+TTS_GUARD_MAX_S_PER_WORD = 0.75
+TTS_GUARD_FLOOR_S = 3.0
+
+
+def clip_is_suspicious(text: str, duration_s: float) -> bool:
+    """True when a synthesized clip runs longer than its text predicts
+    — the pocket-tts hallucination shape (stray word + repeated
+    phrase). Strictly greater: a clip exactly at the bound passes."""
+    words = len(text.split())
+    if words == 0:
+        return False
+    bound = max(TTS_GUARD_FLOOR_S, words * TTS_GUARD_MAX_S_PER_WORD)
+    return duration_s > bound
 
 
 def _slot_seconds(audio_s: float, pause_ms: object) -> float:

@@ -1,7 +1,26 @@
 # test_render_resolve.py Spec
 
-Source: `src/instantdemo/render.py` (`_resolve_tts`, `ResolvedTTS` — M3; `_slot_seconds` — M4/#68)
+Source: `src/instantdemo/render.py` (`_resolve_tts`, `ResolvedTTS` — M3; `_slot_seconds` — M4/#68; `clip_is_suspicious` — M8/#85 item 5)
 Test: `tests/test_render_resolve.py`
+
+## clip_is_suspicious — TTS hallucination guard (M8)
+
+Bound: suspicious when duration_s > max(3.0s floor, words × 0.75s).
+0.75 s/word ≈ 80 wpm — slower than any sane narration; the floor
+protects 1–2-word lines. Used inside generate_audio_pocket_tts:
+suspicious → re-synthesize ONCE, keep the SHORTER clip (the retry
+path is gated live, not unit-tested — it would mean faking the TTS
+model).
+
+| ID | Scenario | Assertion | Risk if broken |
+|----|----------|-----------|----------------|
+| G1 | 10 words, 4.0s | Not suspicious | Normal narration burns a pointless re-synthesis on every segment |
+| G2 | 10 words, 9.0s (bound 7.5) | Suspicious | The live hallucination (stray word + repeated phrase) sails through and corrupts downstream timing |
+| G3 | 2 words, 2.5s | Not suspicious (3.0s floor > 1.5s word bound) | Short lines ("Five hundred notes.") flagged constantly |
+| G4 | Empty / whitespace narration | Never suspicious | Silent-clip segments crash or churn |
+| G5 | Duration exactly at the bound | Not suspicious (strict >) | Boundary flapping — equality should pass |
+
+(G1–G5 implemented as module-level tests alongside T1–T8/B1–B3.)
 
 ## _slot_seconds (#68 — the inter-segment breath)
 
