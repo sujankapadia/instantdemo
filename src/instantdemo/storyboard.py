@@ -248,6 +248,15 @@ def validate_storyboard(doc: dict, *, stage: str) -> list[str]:
                             f"{label}: action {action!r} requires "
                             f"non-empty {field!r} candidates"
                         )
+                elif field == "value":
+                    # "" is a real payload: select_option's blank
+                    # <option value=""> (the "all/none" reset). Only a
+                    # missing/null value is invalid.
+                    if value is None:
+                        problems.append(
+                            f"{label}: action {action!r} requires the "
+                            f"{field!r} field"
+                        )
                 elif value in (None, ""):
                     problems.append(
                         f"{label}: action {action!r} requires the "
@@ -321,8 +330,13 @@ def to_demo_script(
         }
         for field in ("url", "value", "key", "expression", "pixels"):
             value = scene.get(field)
-            if value not in (None, ""):
-                seg[field] = value
+            if value is None:
+                continue
+            # `value` carries "" through (select_option's blank
+            # option); every other field treats "" as absent.
+            if value == "" and field != "value":
+                continue
+            seg[field] = value
         for field in _CANDIDATE_FIELDS:
             cands = normalize_candidates(scene.get(field))
             if len(cands) == 1:

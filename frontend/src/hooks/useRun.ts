@@ -69,6 +69,18 @@ export interface UseRunReturn {
   screenshots: { file: string; url: string }[]
   /** Per-chapter progress within phases 2-4 (M7), null between. */
   chapterProgress: { current: number; total: number; name: string } | null
+  /** Per-segment renderer progress within phase 6 (M8), null between. */
+  renderProgress: {
+    stage: 'narrating' | 'recording'
+    current: number
+    total: number
+  } | null
+  /** Rehearsal thumbnails seen during the current run (M8) — the
+   * two-stage phase-4 header sentence keys on this. */
+  phase4ShotCount: number
+  /** Prefix-replay tick during a scoped revision's silent setup
+   * (M8), null otherwise. */
+  rehearsalSetup: { current: number; total: number } | null
   startRun: (req: RunRequest) => Promise<void>
   cancel: () => Promise<void>
   continueRun: () => Promise<void>
@@ -119,6 +131,26 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
     total: number
     name: string
   } | null>(null)
+  // M8: phase 6 reports each segment — "recording scene 5 of 21".
+  const [renderProgress, setRenderProgress] = useState<{
+    stage: 'narrating' | 'recording'
+    current: number
+    total: number
+  } | null>(null)
+  // M8: thumbnails seen during the CURRENT rehearsal — drives the
+  // header's two-stage phase-4 sentence ("Planning the rehearsal…"
+  // until the first shot, then "Walking your app — N scenes
+  // verified"). A dedicated counter, NOT derived from `screenshots`
+  // (that array mixes phase-1 shots and survives across runs).
+  const [phase4ShotCount, setPhase4ShotCount] = useState(0)
+  const phase4ShotUrls = useRef<Set<string>>(new Set())
+  // M8: the prefix-replay tick ("Walking back through your film —
+  // step k of N") during a scoped revision's silent setup replay.
+  // Cleared once a real scene is reached (or the rehearsal ends).
+  const [rehearsalSetup, setRehearsalSetup] = useState<{
+    current: number
+    total: number
+  } | null>(null)
 
   const subscriptionRef = useRef<StreamSubscription | null>(null)
   const runIdRef = useRef<string | null>(null)
@@ -157,6 +189,12 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
       case 'phase_started':
         setCurrentPhase(event.phase)
         setChapterProgress(null)
+        setRenderProgress(null)
+        if (event.phase === 4) {
+          phase4ShotUrls.current = new Set()
+          setPhase4ShotCount(0)
+          setRehearsalSetup(null)
+        }
         setPhaseUpdates((prev) => {
           const next = new Map(prev)
           next.set(event.phase, { status: 'running' })
@@ -201,6 +239,7 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
         setCumulativeCost((prev) => prev + (event.cost_usd ?? 0))
         setCurrentPhase(null)
         setChapterProgress(null)
+        setRenderProgress(null)
         appendLog({
           kind: 'phase_complete',
           phase: event.phase,
@@ -216,6 +255,25 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
           total: event.total,
           name: event.name,
         })
+        break
+
+      case 'render_progress':
+        setRenderProgress({
+          stage: event.stage,
+          current: event.current,
+          total: event.total,
+        })
+        break
+
+      case 'rehearsal_progress':
+        // Setup ticks drive the "walking back" sentence; a scene
+        // tick means the prefix replay is done — clear it so the
+        // two-stage sentence takes over.
+        if (event.kind === 'setup') {
+          setRehearsalSetup({ current: event.current, total: event.total })
+        } else {
+          setRehearsalSetup(null)
+        }
         break
 
       case 'phase_error':
@@ -236,6 +294,11 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
             ? prev
             : [...prev, { file: event.file, url: event.url }],
         )
+        if (event.phase === 4 && !phase4ShotUrls.current.has(event.url)) {
+          phase4ShotUrls.current.add(event.url)
+          setPhase4ShotCount(phase4ShotUrls.current.size)
+          setRehearsalSetup(null)
+        }
         break
 
       case 'paused':
@@ -324,6 +387,10 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
       setPhaseUpdates(new Map())
       setCumulativeCost(0)
       setCurrentPhase(null)
+      setRenderProgress(null)
+      phase4ShotUrls.current = new Set()
+      setPhase4ShotCount(0)
+      setRehearsalSetup(null)
       setPausedAfter(null)
       setNextPhase(null)
       setRunId(null)
@@ -397,6 +464,9 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
     runId,
     currentPhase,
     chapterProgress,
+    renderProgress,
+    phase4ShotCount,
+    rehearsalSetup,
     pausedAfter,
     nextPhase,
     phaseUpdates,

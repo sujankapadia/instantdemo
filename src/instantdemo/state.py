@@ -112,6 +112,9 @@ def phase_run(state_dir: Path, phase_number: int) -> Iterator[dict]:
     entry = state.setdefault("phases", {}).setdefault(key, {})
     entry["status"] = "in_progress"
     entry["started_at"] = _now()
+    # Re-running clears persisted staleness (M8): the phase is being
+    # redone, so its artifacts are about to be current again.
+    entry.pop("stale", None)
     save(state_dir, state)
 
     try:
@@ -141,4 +144,5 @@ def phase_run(state_dir: Path, phase_number: int) -> Iterator[dict]:
     merged.update(entry)  # carry forward any extras the caller added
     merged["status"] = "completed"
     merged["completed_at"] = _now()
+    merged.pop("stale", None)  # a just-completed phase is current
     save(state_dir, state)

@@ -84,6 +84,19 @@ have Write — Phase 5 (Build) emits the JSON.
    screens are what the user should see). They also stream live to
    the user as you work.
 
+   **Progress log (live "what's happening now"):** the user watches
+   a header sentence while you work, and a screenshot only appears
+   once a scene is reached — so also APPEND one line per step to
+   `{rehearsal_dir}/progress.log`, flushing after each write
+   (`open(..., "a")` then `f.write(line); f.flush()`):
+
+   - after each segment's action settles, append `scene <scene_id>`
+     (e.g. `scene s7`)
+
+   This is best-effort telemetry, not part of your findings — if a
+   step is awkward to log, skip it; never let logging change what
+   you rehearse.
+
 2. **Apply Phase 3's listed fallbacks when the primary fails.**
    Phase 3 lists 1-2 fallbacks per segment in the Notes line.
    If the primary's `wait_for_selector` times out, try each
