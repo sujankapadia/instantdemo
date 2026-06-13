@@ -69,6 +69,12 @@ export interface UseRunReturn {
   screenshots: { file: string; url: string }[]
   /** Per-chapter progress within phases 2-4 (M7), null between. */
   chapterProgress: { current: number; total: number; name: string } | null
+  /** Per-segment renderer progress within phase 6 (M8), null between. */
+  renderProgress: {
+    stage: 'narrating' | 'recording'
+    current: number
+    total: number
+  } | null
   startRun: (req: RunRequest) => Promise<void>
   cancel: () => Promise<void>
   continueRun: () => Promise<void>
@@ -119,6 +125,12 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
     total: number
     name: string
   } | null>(null)
+  // M8: phase 6 reports each segment — "recording scene 5 of 21".
+  const [renderProgress, setRenderProgress] = useState<{
+    stage: 'narrating' | 'recording'
+    current: number
+    total: number
+  } | null>(null)
 
   const subscriptionRef = useRef<StreamSubscription | null>(null)
   const runIdRef = useRef<string | null>(null)
@@ -157,6 +169,7 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
       case 'phase_started':
         setCurrentPhase(event.phase)
         setChapterProgress(null)
+        setRenderProgress(null)
         setPhaseUpdates((prev) => {
           const next = new Map(prev)
           next.set(event.phase, { status: 'running' })
@@ -201,6 +214,7 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
         setCumulativeCost((prev) => prev + (event.cost_usd ?? 0))
         setCurrentPhase(null)
         setChapterProgress(null)
+        setRenderProgress(null)
         appendLog({
           kind: 'phase_complete',
           phase: event.phase,
@@ -215,6 +229,14 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
           current: event.current,
           total: event.total,
           name: event.name,
+        })
+        break
+
+      case 'render_progress':
+        setRenderProgress({
+          stage: event.stage,
+          current: event.current,
+          total: event.total,
         })
         break
 
@@ -324,6 +346,7 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
       setPhaseUpdates(new Map())
       setCumulativeCost(0)
       setCurrentPhase(null)
+      setRenderProgress(null)
       setPausedAfter(null)
       setNextPhase(null)
       setRunId(null)
@@ -397,6 +420,7 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
     runId,
     currentPhase,
     chapterProgress,
+    renderProgress,
     pausedAfter,
     nextPhase,
     phaseUpdates,

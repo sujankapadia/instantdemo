@@ -67,6 +67,15 @@ export type RunEvent =
       total: number
       name: string
     }
+  | {
+      // M8: the renderer reports each segment as it narrates (TTS)
+      // and records — drives the header's "recording scene 5 of 21".
+      type: 'render_progress'
+      phase: number
+      stage: 'narrating' | 'recording'
+      current: number
+      total: number
+    }
   | { type: 'screenshot'; phase: number; file: string; url: string }
   | { type: 'paused'; completed_phase: number; next_phase: number }
   | { type: 'resumed'; next_phase: number }

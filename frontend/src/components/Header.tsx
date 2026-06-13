@@ -18,6 +18,12 @@ interface HeaderProps {
   currentPhase: number | null
   /** Per-chapter progress within phases 2-4 (M7). */
   chapterProgress?: { current: number; total: number; name: string } | null
+  /** Per-segment renderer progress within phase 6 (M8). */
+  renderProgress?: {
+    stage: 'narrating' | 'recording'
+    current: number
+    total: number
+  } | null
   onCancel: () => void
   onNewProject: () => void
   /** Hide the "Regenerate" button when the front door is the
@@ -42,6 +48,7 @@ export function Header({
   runStatus,
   currentPhase,
   chapterProgress,
+  renderProgress,
   onCancel,
   onNewProject,
   showNewProject = true,
@@ -81,6 +88,9 @@ export function Header({
               {stageSentence(currentPhase)}
               {chapterProgress
                 ? ` — chapter ${chapterProgress.current} of ${chapterProgress.total}: “${chapterProgress.name}”`
+                : ''}
+              {renderProgress
+                ? ` — ${renderProgress.stage} scene ${renderProgress.current} of ${renderProgress.total}`
                 : ''}
             </span>
           </span>
