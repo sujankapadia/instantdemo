@@ -177,6 +177,9 @@ export function buildPhaseInfos(
       name: PHASE_NAMES[num] ?? `Phase ${num}`,
       status: detail?.status ?? 'pending',
       detail,
+      // Persisted staleness (M8) — survives page reloads, unlike the
+      // in-session downstream logic in mergePhases.
+      stale: detail?.stale === true,
     }
   })
 }
@@ -205,7 +208,10 @@ export function mergePhases(
     const update = updates.get(phase.num)
     let status: PhaseStatus = phase.status
     let detail = phase.detail
-    let stale = false
+    // Start from persisted staleness; a phase that ran THIS session
+    // (update exists) is current regardless of what state.json said
+    // when the page loaded.
+    let stale = phase.stale === true && !update
 
     if (update) {
       if (update.status === 'running') status = 'in_progress'
