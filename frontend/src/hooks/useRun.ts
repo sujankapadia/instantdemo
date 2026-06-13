@@ -75,6 +75,9 @@ export interface UseRunReturn {
     current: number
     total: number
   } | null
+  /** Rehearsal thumbnails seen during the current run (M8) — the
+   * two-stage phase-4 header sentence keys on this. */
+  phase4ShotCount: number
   startRun: (req: RunRequest) => Promise<void>
   cancel: () => Promise<void>
   continueRun: () => Promise<void>
@@ -131,6 +134,13 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
     current: number
     total: number
   } | null>(null)
+  // M8: thumbnails seen during the CURRENT rehearsal — drives the
+  // header's two-stage phase-4 sentence ("Planning the rehearsal…"
+  // until the first shot, then "Walking your app — N scenes
+  // verified"). A dedicated counter, NOT derived from `screenshots`
+  // (that array mixes phase-1 shots and survives across runs).
+  const [phase4ShotCount, setPhase4ShotCount] = useState(0)
+  const phase4ShotUrls = useRef<Set<string>>(new Set())
 
   const subscriptionRef = useRef<StreamSubscription | null>(null)
   const runIdRef = useRef<string | null>(null)
@@ -170,6 +180,10 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
         setCurrentPhase(event.phase)
         setChapterProgress(null)
         setRenderProgress(null)
+        if (event.phase === 4) {
+          phase4ShotUrls.current = new Set()
+          setPhase4ShotCount(0)
+        }
         setPhaseUpdates((prev) => {
           const next = new Map(prev)
           next.set(event.phase, { status: 'running' })
@@ -258,6 +272,10 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
             ? prev
             : [...prev, { file: event.file, url: event.url }],
         )
+        if (event.phase === 4 && !phase4ShotUrls.current.has(event.url)) {
+          phase4ShotUrls.current.add(event.url)
+          setPhase4ShotCount(phase4ShotUrls.current.size)
+        }
         break
 
       case 'paused':
@@ -347,6 +365,8 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
       setCumulativeCost(0)
       setCurrentPhase(null)
       setRenderProgress(null)
+      phase4ShotUrls.current = new Set()
+      setPhase4ShotCount(0)
       setPausedAfter(null)
       setNextPhase(null)
       setRunId(null)
@@ -421,6 +441,7 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
     currentPhase,
     chapterProgress,
     renderProgress,
+    phase4ShotCount,
     pausedAfter,
     nextPhase,
     phaseUpdates,

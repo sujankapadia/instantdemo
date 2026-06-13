@@ -5,7 +5,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { stageSentence } from '@/lib/labels'
+import {
+  REHEARSAL_PLANNING,
+  rehearsalWalking,
+  stageSentence,
+} from '@/lib/labels'
 import type { RunStatus } from '@/hooks/useRun'
 
 interface HeaderProps {
@@ -24,6 +28,9 @@ interface HeaderProps {
     current: number
     total: number
   } | null
+  /** Rehearsal thumbnails seen this run (M8): drives the two-stage
+   *  phase-4 sentence. */
+  phase4ShotCount?: number
   onCancel: () => void
   onNewProject: () => void
   /** Hide the "Regenerate" button when the front door is the
@@ -49,6 +56,7 @@ export function Header({
   currentPhase,
   chapterProgress,
   renderProgress,
+  phase4ShotCount = 0,
   onCancel,
   onNewProject,
   showNewProject = true,
@@ -85,7 +93,11 @@ export function Header({
           >
             <Loader2 className="size-3 animate-spin text-foreground/80" />
             <span>
-              {stageSentence(currentPhase)}
+              {currentPhase === 4
+                ? phase4ShotCount === 0
+                  ? REHEARSAL_PLANNING
+                  : rehearsalWalking(phase4ShotCount)
+                : stageSentence(currentPhase)}
               {chapterProgress
                 ? ` — chapter ${chapterProgress.current} of ${chapterProgress.total}: “${chapterProgress.name}”`
                 : ''}

@@ -37,3 +37,13 @@ export function stageSentence(phase: number | null): string {
   if (phase === null) return 'Working…'
   return STAGE_SENTENCES[phase] ?? 'Working…'
 }
+
+/** Two-stage rehearsal sentence (M8): until the first thumbnail
+ * lands the agent is composing its script; after that it's walking
+ * the app, and the count is real (observed thumbnails, never an
+ * estimate). */
+export const REHEARSAL_PLANNING = 'Planning the rehearsal…'
+
+export function rehearsalWalking(count: number): string {
+  return `Walking your app — ${count} scene${count === 1 ? '' : 's'} verified`
+}
