@@ -261,6 +261,7 @@ export function Layout() {
         chapterProgress={run.chapterProgress}
         renderProgress={run.renderProgress}
         phase4ShotCount={run.phase4ShotCount}
+        rehearsalSetup={run.rehearsalSetup}
         onCancel={() => void run.cancel()}
         onNewProject={() => setNewProjectOpen(true)}
         showNewProject={!empty}

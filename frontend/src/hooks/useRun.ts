@@ -78,6 +78,9 @@ export interface UseRunReturn {
   /** Rehearsal thumbnails seen during the current run (M8) — the
    * two-stage phase-4 header sentence keys on this. */
   phase4ShotCount: number
+  /** Prefix-replay tick during a scoped revision's silent setup
+   * (M8), null otherwise. */
+  rehearsalSetup: { current: number; total: number } | null
   startRun: (req: RunRequest) => Promise<void>
   cancel: () => Promise<void>
   continueRun: () => Promise<void>
@@ -141,6 +144,13 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
   // (that array mixes phase-1 shots and survives across runs).
   const [phase4ShotCount, setPhase4ShotCount] = useState(0)
   const phase4ShotUrls = useRef<Set<string>>(new Set())
+  // M8: the prefix-replay tick ("Walking back through your film —
+  // step k of N") during a scoped revision's silent setup replay.
+  // Cleared once a real scene is reached (or the rehearsal ends).
+  const [rehearsalSetup, setRehearsalSetup] = useState<{
+    current: number
+    total: number
+  } | null>(null)
 
   const subscriptionRef = useRef<StreamSubscription | null>(null)
   const runIdRef = useRef<string | null>(null)
@@ -183,6 +193,7 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
         if (event.phase === 4) {
           phase4ShotUrls.current = new Set()
           setPhase4ShotCount(0)
+          setRehearsalSetup(null)
         }
         setPhaseUpdates((prev) => {
           const next = new Map(prev)
@@ -254,6 +265,17 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
         })
         break
 
+      case 'rehearsal_progress':
+        // Setup ticks drive the "walking back" sentence; a scene
+        // tick means the prefix replay is done — clear it so the
+        // two-stage sentence takes over.
+        if (event.kind === 'setup') {
+          setRehearsalSetup({ current: event.current, total: event.total })
+        } else {
+          setRehearsalSetup(null)
+        }
+        break
+
       case 'phase_error':
         setPhaseUpdates((prev) => {
           const next = new Map(prev)
@@ -275,6 +297,7 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
         if (event.phase === 4 && !phase4ShotUrls.current.has(event.url)) {
           phase4ShotUrls.current.add(event.url)
           setPhase4ShotCount(phase4ShotUrls.current.size)
+          setRehearsalSetup(null)
         }
         break
 
@@ -367,6 +390,7 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
       setRenderProgress(null)
       phase4ShotUrls.current = new Set()
       setPhase4ShotCount(0)
+      setRehearsalSetup(null)
       setPausedAfter(null)
       setNextPhase(null)
       setRunId(null)
@@ -442,6 +466,7 @@ export function useRun(options?: UseRunOptions): UseRunReturn {
     chapterProgress,
     renderProgress,
     phase4ShotCount,
+    rehearsalSetup,
     pausedAfter,
     nextPhase,
     phaseUpdates,

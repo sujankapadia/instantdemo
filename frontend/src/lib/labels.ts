@@ -47,3 +47,10 @@ export const REHEARSAL_PLANNING = 'Planning the rehearsal…'
 export function rehearsalWalking(count: number): string {
   return `Walking your app — ${count} scene${count === 1 ? '' : 's'} verified`
 }
+
+/** During a scoped revision, the rehearsal silently replays the
+ * chapters before the one being revised (M8) — this fills that
+ * stretch with an honest step count. */
+export function rehearsalSetupSentence(current: number, total: number): string {
+  return `Walking back through your film — step ${current} of ${total}`
+}

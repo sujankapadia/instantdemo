@@ -7,6 +7,7 @@ import {
 } from '@/components/ui/tooltip'
 import {
   REHEARSAL_PLANNING,
+  rehearsalSetupSentence,
   rehearsalWalking,
   stageSentence,
 } from '@/lib/labels'
@@ -31,6 +32,9 @@ interface HeaderProps {
   /** Rehearsal thumbnails seen this run (M8): drives the two-stage
    *  phase-4 sentence. */
   phase4ShotCount?: number
+  /** Prefix-replay tick during a scoped revision's silent setup
+   *  (M8): "Walking back through your film — step k of N". */
+  rehearsalSetup?: { current: number; total: number } | null
   onCancel: () => void
   onNewProject: () => void
   /** Hide the "Regenerate" button when the front door is the
@@ -57,6 +61,7 @@ export function Header({
   chapterProgress,
   renderProgress,
   phase4ShotCount = 0,
+  rehearsalSetup,
   onCancel,
   onNewProject,
   showNewProject = true,
@@ -94,9 +99,14 @@ export function Header({
             <Loader2 className="size-3 animate-spin text-foreground/80" />
             <span>
               {currentPhase === 4
-                ? phase4ShotCount === 0
-                  ? REHEARSAL_PLANNING
-                  : rehearsalWalking(phase4ShotCount)
+                ? rehearsalSetup && phase4ShotCount === 0
+                  ? rehearsalSetupSentence(
+                      rehearsalSetup.current,
+                      rehearsalSetup.total,
+                    )
+                  : phase4ShotCount === 0
+                    ? REHEARSAL_PLANNING
+                    : rehearsalWalking(phase4ShotCount)
                 : stageSentence(currentPhase)}
               {chapterProgress
                 ? ` — chapter ${chapterProgress.current} of ${chapterProgress.total}: “${chapterProgress.name}”`

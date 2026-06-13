@@ -77,6 +77,18 @@ export type RunEvent =
       total: number
     }
   | { type: 'screenshot'; phase: number; file: string; url: string }
+  | (
+      // M8: live ticks from the rehearsal script — `setup k/N` during
+      // the silent prefix replay, `scene s<id>` per scene reached.
+      | {
+          type: 'rehearsal_progress'
+          phase: number
+          kind: 'setup'
+          current: number
+          total: number
+        }
+      | { type: 'rehearsal_progress'; phase: number; kind: 'scene'; scene_id: string }
+    )
   | { type: 'paused'; completed_phase: number; next_phase: number }
   | { type: 'resumed'; next_phase: number }
   | { type: 'run_complete'; total_cost_usd: number }
