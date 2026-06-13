@@ -307,6 +307,75 @@ def screenshot_event(name: str, *, phase: int, url_prefix: str) -> dict[str, Any
     }
 
 
+_PROGRESS_SETUP_RE = re.compile(r"^setup\s+(\d+)\s*/\s*(\d+)\s*$")
+_PROGRESS_SCENE_RE = re.compile(r"^scene\s+(s\d+)\s*$")
+
+
+def parse_progress_line(line: str) -> dict[str, Any] | None:
+    """One line of the rehearsal script's progress.log (M8/#85):
+    `setup k/N` during the verified-setup prefix replay, `scene s<id>`
+    per in-scope scene. Anything else → None (the agent's formatting
+    is probabilistic; tolerance is the contract)."""
+    line = line.strip()
+    m = _PROGRESS_SETUP_RE.match(line)
+    if m:
+        current, total = int(m.group(1)), int(m.group(2))
+        if total <= 0 or current <= 0:
+            return None
+        return {"kind": "setup", "current": current, "total": total}
+    m = _PROGRESS_SCENE_RE.match(line)
+    if m:
+        return {"kind": "scene", "scene_id": m.group(1)}
+    return None
+
+
+async def tail_progress_log(
+    path: Path,
+    emit,
+    *,
+    phase: int = 4,
+    interval: float = 0.5,
+) -> None:
+    """Tail the rehearsal progress.log (M8/#85): the agent's Bash
+    stdout is invisible to the runner, so the script appends progress
+    lines to a file and this coroutine polls it — the same filesystem
+    pattern as watch_screenshots. The file may never appear (the
+    contract is tolerant); truncation resets the offset; partial
+    lines are buffered until their newline arrives. Cancelled by the
+    runner when the query completes."""
+    offset = 0
+    pending = ""
+    while True:
+        try:
+            size = path.stat().st_size
+        except OSError:
+            await asyncio.sleep(interval)
+            continue
+        if size < offset:  # truncated (e.g. a fresh iteration's log)
+            offset = 0
+            pending = ""
+        if size > offset:
+            try:
+                with path.open("r", errors="replace") as fh:
+                    fh.seek(offset)
+                    chunk = fh.read()
+                    offset = fh.tell()
+            except OSError:
+                await asyncio.sleep(interval)
+                continue
+            pending += chunk
+            *complete, pending = pending.split("\n")
+            for line in complete:
+                parsed = parse_progress_line(line)
+                if parsed is not None:
+                    emit({
+                        "type": "rehearsal_progress",
+                        "phase": phase,
+                        **parsed,
+                    })
+        await asyncio.sleep(interval)
+
+
 async def run(context: Context) -> None:
     if context.client is None:
         raise RuntimeError(

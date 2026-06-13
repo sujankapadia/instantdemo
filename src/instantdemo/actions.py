@@ -62,7 +62,17 @@ def validate_segments(segments: list[dict]) -> list[str]:
             )
             continue
         for field in CANONICAL_ACTIONS[action]:
-            if not seg.get(field):
+            val = seg.get(field)
+            # `value` may legitimately be "" (select_option's blank
+            # <option value="">); only a missing/null value is invalid.
+            # Every other required field treats "" as absent.
+            if field == "value":
+                if val is None:
+                    problems.append(
+                        f"segment {i}: action {action!r} requires the "
+                        f"{field!r} field"
+                    )
+            elif not val:
                 problems.append(
                     f"segment {i}: action {action!r} requires the "
                     f"{field!r} field"

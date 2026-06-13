@@ -40,6 +40,10 @@ class PhaseState(BaseModel):
     cost_usd: float | None = None
     duration_ms: int | None = None
     num_turns: int | None = None
+    # M8: an earlier phase re-ran after this one completed — its
+    # artifacts came from the previous pass. Set by runs.start_run;
+    # cleared when the phase re-runs (state.phase_run pops it).
+    stale: bool | None = None
     # Phase 4 (Explore) records structured findings here when the
     # agent emits a JSON block. Used by the frontend's triage panel
     # to surface per-segment failures with suggested fixes. See

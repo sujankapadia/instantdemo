@@ -11,6 +11,7 @@ from instantdemo.render import (
     _load_tts_config_file,
     _resolve_tts,
     _slot_seconds,
+    clip_is_suspicious,
 )
 from instantdemo.tts_config import PronunciationEntry, TTSConfig
 
@@ -100,6 +101,31 @@ def test_section_render_loads_config_from_file_path(tmp_path: Path):  # T8
     assert r.ref == wav.resolve()
     # Absent file → None, no crash.
     assert _load_tts_config_file(tmp_path / "missing" / "tts.json") is None
+
+
+def test_normal_clip_not_suspicious():  # G1
+    assert not clip_is_suspicious(
+        "one two three four five six seven eight nine ten", 4.0
+    )
+
+
+def test_inflated_clip_suspicious():  # G2
+    text = "one two three four five six seven eight nine ten"
+    assert clip_is_suspicious(text, 9.0)  # bound = 10 * 0.75 = 7.5
+
+
+def test_short_text_floor_protects():  # G3
+    assert not clip_is_suspicious("Five hundred.", 2.5)  # floor 3.0 > 2*0.75
+
+
+def test_empty_text_never_suspicious():  # G4
+    assert not clip_is_suspicious("", 10.0)
+    assert not clip_is_suspicious("   ", 10.0)
+
+
+def test_exact_bound_passes():  # G5
+    text = "one two three four five six seven eight nine ten"
+    assert not clip_is_suspicious(text, 7.5)  # strict >
 
 
 def test_breath_when_audio_fills_slot():  # B1

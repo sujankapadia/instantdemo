@@ -130,11 +130,14 @@ def _silent_clip(tmp_dir: Path, index: int) -> Path:
 
 
 def generate_audio_piper(
-    segments: list[dict], tmp_dir: Path, piper_model: str
+    segments: list[dict], tmp_dir: Path, piper_model: str,
+    *, on_progress=None,
 ) -> list[Path]:
     """Generate WAV audio clips using Piper TTS (local, offline)."""
     clips = []
     for i, seg in enumerate(segments):
+        if on_progress is not None:
+            on_progress("narrating", i + 1, len(segments))
         text = seg["narration"]
         if not text.strip():
             clips.append(_silent_clip(tmp_dir, i))
@@ -156,7 +159,8 @@ def generate_audio_piper(
 
 
 def generate_audio_google(
-    segments: list[dict], tmp_dir: Path, env_path: Path
+    segments: list[dict], tmp_dir: Path, env_path: Path,
+    *, on_progress=None,
 ) -> list[Path]:
     """Generate WAV audio clips using Google Cloud TTS (WaveNet)."""
     env = _load_env(env_path)
@@ -185,6 +189,8 @@ def generate_audio_google(
     api_url = "https://texttospeech.googleapis.com/v1/text:synthesize"
     clips = []
     for i, seg in enumerate(segments):
+        if on_progress is not None:
+            on_progress("narrating", i + 1, len(segments))
         text = seg["narration"]
         if not text.strip():
             clips.append(_silent_clip(tmp_dir, i))
@@ -225,7 +231,8 @@ def generate_audio_google(
 
 
 def generate_audio_elevenlabs(
-    segments: list[dict], tmp_dir: Path, env_path: Path
+    segments: list[dict], tmp_dir: Path, env_path: Path,
+    *, on_progress=None,
 ) -> list[Path]:
     """Generate MP3 audio clips using ElevenLabs TTS."""
     env = _load_env(env_path)
@@ -243,6 +250,8 @@ def generate_audio_elevenlabs(
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
     clips = []
     for i, seg in enumerate(segments):
+        if on_progress is not None:
+            on_progress("narrating", i + 1, len(segments))
         text = seg["narration"]
         if not text.strip():
             clips.append(_silent_clip(tmp_dir, i))
@@ -293,7 +302,8 @@ def generate_audio_elevenlabs(
 
 
 def generate_audio_pocket_tts(
-    segments: list[dict], tmp_dir: Path, voice: str, ref_wav: Path | None
+    segments: list[dict], tmp_dir: Path, voice: str, ref_wav: Path | None,
+    *, on_progress=None,
 ) -> list[Path]:
     """Generate WAV audio clips using Pocket TTS (local, CPU, clonable).
 
@@ -338,8 +348,13 @@ def generate_audio_pocket_tts(
         raise
     sample_rate = int(model.sample_rate)
 
+    def _samples(a):
+        return a.numpy() if hasattr(a, "numpy") else a
+
     clips = []
     for i, seg in enumerate(segments):
+        if on_progress is not None:
+            on_progress("narrating", i + 1, len(segments))
         text = seg["narration"]
         if not text.strip():
             clips.append(_silent_clip(tmp_dir, i))
@@ -347,18 +362,30 @@ def generate_audio_pocket_tts(
             continue
         output_path = tmp_dir / f"segment_{i}.wav"
         print(f"  Generating audio for segment {i}: {text[:50]}...")
-        audio = model.generate_audio(voice_state, text)
-        sf.write(
-            str(output_path),
-            audio.numpy() if hasattr(audio, "numpy") else audio,
-            sample_rate,
-        )
+        audio = _samples(model.generate_audio(voice_state, text))
+        # Hallucination guard (M8/#85): pocket-tts occasionally appends
+        # a stray word + repeated phrase, inflating the clip well past
+        # what the text predicts and corrupting downstream timing.
+        # One re-synthesis; keep the SHORTER clip (hallucinations add
+        # length).
+        duration_s = len(audio) / sample_rate
+        if clip_is_suspicious(text, duration_s):
+            words = len(text.split())
+            print(
+                f"  Segment {i}: clip {duration_s:.1f}s exceeds the "
+                f"bound for {words} words — re-synthesizing once"
+            )
+            retry = _samples(model.generate_audio(voice_state, text))
+            if len(retry) < len(audio):
+                audio = retry
+        sf.write(str(output_path), audio, sample_rate)
         clips.append(output_path)
     return clips
 
 
 def generate_audio_kokoro(
-    segments: list[dict], tmp_dir: Path, voice: str, speed: float
+    segments: list[dict], tmp_dir: Path, voice: str, speed: float,
+    *, on_progress=None,
 ) -> list[Path]:
     """Generate WAV audio clips using Kokoro TTS (local, high quality, fast)."""
     try:
@@ -376,6 +403,8 @@ def generate_audio_kokoro(
 
     clips = []
     for i, seg in enumerate(segments):
+        if on_progress is not None:
+            on_progress("narrating", i + 1, len(segments))
         text = seg["narration"]
         if not text.strip():
             clips.append(_silent_clip(tmp_dir, i))
@@ -483,6 +512,24 @@ def _write_segment_timing(
 BREATH_S = 0.4
 
 
+# TTS hallucination guard (M8/#85 item 5). 0.75 s/word ≈ 80 wpm —
+# slower than any sane narration (~0.4 s/word typical), so ~85% slack
+# before flagging; the floor keeps 1–2-word lines from ever flagging.
+TTS_GUARD_MAX_S_PER_WORD = 0.75
+TTS_GUARD_FLOOR_S = 3.0
+
+
+def clip_is_suspicious(text: str, duration_s: float) -> bool:
+    """True when a synthesized clip runs longer than its text predicts
+    — the pocket-tts hallucination shape (stray word + repeated
+    phrase). Strictly greater: a clip exactly at the bound passes."""
+    words = len(text.split())
+    if words == 0:
+        return False
+    bound = max(TTS_GUARD_FLOOR_S, words * TTS_GUARD_MAX_S_PER_WORD)
+    return duration_s > bound
+
+
 def _slot_seconds(audio_s: float, pause_ms: object) -> float:
     """One segment's timeline slot: max(audio + breath, pause)."""
     pause_s = (pause_ms if isinstance(pause_ms, (int, float)) else 0) / 1000
@@ -556,6 +603,8 @@ def record_section_video(
     clip_durations: list[float],
     tmp_dir: Path,
     resolution: dict,
+    *,
+    on_progress=None,
 ) -> tuple[Path, list[tuple[float, float]]]:
     """Record ONLY segments [start_idx..end_idx] (M5b): one browser
     context with capture on throughout — the prefix segments'
@@ -591,6 +640,8 @@ def record_section_video(
 
         timestamps: list[tuple[float, float]] = []
         for j, seg in enumerate(segments[start_idx : end_idx + 1]):
+            if on_progress is not None:
+                on_progress("recording", j + 1, end_idx - start_idx + 1)
             wait_ms = _slot_seconds(
                 clip_durations[j], seg.get("pause_after_ms", 0)
             ) * 1000
@@ -757,6 +808,8 @@ def render_section_main(
     old_chapter_len: int,
     tts_config_path: Path | None = None,
     tts_override: str | None = None,
+    *,
+    on_progress=None,
 ) -> None:
     """Scoped chapter render (M5b): synthesize audio for the chapter
     segments only, record just that span (fast prefix replay), and
@@ -798,7 +851,8 @@ def render_section_main(
     with tempfile.TemporaryDirectory(prefix="instantdemo-section-") as td:
         tmp_dir = Path(td)
         clips = generate_audio(
-            chapter, tmp_dir, resolved, Path(".env")
+            chapter, tmp_dir, resolved, Path(".env"),
+            on_progress=on_progress,
         )
         clip_durations = [get_audio_duration(c) for c in clips]
         section_audio = _build_combined_audio(
@@ -806,7 +860,7 @@ def render_section_main(
         )
         raw_video, timestamps = record_section_video(
             segments, start_idx, end_idx, clip_durations, tmp_dir,
-            resolution,
+            resolution, on_progress=on_progress,
         )
         slots = [
             _slot_seconds(clip_durations[j], chapter[j].get("pause_after_ms"))
@@ -1292,6 +1346,8 @@ def record_browser_video(
     clip_durations: list[float],
     resolution: dict,
     tmp_dir: Path,
+    *,
+    on_progress=None,
 ) -> tuple[Path, list[tuple[float, float]]]:
     """Record browser interactions with video capture, tracking segment timestamps.
 
@@ -1322,6 +1378,8 @@ def record_browser_video(
         recording_start = time.monotonic()
 
         for i, seg in enumerate(segments):
+            if on_progress is not None:
+                on_progress("recording", i + 1, len(segments))
             action = seg["action"]
             pause_ms = seg.get("pause_after_ms", 0)
             wait_ms = _slot_seconds(clip_durations[i], pause_ms) * 1000
@@ -1508,6 +1566,8 @@ def generate_audio(
     resolved: ResolvedTTS,
     env_path: Path,
     piper_model: str | None = None,
+    *,
+    on_progress=None,
 ) -> list:
     """The single config-driven TTS dispatcher. Applies the
     pronunciation speech-text transform (copies — the caller's
@@ -1526,27 +1586,35 @@ def generate_audio(
                 file=sys.stderr,
             )
             sys.exit(1)
-        return generate_audio_piper(speech, tmp_dir, model)
+        return generate_audio_piper(
+            speech, tmp_dir, model, on_progress=on_progress
+        )
     if provider == "google":
-        return generate_audio_google(speech, tmp_dir, env_path)
+        return generate_audio_google(
+            speech, tmp_dir, env_path, on_progress=on_progress
+        )
     if provider == "elevenlabs":
-        return generate_audio_elevenlabs(speech, tmp_dir, env_path)
+        return generate_audio_elevenlabs(
+            speech, tmp_dir, env_path, on_progress=on_progress
+        )
     if provider == "kokoro":
         return generate_audio_kokoro(
-            speech, tmp_dir, resolved.voice, resolved.kokoro_speed
+            speech, tmp_dir, resolved.voice, resolved.kokoro_speed,
+            on_progress=on_progress,
         )
     if provider == "pocket-tts":
         if resolved.ref is not None and not resolved.ref.exists():
             print(f"  --pocket-ref not found: {resolved.ref}", file=sys.stderr)
             sys.exit(1)
         return generate_audio_pocket_tts(
-            speech, tmp_dir, resolved.voice, resolved.ref
+            speech, tmp_dir, resolved.voice, resolved.ref,
+            on_progress=on_progress,
         )
     print(f"  Unknown TTS provider: {provider}", file=sys.stderr)
     sys.exit(1)
 
 
-def main(argv=None):
+def main(argv=None, *, on_progress=None):
     parser = argparse.ArgumentParser(
         prog="instantdemo render",
         description="Render a narrated demo video from a JSON script definition",
@@ -1705,6 +1773,7 @@ def main(argv=None):
     audio_clips = generate_audio(
         segments, tmp_dir, resolved, env_path,
         piper_model=args.piper_model,
+        on_progress=on_progress,
     )
 
     clip_durations = [get_audio_duration(clip) for clip in audio_clips]
@@ -1714,7 +1783,8 @@ def main(argv=None):
     # Phase B: Record browser video
     print("\nPhase B: Recording browser with Playwright...")
     video_path, timestamps = record_browser_video(
-        segments, clip_durations, resolution, tmp_dir
+        segments, clip_durations, resolution, tmp_dir,
+        on_progress=on_progress,
     )
     print(f"  Video saved: {video_path}")
 

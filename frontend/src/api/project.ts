@@ -51,6 +51,9 @@ export interface PhaseState {
   cost_usd?: number
   duration_ms?: number
   num_turns?: number
+  // M8: an earlier phase re-ran after this one completed — persisted
+  // staleness from state.json (survives page reloads).
+  stale?: boolean
   // Phase 4 (Explore) only. Structured findings from the agent's JSON
   // block, written to state.json by the runner. See issue #48.
   explore_findings?: ExploreFindings

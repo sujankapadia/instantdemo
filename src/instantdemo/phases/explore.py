@@ -48,7 +48,12 @@ from typing import Any
 from .. import prompts, storyboard
 from .. import state as state_mod
 from ..actions import CANONICAL_ACTIONS
-from .analyze import new_screenshots, screenshot_event, watch_screenshots
+from .analyze import (
+    new_screenshots,
+    screenshot_event,
+    tail_progress_log,
+    watch_screenshots,
+)
 from . import (
     Context,
     record_phase_result,
@@ -144,12 +149,16 @@ def _build_initial_prompt(
         raise RuntimeError(f"no chapter named {section!r} in the storyboard")
     prefix_doc = dict(doc, scenes=scenes[: positions[0]])
     chapter_doc = dict(doc, scenes=scenes[positions[0] : positions[-1] + 1])
+    prefix_count = positions[0]
     prefix_block = (
         "These VERIFIED SETUP segments come before the chapter. Replay\n"
         "their actions in order with brief waits (their selectors are\n"
         "already verified — do NOT re-verify, screenshot, or report\n"
         "findings for them; they only get the app to the chapter's\n"
-        "starting state):\n"
+        "starting state). This replay is silent to the user, so after\n"
+        f"each setup segment append a line `setup k/{prefix_count}` to\n"
+        f"`{shots_dir}/progress.log` (flush after each) — k counting\n"
+        f"1..{prefix_count} — so they can see the replay advancing:\n"
         "\n"
         "---\n"
         f"{storyboard.render_phase3_view(prefix_doc)}\n"
@@ -824,9 +833,15 @@ async def run(context: Context) -> None:
         for old in shots_dir.glob("*.png"):
             old.unlink()
 
+    # M8 (#85): the rehearsal script appends progress lines here —
+    # fresh per run; a prior run's log must not replay as progress.
+    progress_log = shots_dir / "progress.log"
+    progress_log.unlink(missing_ok=True)
+
     run8 = (context.run_id or "")[:8] or "norun"
     seen_shots: set[str] = set()
     watcher: asyncio.Task | None = None
+    progress_tailer: asyncio.Task | None = None
     emit = context.event_emitter
     if emit is not None:
         watcher = asyncio.create_task(
@@ -834,6 +849,9 @@ async def run(context: Context) -> None:
                 shots_dir, emit, seen_shots,
                 phase=4, url_prefix=_REHEARSAL_URL_PREFIX,
             )
+        )
+        progress_tailer = asyncio.create_task(
+            tail_progress_log(progress_log, emit, phase=4)
         )
 
     combined_segments: list[dict[str, Any]] = []
@@ -874,6 +892,13 @@ async def run(context: Context) -> None:
                     )
                 break
     finally:
+        if progress_tailer is not None:
+            # No final scan — progress is ephemeral UI, unlike shots.
+            progress_tailer.cancel()
+            try:
+                await progress_tailer
+            except asyncio.CancelledError:
+                pass
         if watcher is not None and emit is not None:
             watcher.cancel()
             try:

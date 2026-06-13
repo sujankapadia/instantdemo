@@ -110,6 +110,27 @@ class RunRequest(BaseModel):
     section_instruction: str | None = None
 
 
+def _mark_stale_phases(phases_dict: dict, run_phases: list[int]) -> None:
+    """Persisted staleness (M8/#85): a run that re-does phase N makes
+    every COMPLETED phase after N suspect — its artifacts came from
+    the previous pass. Mark them stale:true so the rail tells the
+    truth across page reloads. Cleared when the phase's entry is
+    rewritten (the pending reset above) or when it re-runs through
+    any path (state.phase_run pops the flag)."""
+    if not run_phases:
+        return
+    highest = max(run_phases)
+    for key, entry in phases_dict.items():
+        try:
+            num = int(key)
+        except (TypeError, ValueError):
+            continue
+        if num > highest and isinstance(entry, dict) and (
+            entry.get("status") == "completed"
+        ):
+            entry["stale"] = True
+
+
 def _storyboard_marker(phases: list[int]) -> bool | None:
     """Storyboard-gate marker semantics (M2). Returns the value to
     write to state.json's `storyboard_approved`, or None to leave it
@@ -314,6 +335,7 @@ class RunManager:
             phases_dict = s.setdefault("phases", {})
             for phase_num in request.phases:
                 phases_dict[str(phase_num)] = {"status": "pending"}
+            _mark_stale_phases(phases_dict, request.phases)
             state_mod.update_inputs(
                 s,
                 url=request.url,

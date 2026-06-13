@@ -77,9 +77,26 @@ export function StageFilm({
   const [viewingTake, setViewingTake] = useState<number | null>(null)
   const [restoring, setRestoring] = useState(false)
   const [takeError, setTakeError] = useState<string | null>(null)
+  // Refetch the take list on mount, on the run-complete token, AND
+  // whenever a run settles (runStatus leaves running/starting). The
+  // token alone proved unreliable after a gate-approve render — the
+  // picker could sit empty until a manual reload (#96). Settling is
+  // the robust signal. On error, KEEP the last good list — a
+  // transient refresh failure must never erase a working picker.
   useEffect(() => {
-    fetchTakes().then(setAllTakes).catch(() => setAllTakes([]))
-  }, [runCompleteToken])
+    if (runStatus === 'starting' || runStatus === 'running') return
+    let cancelled = false
+    fetchTakes()
+      .then((takes) => {
+        if (!cancelled) setAllTakes(takes)
+      })
+      .catch(() => {
+        /* keep the last good list (#96) */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [runCompleteToken, runStatus])
   // A take is only a "previous version" if it differs from the
   // current film — a fresh post-render snapshot is excluded so the
   // toggle never offers a no-op comparison.

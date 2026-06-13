@@ -5,7 +5,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { stageSentence } from '@/lib/labels'
+import {
+  REHEARSAL_PLANNING,
+  rehearsalSetupSentence,
+  rehearsalWalking,
+  stageSentence,
+} from '@/lib/labels'
 import type { RunStatus } from '@/hooks/useRun'
 
 interface HeaderProps {
@@ -18,6 +23,18 @@ interface HeaderProps {
   currentPhase: number | null
   /** Per-chapter progress within phases 2-4 (M7). */
   chapterProgress?: { current: number; total: number; name: string } | null
+  /** Per-segment renderer progress within phase 6 (M8). */
+  renderProgress?: {
+    stage: 'narrating' | 'recording'
+    current: number
+    total: number
+  } | null
+  /** Rehearsal thumbnails seen this run (M8): drives the two-stage
+   *  phase-4 sentence. */
+  phase4ShotCount?: number
+  /** Prefix-replay tick during a scoped revision's silent setup
+   *  (M8): "Walking back through your film — step k of N". */
+  rehearsalSetup?: { current: number; total: number } | null
   onCancel: () => void
   onNewProject: () => void
   /** Hide the "Regenerate" button when the front door is the
@@ -42,6 +59,9 @@ export function Header({
   runStatus,
   currentPhase,
   chapterProgress,
+  renderProgress,
+  phase4ShotCount = 0,
+  rehearsalSetup,
   onCancel,
   onNewProject,
   showNewProject = true,
@@ -78,9 +98,21 @@ export function Header({
           >
             <Loader2 className="size-3 animate-spin text-foreground/80" />
             <span>
-              {stageSentence(currentPhase)}
+              {currentPhase === 4
+                ? rehearsalSetup && phase4ShotCount === 0
+                  ? rehearsalSetupSentence(
+                      rehearsalSetup.current,
+                      rehearsalSetup.total,
+                    )
+                  : phase4ShotCount === 0
+                    ? REHEARSAL_PLANNING
+                    : rehearsalWalking(phase4ShotCount)
+                : stageSentence(currentPhase)}
               {chapterProgress
                 ? ` — chapter ${chapterProgress.current} of ${chapterProgress.total}: “${chapterProgress.name}”`
+                : ''}
+              {renderProgress
+                ? ` — ${renderProgress.stage} scene ${renderProgress.current} of ${renderProgress.total}`
                 : ''}
             </span>
           </span>

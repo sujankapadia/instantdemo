@@ -18,3 +18,6 @@ Test: `tests/test_segments_dispatch.py`
 | D3 | tts.json with pronunciations | Provider fn receives RESPELLED narration; caller's segments keep display text | Segment edits bypass the speech transform — re-rendered audio mispronounces what full renders fix |
 | D4 | Hand-written kokoro tts.json (CLI persona) | generate_audio_kokoro called with config voice | Non-default providers break in the GUI even when configured deliberately |
 | D5 | Provider fn raises SystemExit (import failure) | HTTPException 503 with install-or-switch guidance | sys.exit(1) kills the server worker instead of returning an actionable error |
+
+(M8: provider fns gained a keyword-only `on_progress=None` — the
+fakes accept it via `**kwargs`; assertions unchanged.)

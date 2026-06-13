@@ -207,6 +207,23 @@ class TestValidateHypothesized:
         problems = storyboard.validate_storyboard(doc, stage="hypothesized")
         assert any("requires the 'expression' field" in p for p in problems)
 
+    def test_select_option_empty_value_ok(self):  # VH6
+        doc = storyboard.new_document(title="t", url="u")
+        storyboard.add_scene(
+            doc, title="Back to all", narration="", action="select_option",
+            selector=["#source-select"], value="",
+        )
+        assert storyboard.validate_storyboard(doc, stage="hypothesized") == []
+
+    def test_select_option_missing_value_rejected(self):  # VH7
+        doc = storyboard.new_document(title="t", url="u")
+        storyboard.add_scene(
+            doc, title="Pick one", narration="", action="select_option",
+            selector=["#source-select"],
+        )
+        problems = storyboard.validate_storyboard(doc, stage="hypothesized")
+        assert any("requires the 'value' field" in p for p in problems)
+
 
 class TestValidateVerified:
     """Spec rows VV1-VV2."""
@@ -273,6 +290,18 @@ class TestProjection:
             assert "notes" not in seg
             assert "status" not in seg
             assert "id" not in seg
+
+    def test_select_option_empty_value_projects(self):  # P6
+        doc = storyboard.new_document(title="t", url="u")
+        storyboard.add_scene(
+            doc, title="Back to all", narration="Reset.",
+            action="select_option", selector=["#source-select"], value="",
+        )
+        doc["scenes"][0]["status"] = "verified"
+        script = storyboard.to_demo_script(doc)
+        seg = script["segments"][0]
+        assert seg["value"] == ""  # carried, not dropped
+        assert validate_segments(script["segments"]) == []
 
 
 class TestMergeFindings:

@@ -22,7 +22,7 @@ def write_tts(project: Path, **fields) -> None:
 def test_legacy_default_pocket(tmp_path: Path, monkeypatch):  # D1
     calls = {}
 
-    def fake_pocket(segments, tmp_dir, voice, ref):
+    def fake_pocket(segments, tmp_dir, voice, ref, **kwargs):
         calls.update(voice=voice, ref=ref)
         return []
 
@@ -43,7 +43,7 @@ def test_config_voice_and_ref(tmp_path: Path, monkeypatch):  # D2
     )
     calls = {}
 
-    def fake_pocket(segments, tmp_dir, voice, ref):
+    def fake_pocket(segments, tmp_dir, voice, ref, **kwargs):
         calls.update(voice=voice, ref=ref)
         return []
 
@@ -62,7 +62,7 @@ def test_pronunciations_applied_speech_only(tmp_path: Path, monkeypatch):  # D3
     )
     seen = {}
 
-    def fake_pocket(segments, tmp_dir, voice, ref):
+    def fake_pocket(segments, tmp_dir, voice, ref, **kwargs):
         seen["narration"] = segments[0]["narration"]
         return []
 
@@ -79,7 +79,7 @@ def test_kokoro_config_dispatches(tmp_path: Path, monkeypatch):  # D4
     write_tts(tmp_path, provider="kokoro", voice="am_michael")
     calls = {}
 
-    def fake_kokoro(segments, tmp_dir, voice, speed):
+    def fake_kokoro(segments, tmp_dir, voice, speed, **kwargs):
         calls.update(voice=voice, speed=speed)
         return []
 
@@ -91,7 +91,7 @@ def test_kokoro_config_dispatches(tmp_path: Path, monkeypatch):  # D4
 
 
 def test_system_exit_becomes_503(tmp_path: Path, monkeypatch):  # D5
-    def exiting_pocket(segments, tmp_dir, voice, ref):
+    def exiting_pocket(segments, tmp_dir, voice, ref, **kwargs):
         print("  pocket-tts not installed", file=sys.stderr)
         raise SystemExit(1)
 

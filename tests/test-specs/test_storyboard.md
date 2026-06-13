@@ -55,6 +55,8 @@ Test: `tests/test_storyboard.py`
 | VH3 | scroll scene with no extra fields | No problems | Actions with no required fields wrongly demand them |
 | VH4 | pause_after_ms as string "1500" | Problem requiring integer | String pause reaches renderer arithmetic and crashes mid-recording |
 | VH5 | evaluate scene with no expression | Problem requiring expression | Renderer dispatches evaluate with nothing to run |
+| VH6 | select_option scene with selector + `value: ""` | No problems | The empty-string value IS the payload — selecting a `<select>`'s blank "all / none" `<option value="">`; rejecting it makes "back to all sources"-style resets unrenderable (L5-found defect) |
+| VH7 | select_option scene with selector but `value` missing/null | Problem requiring the value field | A genuinely absent value silently selects nothing |
 
 ## validate_storyboard(stage="verified")
 
@@ -71,7 +73,8 @@ Test: `tests/test_storyboard.py`
 | P2 | Multi-candidate selector | Projects as array, primary first | Fallback selectors lost — renderer loses its recovery path |
 | P3 | Verified 3-scene storyboard | Projection passes actions.validate_segments | Phase 5 emits scripts its own renderer rejects — pipeline dead-ends at the last step |
 | P4 | Envelope fields | title from doc, 1280x720 default, pause carried | Renderer falls back to wrong resolution/title; pacing lost |
-| P5 | Scene with notes/status/verification | None of them appear in segments | Internal bookkeeping leaks into the render contract (and into anything users hand-edit) |
+| P5 | Scene with notes/status/verification/id | None of them appear in segments | Internal bookkeeping leaks into the render contract (and into anything users hand-edit) |
+| P6 | select_option scene with `value: ""` | `value: ""` carried into the segment (not dropped); the projected segment also passes `actions.validate_segments` | The projection drops the empty-string value, so the renderer's `seg["value"]` KeyErrors / Phase 5 rejects (L5-found defect) |
 
 ## chapters() + section validation (M5a)
 
