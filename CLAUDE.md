@@ -383,6 +383,9 @@ serve --project /tmp/restore --port 8770`.
 - `MAINTENANCE_RUN_DESIGN.md` — the maintenance run: CI re-runs that
   repair instead of regenerate (issues labeled `maintenance-run`,
   tracking #93)
+- `AGENT_SDK_PORTABILITY.md` — 2026 survey of porting the per-phase
+  agent loop off the Claude Agent SDK to run non-Anthropic models
+  (recommendation: prototype Pydantic AI first, Strands second)
 - `KOKORO_PRONUNCIATIONS.md` — pronunciation override design (issue #54)
 - `GUI-DECISIONS.md` / `GUI-IMPLEMENTATION.md` — GUI design and
   implementation notes from the M1-M3 milestones
