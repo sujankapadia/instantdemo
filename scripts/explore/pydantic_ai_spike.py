@@ -16,16 +16,22 @@ mechanics the port depends on —
 cheap candidate model can later be A/B'd against the Claude baseline by
 swapping --model. Needs the Evernote fixture app running on :8001.
 
-Run:
+Run (native Anthropic baseline):
   ANTHROPIC_API_KEY=... python scripts/explore/pydantic_ai_spike.py \
       --model anthropic:claude-sonnet-4-6 --runs 3
-Later, with a cloud candidate key:
-  python scripts/explore/pydantic_ai_spike.py --model openai:gpt-... --runs 10
+
+Candidate models via OpenRouter (one key, many models):
+  OPENROUTER_API_KEY=... python scripts/explore/pydantic_ai_spike.py \
+      --model openrouter:openai/gpt-4o-mini --runs 10
+  ...  --model openrouter:google/gemini-2.0-flash-001
+  ...  --model openrouter:qwen/qwen-2.5-coder-32b-instruct
+  ...  --model openrouter:deepseek/deepseek-chat
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import tempfile
 import time
@@ -123,13 +129,30 @@ class Jail(WrapperToolset):
         return await super().call_tool(name, tool_args, ctx, tool)
 
 
+def resolve_model(spec: str):
+    """`anthropic:claude-...` (or any provider:model) passes through as a
+    native pydantic-ai model string. `openrouter:<id>` routes through
+    OpenRouter's OpenAI-compatible endpoint (one key, many models) —
+    e.g. `openrouter:openai/gpt-4o-mini`."""
+    if spec.startswith("openrouter:"):
+        if not os.environ.get("OPENROUTER_API_KEY"):
+            raise SystemExit("OPENROUTER_API_KEY is not set.")
+        from pydantic_ai.models.openai import OpenAIChatModel
+        from pydantic_ai.providers.openrouter import OpenRouterProvider
+
+        return OpenAIChatModel(
+            spec.split(":", 1)[1], provider=OpenRouterProvider()
+        )
+    return spec
+
+
 def build_agent(model: str, jail_dir: Path) -> tuple[Agent, Jail]:
     base = make_toolset(jail_dir)
     jail = Jail(base, jail_dir)
     # FilteredToolset = the per-phase allowlist (only `bash` is exposed).
     allowed = FilteredToolset(jail, lambda ctx, td: td.name == "bash")
     agent = Agent(
-        model,
+        resolve_model(model),
         output_type=Findings,
         retries=2,
         instructions=(
