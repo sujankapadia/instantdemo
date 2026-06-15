@@ -14,6 +14,12 @@ dist/
 .venv/
 venv/
 
+# Secrets — API keys live here, never commit (loaded by the renderer
+# and the SDK-portability spike).
+.env
+.env.*
+!.env.example
+
 # Tooling
 .coverage
 htmlcov/

@@ -38,6 +38,7 @@ import time
 from pathlib import Path
 from typing import Any, Literal
 
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from pydantic_ai import (
     Agent,
@@ -47,6 +48,12 @@ from pydantic_ai import (
     RunContext,
     WrapperToolset,
 )
+
+# Load the repo-root .env into os.environ (pydantic-ai's providers read
+# keys from the environment). python-dotenv handles quoting/export/etc.;
+# override=False keeps any real env var ahead of the file. Needs
+# `pip install python-dotenv`. The repo's .gitignore keeps .env out of git.
+load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
 
 APP_URL = "http://localhost:8001"
 
