@@ -272,11 +272,38 @@ its v4-flash reasoning sibling that hung at 90s).
 
 So **Phase 2 doesn't require Claude — it requires a capable model, and
 there are cheap ones.** The earlier "stays on Claude" was a flash-lite
-artifact. Caveats before trusting it in production: one clean run each
-(confirm reliability over more runs — DeepSeek providers were flaky with
-v4-flash, though v3-chat ran clean twice), a minor embellishment (it
-invented a plausible note title), and a blind PROSE read still owed
-(grounding + continuity are the correctness bars, not prose elegance).
+artifact.
+
+**Reliability — confirmed (6/6).** A follow-up batch ran the full
+Phase-2 flow on `deepseek-chat-v3.1` six times (~48 model calls): zero
+connection drops, the 500 count grounded every run, the continuity pass
+functional every run (7/8/8/6/11 rewrites, plus one legitimate 0 =
+"reads fine"). The earlier DeepSeek flakiness was the *reasoning*
+v4-flash variant, not V3-chat. Still owed: a blind PROSE read (grounding
++ continuity are correctness bars, not narrative elegance); one minor
+embellishment seen (an invented note title).
+
+## Phase-1 A/B — explore + propose intent (2026-06-15)
+
+Phase 1 is the hybrid: drive the live app (Playwright via bash) to
+explore it, THEN propose a demo intent. Harness:
+`scripts/explore/phase1_ab.py`. Result — depth scales with capability,
+but NONE hallucinate features (unlike Phase 2):
+
+| Model | tool calls | intent depth |
+|---|---|---|
+| Claude Sonnet 4.6 | **38** | exhaustive — *discovered* counts by experimenting ('REDACTED-TERM'→22, 'REDACTED-TERM'→6, 'REDACTED-TERM'→1), found attachments/sources/API endpoints/250ms debounce, 6 sharp warnings |
+| `deepseek-chat-v3.1` | 7 | solid — grounded (500 across 5 files), found attachments + sources, good warnings (incl. "test data may be confidential") |
+| `gemini-3.1-flash-lite` | 5 | shallow but grounded — note list + search only; MISSED attachments + sources; generic |
+
+Key cross-phase insight: **the splitter is precision, not the task.**
+Phase-1 intent is high-level/qualitative ("search exists") — cheap
+models ground it fine, just less thoroughly (a thinner exploration →
+fewer features surfaced → a less comprehensive demo, not a wrong one).
+Phase-2 needs *precise* grounding (exact counts) — which is exactly
+where flash-lite fabricates and a capable model (DeepSeek) is required.
+So Phase 1 *tolerates* cheap models with a thoroughness cost; Phase 2
+*fails* on the weak ones.
 
 **Recommendation (refines #81) — now evidence-backed end to end:**
 per-phase model pinning, not an all-or-nothing swap.
@@ -284,19 +311,32 @@ per-phase model pinning, not an all-or-nothing swap.
   4's verify/repair) to Gemini 3.1 Flash-Lite — verify AND repair both
   cleared at ~75× lower cost.
 - **Phase 2 (outline + narration + continuity) needs a CAPABLE model —
-  but not necessarily Claude.** Flash-Lite fails (fabricates facts,
-  fake continuity), but `deepseek-chat-v3.1` cleared both bars at ~14×
-  under Claude. Lead candidate to harden (reliability over more runs +
-  a blind prose read) before trusting; Claude is the safe fallback.
-- **Avoid reasoning-tier minis** for interactive phases (latency).
+  but not Claude.** Flash-Lite fails (fabricates facts, fake
+  continuity); `deepseek-chat-v3.1` cleared grounding + continuity, 6/6
+  reliable, at ~14× under Claude. (Blind prose read still owed.)
+- **Avoid reasoning-tier minis** for interactive phases (latency:
+  deepseek-v4-flash and gpt-5-nano never returned in 90s).
 - **Pin to a known-good OpenRouter provider** (or a fallback) given the
   reliability spread.
 
-Net dollar impact: the mechanical phases are most of the per-run agent
-cost (Phase 3 + Phase 4 dominated the chapter-revision spend), so pinning
-them to Gemini captures most of the savings while Phase 2 — the part that
-must stay Claude — is comparatively cheap (~$0.10 in the M8 L5). The port
-is worth pursuing for the mechanical phases; Phase 2 stays Claude.
+### Final per-phase pinning map (evidence-backed)
+
+| Phase | Skill | Recommended tier | Evidence |
+|---|---|---|---|
+| 1 Understand | explore + intent | mid (DeepSeek-V3) for depth; Flash-Lite OK for a quick demo | grounds at every tier; depth scales (38/7/5 tool calls) |
+| 2 Plan | grounding + continuity | **mid (DeepSeek-V3)** | flash-lite fabricates; DeepSeek 6/6 clean |
+| 3 Inspect | source → selectors | **cheap (Flash-Lite)** | mechanical; verify proxy 10/10 (direct test still owed) |
+| 4 Rehearse | drive + repair | **cheap (Flash-Lite)** | verify 10/10, repair 5/5 |
+| 5 Build | projection | n/a — deterministic | no model |
+| 6 Render | drift check | cheap | trivial one-shot |
+
+Net: the whole pipeline can plausibly run **off Claude** on two cheap
+tiers — Gemini Flash-Lite for the mechanical phases (~75× cheaper),
+DeepSeek-V3-chat for the judgment phases (1–2, ~14× cheaper) — with
+Claude as a quality fallback. Remaining before committing: a direct
+Phase-3 test, blind prose reads of the DeepSeek judgment output, and the
+actual port of `phases/` to Pydantic AI (bounded — the SDK mechanics are
+proven).
 
 ## Sources
 
