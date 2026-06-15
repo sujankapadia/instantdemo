@@ -60,13 +60,27 @@ APP_URL = "http://localhost:8001"
 # The scene under verification — the exact select_option reset scene
 # from the M8 L5 (known ground truth: selecting export-3 makes the
 # count pill read "100 notes").
-SCENE = {
-    "action": "select_option",
-    "selector": "#source-select",
-    "value": "evernote-skapadia-export-3.enex",
-    "expect": "#note-count should read '100 notes'",
-}
 GROUND_TRUTH_COUNT = "100"
+
+# Two scenes. `good` hands the correct selector (verify-only — the
+# floor). `broken` hands a STALE selector that doesn't exist: the model
+# must DETECT the failure, inspect the live DOM, find the real control,
+# repair, and complete — the Phase-4 Level-1 repair skill, where the
+# Claude/cheap-model boundary is most likely to show.
+SCENES = {
+    "good": {
+        "selector": "#source-select",  # correct
+        "value": "evernote-skapadia-export-3.enex",
+        "expect": "#note-count should read '100 notes'",
+        "broken": False,
+    },
+    "broken": {
+        "selector": "#source-dropdown",  # WRONG — does not exist
+        "value": "evernote-skapadia-export-3.enex",
+        "expect": "the count pill should read '100 notes'",
+        "broken": True,
+    },
+}
 
 
 # ── structured output (output_type) ──────────────────────────────────
@@ -75,10 +89,17 @@ class Findings(BaseModel):
         description="PASS if the scene verified against the live app"
     )
     selector_resolved: bool = Field(
-        description="Did #source-select resolve and accept the value?"
+        description="Did the source-filter control resolve and accept the value?"
     )
     observed_count: str = Field(
         description="The exact text the count pill showed, e.g. '100 notes'"
+    )
+    corrected_selector: str = Field(
+        default="",
+        description=(
+            "If the given selector was wrong and you found a working one, "
+            "the selector you actually used; else empty."
+        ),
     )
     reason: str = Field(description="One sentence of evidence")
 
@@ -153,11 +174,21 @@ def resolve_model(spec: str):
     return spec
 
 
-def build_agent(model: str, jail_dir: Path) -> tuple[Agent, Jail]:
+def build_agent(model: str, jail_dir: Path, scene: dict) -> tuple[Agent, Jail]:
     base = make_toolset(jail_dir)
     jail = Jail(base, jail_dir)
     # FilteredToolset = the per-phase allowlist (only `bash` is exposed).
     allowed = FilteredToolset(jail, lambda ctx, td: td.name == "bash")
+    repair_note = (
+        "\nIMPORTANT: the selector below may be STALE or WRONG. If it "
+        "doesn't resolve or the option can't be set, do NOT give up — "
+        "inspect the live DOM (print the page's select/input ids and "
+        "options), find the control that filters notes by source export "
+        "file, use it to complete the verification, and report the "
+        "selector you actually used in `corrected_selector`."
+        if scene["broken"]
+        else ""
+    )
     agent = Agent(
         resolve_model(model),
         output_type=Findings,
@@ -170,9 +201,10 @@ def build_agent(model: str, jail_dir: Path) -> tuple[Agent, Jail]:
             "run it with `python`, and read its printed output. The "
             "script must: open the app, perform the action below, and "
             "print what the count pill shows. Then return findings.\n\n"
-            f"Scene: {SCENE['action']} on `{SCENE['selector']}` "
-            f"= '{SCENE['value']}'. Expectation: {SCENE['expect']}.\n"
+            f"Scene: select_option on `{scene['selector']}` "
+            f"= '{scene['value']}'. Expectation: {scene['expect']}.\n"
             "Do not invent the observed count — read it from the page."
+            + repair_note
         ),
         toolsets=[allowed],
     )
@@ -191,10 +223,10 @@ def build_agent(model: str, jail_dir: Path) -> tuple[Agent, Jail]:
     return agent, jail
 
 
-def one_run(model: str) -> dict:
+def one_run(model: str, scene: dict) -> dict:
     with tempfile.TemporaryDirectory(prefix="pai-spike-") as td:
         jail_dir = Path(td)
-        agent, jail = build_agent(model, jail_dir)
+        agent, jail = build_agent(model, jail_dir, scene)
         t0 = time.monotonic()
         err = None
         out: Findings | None = None
@@ -209,7 +241,10 @@ def one_run(model: str) -> dict:
             usage = None
         elapsed = time.monotonic() - t0
 
-    # Score against ground truth.
+    # Score against ground truth. For the broken scene, "correct" means
+    # the model RECOVERED — reached the right count despite the stale
+    # selector (i.e. it detected the failure, found the real control,
+    # and completed). corrected_selector is the explicit repair signal.
     json_valid = out is not None
     correct = bool(
         out
@@ -220,6 +255,7 @@ def one_run(model: str) -> dict:
         "json_valid": json_valid,
         "correct": correct,
         "observed": out.observed_count if out else None,
+        "fixed": out.corrected_selector if out else None,
         "blocked": len(jail.blocked),
         "input_tokens": getattr(usage, "input_tokens", None) if usage else None,
         "output_tokens": getattr(usage, "output_tokens", None) if usage else None,
@@ -233,17 +269,24 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="anthropic:claude-sonnet-4-6")
     ap.add_argument("--runs", type=int, default=3)
+    ap.add_argument("--scene", choices=("good", "broken"), default="good")
     args = ap.parse_args()
+    scene = SCENES[args.scene]
 
-    print(f"model={args.model}  runs={args.runs}  app={APP_URL}\n")
+    print(
+        f"model={args.model}  runs={args.runs}  scene={args.scene}  "
+        f"app={APP_URL}\n"
+    )
     rows = []
     for i in range(args.runs):
-        r = one_run(args.model)
+        r = one_run(args.model, scene)
         rows.append(r)
-        flag = "OK " if r["correct"] else ("JSON" if r["json_valid"] else "FAIL")
+        verb = "RECOVERED" if scene["broken"] else "OK "
+        flag = verb if r["correct"] else ("JSON" if r["json_valid"] else "FAIL")
         print(
             f"  run {i + 1}: {flag}  observed={r['observed']!r}  "
-            f"tok={r['input_tokens']}/{r['output_tokens']}  "
+            + (f"fixed={r['fixed']!r}  " if scene["broken"] else "")
+            + f"tok={r['input_tokens']}/{r['output_tokens']}  "
             f"tools={r['tool_calls']}  {r['secs']}s"
             + (f"  ERR {r['error']}" if r["error"] else "")
         )

@@ -129,16 +129,70 @@ mapping from the table above is real, not just documented:
 
 **Claude baseline (`anthropic:claude-sonnet-4-6`), 5/5 runs:**
 script-success 5/5, json-valid 5/5, ~2450 input / ~490 output tokens,
-1 tool call, ~11s each. Rock-solid, as expected — it's the sanity
-check on the harness.
+1 tool call, ~11s each. Rock-solid — the sanity check on the harness.
 
-**Still open — the actual risk:** cheap non-Claude model quality on
-this agentic+structured task, and per-call cost. Not tested yet —
-local models are too slow on the current setup and no OpenAI/Gemini
-key is configured. The harness is parameterized (`--model`); running
-it against a cloud candidate is a one-line swap when a key exists.
-That comparison — not the SDK mechanics — is what decides whether the
-port is worth doing.
+## Model comparison — verify vs. repair (OpenRouter, 2026-06-15)
+
+Candidates were run through OpenRouter against two scenes: **good**
+(verify-only — the correct selector handed in; the floor of the
+difficulty curve) and **broken** (a stale selector that doesn't
+exist — the model must DETECT the failure, inspect the live DOM, find
+the real control, repair, and complete; the Phase-4 Level-1 repair
+skill, where the Claude/cheap boundary should show).
+
+**Verify (good scene), 10 runs each:**
+
+| Model | success | json | tools/run | ~speed | ~¢/run* |
+|---|---|---|---|---|---|
+| Claude Sonnet 4.6 (baseline, 5 runs) | 5/5 | 5/5 | 1 | ~11s | ~1.5¢ |
+| Gemini 3.1 Flash-Lite | 10/10 | 10/10 | 1 | ~5s | ~0.02¢ |
+| Qwen3-Coder 30B | 10/10 | 10/10 | 2–3 | ~8s | ~0.02¢ |
+| Qwen3-235B-A22B | 10/10 | 10/10 | 1 (one 6× spiral) | ~11s | ~0.015¢ |
+| DeepSeek-v4-Flash | DNF — no first response in 90s (reasoning-tier latency) |
+| gpt-5-nano | DNF — no first response in 90s (reasoning-tier latency) |
+
+**Repair (broken scene), 5 runs each:**
+
+| Model | recovered | tools/run | tokens in/out | notes |
+|---|---|---|---|---|
+| Claude Sonnet 4.6 (1 run) | 1/1 | 5 | ~25k / 3k | reference; repair is ~10× the verify cost |
+| Gemini 3.1 Flash-Lite | **5/5** | 2–5 | ~4–18k / ~1k | clean recovery every run — found `#source-select` after the dead selector |
+| Qwen3-Coder 30B | 4/12 across two batches; recovers when it connects but laboriously (8 tools, 72–90s, ~26k tok — brushing the timeout) | | | + ~half the runs died on provider `Connection error` |
+| Qwen3-235B-A22B | 1/10 — provider too flaky to judge | | | nearly all runs died on `Connection error`; the one clean run recovered |
+
+\*observed tokens × live OpenRouter price; Claude at standard Sonnet
+rates. Repair scenes cost ~10× the tokens of verify.
+
+**Findings:**
+1. **Cheap models clear this task — including repair.** Gemini 3.1
+   Flash-Lite went 10/10 verify AND 5/5 repair at ~75× lower cost than
+   Claude, matching Claude's iterate-to-fix behavior. The repair pass
+   is the surprise — it's the hard Phase-4 skill and the cheap model
+   held up. Gemini Flash-Lite is the clear candidate to beat.
+2. **Latency is a real disqualifier.** The two reasoning-tier minis
+   (DeepSeek-v4-Flash, gpt-5-nano) never returned a first response in
+   90s — unusable for an interactive loop regardless of quality.
+3. **OpenRouter provider reliability varies by model.** The Qwen
+   models' backing providers dropped connections repeatedly during
+   testing (Gemini's was rock-solid). An operational signal, not a
+   capability verdict — but it matters for a production tool, and it
+   left Qwen's repair capability only partially measured (Qwen-Coder
+   *can* repair, but heavily).
+
+**What this still does NOT test — and it's the important gap:**
+planning and narration (Phase 2). The spike exercises scripting and
+repair, where small models are strongest; it says nothing about
+writing a good chapter arc, quality narration, or the continuity pass
+(whole-film judgment/attention) — the most model-sensitive AND most
+user-visible work. Don't extrapolate these scores to Phase 2.
+
+**Recommendation (refines #81):** per-phase model pinning, not an
+all-or-nothing swap. Pin the *mechanical* phases (3 selectors, the
+drift check, plausibly 4's verify/repair) to Gemini 3.1 Flash-Lite
+and pocket the ~75×; keep Phase 2's narration + continuity on Claude
+until an A/B of the *prose* says otherwise. Avoid reasoning-tier minis
+for interactive phases (latency). Pin a model to a known-good
+OpenRouter provider, or use a fallback, given the reliability spread.
 
 ## Sources
 
