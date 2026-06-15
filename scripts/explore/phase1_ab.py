@@ -45,7 +45,31 @@ class IntentProposal(BaseModel):
     )
 
 
-def run(model_spec: str) -> tuple[IntentProposal | None, object, float, str | None]:
+# An explicit exploration protocol — supplies the initiative a capable
+# agentic model self-generates, so we can test whether the Phase-1 depth
+# gap is disposition (promptable) or capability (not).
+EXPLORE_PROTOCOL = (
+    "\n\nExplore THOROUGHLY before proposing — work this checklist:\n"
+    "- Enumerate every nav link, tab, and button; click each and note "
+    "what changes.\n"
+    "- Run at least 5 DIFFERENT searches, including words unlikely to be "
+    "in any title, to test whether search reads note bodies. Report the "
+    "actual result count for each.\n"
+    "- Open at least 3 different notes and read what the detail view "
+    "shows (metadata, formatting, attachments).\n"
+    "- Try every dropdown/filter (e.g. source files); select each option "
+    "and report the count it shows.\n"
+    "- Look specifically for an attachments view and any downloadable "
+    "files.\n"
+    "- Inspect the page HTML / network requests for structure you can't "
+    "see in the UI (endpoints, debounce, hidden fields).\n"
+    "Report the real counts and names you observed, not approximations."
+)
+
+
+def run(
+    model_spec: str, guided: bool = False
+) -> tuple[IntentProposal | None, object, float, str | None]:
     with tempfile.TemporaryDirectory(prefix="pai-p1-") as td:
         jail_dir = Path(td)
         base = make_toolset(jail_dir)
@@ -65,6 +89,7 @@ def run(model_spec: str) -> tuple[IntentProposal | None, object, float, str | No
                 "audience, the flows worth showing, the key screens, and any "
                 "warnings. GROUND everything in what you observed — do NOT "
                 "invent features, counts, or data you did not see."
+                + (EXPLORE_PROTOCOL if guided else "")
             ),
             toolsets=[allowed],
         )
@@ -83,10 +108,13 @@ def run(model_spec: str) -> tuple[IntentProposal | None, object, float, str | No
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="anthropic:claude-sonnet-4-6")
+    ap.add_argument("--guided", action="store_true",
+                    help="add the explicit exploration checklist")
     args = ap.parse_args()
 
-    out, usage, secs, err = run(args.model)
-    print(f"\n{'=' * 70}\nMODEL: {args.model}   ({secs:.0f}s)\n{'=' * 70}")
+    out, usage, secs, err = run(args.model, guided=args.guided)
+    mode = "guided" if args.guided else "unguided"
+    print(f"\n{'=' * 70}\nMODEL: {args.model}  [{mode}]  ({secs:.0f}s)\n{'=' * 70}")
     if err:
         print(f"ERROR: {err}")
         return

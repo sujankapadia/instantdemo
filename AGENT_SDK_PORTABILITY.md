@@ -302,8 +302,30 @@ models ground it fine, just less thoroughly (a thinner exploration →
 fewer features surfaced → a less comprehensive demo, not a wrong one).
 Phase-2 needs *precise* grounding (exact counts) — which is exactly
 where flash-lite fabricates and a capable model (DeepSeek) is required.
-So Phase 1 *tolerates* cheap models with a thoroughness cost; Phase 2
-*fails* on the weak ones.
+
+**Guided re-run — is the depth gap disposition or capability?** Added an
+explicit exploration checklist (`--guided`: "run 5+ searches incl.
+unlikely terms; try every dropdown; find attachments; report real
+counts") — supplying the initiative Claude self-generates. Result splits
+by the model's baseline capability:
+
+- **DeepSeek-V3 (capable): the gap was DISPOSITION.** Guided, it
+  recovered near-Claude depth — discovered counts by experimenting
+  ('test'→50, 'wifi'→8), grounded 5×100=500, *measured note content
+  lengths*, found attachments + sources, and caught edge cases (a 50-
+  result cap; an attachments-view inconsistency) the Claude run didn't
+  flag. It HAD the capability; it just needed the initiative supplied.
+- **Flash-Lite (weak): the gap was CAPABILITY.** Same checklist got it
+  from 5→9 tool calls but it still missed attachments + sources AND
+  *misread the core feature* — concluded search is "substring match
+  within titles" when the app's headline is full-text body search. It
+  couldn't execute the protocol faithfully or interpret results.
+  Persistence is promptable; comprehension is not.
+
+So: **Phase 1 tolerates a capable cheap model WITH a good exploration
+prompt (DeepSeek-V3 ≈ Claude depth, ~14× cheaper), but NOT a weak one
+(Flash-Lite misreads features even when told what to check).** Phase 1
+belongs in the DeepSeek tier, not the Flash-Lite tier.
 
 **Recommendation (refines #81) — now evidence-backed end to end:**
 per-phase model pinning, not an all-or-nothing swap.
@@ -323,7 +345,7 @@ per-phase model pinning, not an all-or-nothing swap.
 
 | Phase | Skill | Recommended tier | Evidence |
 |---|---|---|---|
-| 1 Understand | explore + intent | mid (DeepSeek-V3) for depth; Flash-Lite OK for a quick demo | grounds at every tier; depth scales (38/7/5 tool calls) |
+| 1 Understand | explore + intent | **mid (DeepSeek-V3) + an exploration checklist** | guided DeepSeek ≈ Claude depth; Flash-Lite misreads features even when guided |
 | 2 Plan | grounding + continuity | **mid (DeepSeek-V3)** | flash-lite fabricates; DeepSeek 6/6 clean |
 | 3 Inspect | source → selectors | **cheap (Flash-Lite)** | mechanical; verify proxy 10/10 (direct test still owed) |
 | 4 Rehearse | drive + repair | **cheap (Flash-Lite)** | verify 10/10, repair 5/5 |
