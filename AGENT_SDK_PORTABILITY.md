@@ -204,23 +204,65 @@ metric. Findings:
   does much of the narration-quality work, and it helps whichever model
   runs it.
 
-Net: the prose gap is real but **smaller and spottier** than assumed —
-not a clean "narration must stay on Claude." The decider is a
-FULL-pipeline Phase-2 A/B (outline → chapter → continuity, end to end
-on each model) plus a blind human read, since the continuity pass may
-close much of the gap. Untested still: the chapter ARC and the
-continuity pass itself (whole-film attention) — the most model-sensitive
-bits, which this single-chapter harness doesn't exercise.
+Net of the isolated test: the prose gap looked **modest** — which
+turned out to be misleading (see below). The isolated harness handed
+each model the scene structure and didn't require grounding to observed
+data, hiding the two things a small model actually fails at.
 
-**Recommendation (refines #81):** per-phase model pinning, not an
-all-or-nothing swap. Pin the *mechanical* phases (3 selectors, the
-drift check, plausibly 4's verify/repair) to Gemini 3.1 Flash-Lite and
-pocket the ~75× — verify and repair both cleared. For Phase 2, the
-prose gap is modest enough to be worth a full-pipeline A/B + blind read
-before deciding; lean Claude for narration until that says otherwise,
-but it's no longer a foregone conclusion. Avoid reasoning-tier minis
-for interactive phases (latency). Pin to a known-good OpenRouter
-provider, or use a fallback, given the reliability spread.
+## Full Phase-2 A/B — the decisive test (2026-06-15)
+
+A third harness (`scripts/explore/phase2_ab.py`) reproduces the WHOLE
+Phase-2 flow — outline → per-chapter narration → continuity pass — on
+each model, using the real prompts and the real Evernote inputs
+(intent.json, phase1.md, product-context.md). This exercises the chapter
+ARC and the continuity pass, which the isolated test couldn't. It
+**reverses** the soft read, and not on prose taste — on correctness:
+
+- **Gemini hallucinated the core facts, consistently.** Run 1 narrated
+  "14,285 Notes"; run 2 "4,287 notes" — the real count is **500**. It
+  invented search examples ("recipe"/"basil pesto"; "Project Alpha")
+  instead of the actual 'REDACTED-TERM'/'kubernetes' in the Phase-1 data, and
+  referenced the **import button that intent.excludes lists**. Two for
+  two: the small model defaults to plausible placeholders instead of
+  grounding to provided data — disqualifying for a demo tool, where the
+  narration would confidently describe things that aren't true.
+- **Gemini's continuity pass is non-functional.** It returned 0 rewrites
+  while its explanation *claimed* it "removed repetitive openers and
+  synthesized redundant statements" — describing fixes it never made,
+  and missing real cross-chapter repetition.
+- **Gemini under-covered** the comprehensive brief (4 chapters vs 7;
+  dropped the export-count verification beat).
+- **Claude did all three right:** grounded every specific to the
+  observed values (500, REDACTED-TERM→50, kubernetes→34, 100/file × 5), built
+  a strong payoff-first 7-chapter arc, and its continuity pass caught
+  **4 genuine cross-chapter problems** with precise reasoning (duplicate
+  opener, a line repeated across a chapter break, a premature privacy
+  claim, a duplicated closing detail).
+
+Lesson: the isolated narration test was a trap — it understated the gap
+by removing grounding and whole-document judgment, the exact things
+small models fail at. The full pipeline is the honest test, and the
+boundary is now sharp: **Phase 2 must stay on Claude — for factual
+grounding and whole-film judgment, not prose taste.**
+
+**Recommendation (refines #81) — now evidence-backed end to end:**
+per-phase model pinning, not an all-or-nothing swap.
+- **Pin the mechanical phases** (3 selectors, the drift check, plausibly
+  4's verify/repair) to Gemini 3.1 Flash-Lite — verify AND repair both
+  cleared at ~75× lower cost.
+- **Keep Phase 2 (outline + narration + continuity) on Claude** — the
+  full-pipeline A/B is decisive: the cheap model fabricates grounded
+  facts and its continuity pass doesn't work. This is the one phase the
+  cost lever can't touch.
+- **Avoid reasoning-tier minis** for interactive phases (latency).
+- **Pin to a known-good OpenRouter provider** (or a fallback) given the
+  reliability spread.
+
+Net dollar impact: the mechanical phases are most of the per-run agent
+cost (Phase 3 + Phase 4 dominated the chapter-revision spend), so pinning
+them to Gemini captures most of the savings while Phase 2 — the part that
+must stay Claude — is comparatively cheap (~$0.10 in the M8 L5). The port
+is worth pursuing for the mechanical phases; Phase 2 stays Claude.
 
 ## Sources
 
