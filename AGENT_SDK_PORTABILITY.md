@@ -241,19 +241,53 @@ ARC and the continuity pass, which the isolated test couldn't. It
 
 Lesson: the isolated narration test was a trap — it understated the gap
 by removing grounding and whole-document judgment, the exact things
-small models fail at. The full pipeline is the honest test, and the
-boundary is now sharp: **Phase 2 must stay on Claude — for factual
-grounding and whole-film judgment, not prose taste.**
+small models fail at. The full pipeline is the honest test. But the
+boundary turned out to be a **capability TIER**, not "Claude vs. the
+rest" (see the mid-tier sweep below): Flash-Lite is simply too weak for
+Phase 2.
+
+## Mid-tier sweep — Phase 2 doesn't actually require Claude (2026-06-15)
+
+The full Phase-2 A/B run on cheaper-but-capable models (the question:
+is there a model comparable to Claude, cheaper, without the
+cold-start/stall the reasoning-minis showed?). Grounding ladder, by
+tier:
+
+| Model | in/out $/M | grounds the facts? | continuity pass | stall? |
+|---|---|---|---|---|
+| `gemini-3.1-flash-lite` | ~0.10/0.40 | NO — fabricates the count (14,285 / 4,287; real 500) | fake (0 rewrites, claims fixes) | no |
+| `gemini-2.5-flash` | 0.30/2.50 | partial — stops fabricating, goes vague/generic ("Meeting") | — | no |
+| `gemini-3-flash-preview` | 0.50/3.00 | mostly — uses 500 + REDACTED-TERM/kubernetes, but kubernetes "3" not 34, invents a PDF | fake (0 rewrites, claims fixes) | no |
+| **`deepseek-chat-v3.1`** | **0.21/0.79** | **yes — 500, REDACTED-TERM, kubernetes→34 (exact)** | **WORKS — 6 real cross-chapter rewrites** | **no (non-reasoning V3)** |
+| Claude Sonnet 4.6 | ~3/15 | yes (reference) | works (4 rewrites) | no |
+
+**The standout: `deepseek/deepseek-chat-v3.1`.** It is the only
+cheap+fast model that cleared BOTH bars Flash-Lite failed — it grounded
+to the exact observed values (including kubernetes→34, which gemini-3-flash
+got wrong) AND its continuity pass actually found and fixed 6
+cross-chapter issues (the Gemini family uniformly returned 0 rewrites
+while *claiming* fixes — a non-functional whole-document pass). It's
+~14× cheaper than Claude and didn't stall (the non-reasoning V3, unlike
+its v4-flash reasoning sibling that hung at 90s).
+
+So **Phase 2 doesn't require Claude — it requires a capable model, and
+there are cheap ones.** The earlier "stays on Claude" was a flash-lite
+artifact. Caveats before trusting it in production: one clean run each
+(confirm reliability over more runs — DeepSeek providers were flaky with
+v4-flash, though v3-chat ran clean twice), a minor embellishment (it
+invented a plausible note title), and a blind PROSE read still owed
+(grounding + continuity are the correctness bars, not prose elegance).
 
 **Recommendation (refines #81) — now evidence-backed end to end:**
 per-phase model pinning, not an all-or-nothing swap.
 - **Pin the mechanical phases** (3 selectors, the drift check, plausibly
   4's verify/repair) to Gemini 3.1 Flash-Lite — verify AND repair both
   cleared at ~75× lower cost.
-- **Keep Phase 2 (outline + narration + continuity) on Claude** — the
-  full-pipeline A/B is decisive: the cheap model fabricates grounded
-  facts and its continuity pass doesn't work. This is the one phase the
-  cost lever can't touch.
+- **Phase 2 (outline + narration + continuity) needs a CAPABLE model —
+  but not necessarily Claude.** Flash-Lite fails (fabricates facts,
+  fake continuity), but `deepseek-chat-v3.1` cleared both bars at ~14×
+  under Claude. Lead candidate to harden (reliability over more runs +
+  a blind prose read) before trusting; Claude is the safe fallback.
 - **Avoid reasoning-tier minis** for interactive phases (latency).
 - **Pin to a known-good OpenRouter provider** (or a fallback) given the
   reliability spread.
