@@ -179,20 +179,48 @@ rates. Repair scenes cost ~10× the tokens of verify.
    left Qwen's repair capability only partially measured (Qwen-Coder
    *can* repair, but heavily).
 
-**What this still does NOT test — and it's the important gap:**
-planning and narration (Phase 2). The spike exercises scripting and
-repair, where small models are strongest; it says nothing about
-writing a good chapter arc, quality narration, or the continuity pass
-(whole-film judgment/attention) — the most model-sensitive AND most
-user-visible work. Don't extrapolate these scores to Phase 2.
+## Narration A/B — the Phase-2 prose test (2026-06-15)
+
+A second throwaway harness (`scripts/explore/narration_ab.py`) isolates
+the opposite of the scripting test: prose quality. It feeds each model
+the REAL phase2 narration rules + the app one-pager + one chapter's
+already-planned scenes (narration hidden) and asks only for the
+narration, printed against the Claude-pipeline original. Two chapters,
+one generation per model — a small qualitative sample, a read not a
+metric. Findings:
+
+- **Search chapter — Claude clearly better.** Gemini drifted to
+  documentation-voice ("The app finds notes containing the term in the
+  body text") with tells ("appear instantly", "Start by typing");
+  Claude read like a person.
+- **Privacy chapter — a wash.** Gemini's "No cloud sync. No servers.
+  Just your files." was genuinely punchy; on the payoff line BOTH
+  Claude-now and Gemini went procedural and missed the original's
+  landing ("Your notes left Evernote. They didn't leave you.").
+- **The original beat BOTH isolated calls — from pipeline context, not
+  raw model power.** The original had the whole-film arc, the intent
+  emphasis, the observed counts (Phase 1/3), and the continuity pass;
+  the isolated harness gave neither model those. So the architecture
+  does much of the narration-quality work, and it helps whichever model
+  runs it.
+
+Net: the prose gap is real but **smaller and spottier** than assumed —
+not a clean "narration must stay on Claude." The decider is a
+FULL-pipeline Phase-2 A/B (outline → chapter → continuity, end to end
+on each model) plus a blind human read, since the continuity pass may
+close much of the gap. Untested still: the chapter ARC and the
+continuity pass itself (whole-film attention) — the most model-sensitive
+bits, which this single-chapter harness doesn't exercise.
 
 **Recommendation (refines #81):** per-phase model pinning, not an
 all-or-nothing swap. Pin the *mechanical* phases (3 selectors, the
-drift check, plausibly 4's verify/repair) to Gemini 3.1 Flash-Lite
-and pocket the ~75×; keep Phase 2's narration + continuity on Claude
-until an A/B of the *prose* says otherwise. Avoid reasoning-tier minis
-for interactive phases (latency). Pin a model to a known-good
-OpenRouter provider, or use a fallback, given the reliability spread.
+drift check, plausibly 4's verify/repair) to Gemini 3.1 Flash-Lite and
+pocket the ~75× — verify and repair both cleared. For Phase 2, the
+prose gap is modest enough to be worth a full-pipeline A/B + blind read
+before deciding; lean Claude for narration until that says otherwise,
+but it's no longer a foregone conclusion. Avoid reasoning-tier minis
+for interactive phases (latency). Pin to a known-good OpenRouter
+provider, or use a fallback, given the reliability spread.
 
 ## Sources
 
