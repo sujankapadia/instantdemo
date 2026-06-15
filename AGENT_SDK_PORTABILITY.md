@@ -107,6 +107,39 @@ success, and cost), not a full migration.
 single-phase Pydantic AI + cheap-model spike to test the
 "comparable" assumption before committing.**
 
+## Spike results (2026-06-15)
+
+A standalone half-day spike (`scripts/explore/pydantic_ai_spike.py`,
+throwaway — does not touch the pipeline) reproduced one
+Phase-4-shaped task with Pydantic AI 1.107 against the live Evernote
+fixture: the agent writes and runs a Playwright verification script
+through a jailed bash tool and returns findings that validate against
+a schema.
+
+**The SDK-port half is validated with running code** — the 1:1
+mapping from the table above is real, not just documented:
+- `WrapperToolset.call_tool` intercepts every tool call before
+  execution = the PreToolUse-hook + filesystem-jail analog. ✓
+- `FilteredToolset(wrapped, filter_func)` = the per-phase allowlist. ✓
+- `output_type` (a Pydantic model) + an `@agent.output_validator`
+  that raises `ModelRetry` = structured output with corrective
+  retry — cleaner than the hand-rolled fenced-JSON path. ✓
+- a `FunctionToolset` `bash` tool drove real Playwright; `result.usage`
+  gives per-run token counts. ✓
+
+**Claude baseline (`anthropic:claude-sonnet-4-6`), 5/5 runs:**
+script-success 5/5, json-valid 5/5, ~2450 input / ~490 output tokens,
+1 tool call, ~11s each. Rock-solid, as expected — it's the sanity
+check on the harness.
+
+**Still open — the actual risk:** cheap non-Claude model quality on
+this agentic+structured task, and per-call cost. Not tested yet —
+local models are too slow on the current setup and no OpenAI/Gemini
+key is configured. The harness is parameterized (`--model`); running
+it against a cloud candidate is a one-line swap when a key exists.
+That comparison — not the SDK mechanics — is what decides whether the
+port is worth doing.
+
 ## Sources
 
 Primary docs and verified comparisons (2026):
