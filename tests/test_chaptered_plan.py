@@ -110,7 +110,8 @@ def install_canned(monkeypatch, *, continuity_rewrites=None, capture=None):
     a session's CUMULATIVE total_cost_usd."""
     calls = {"n": 0, "chapter": 0}
 
-    async def fake(context, prompt, session_id, *, validate, phase_number):
+    async def fake(context, prompt, session_id, *, validate, phase_number,
+                   output_type=None):
         calls["n"] += 1
         record = {
             "session_id": session_id,
@@ -244,7 +245,7 @@ class TestGatherLoop:
         counter = {"n": 0}
 
         async def fake(context, prompt, session_id, *, validate,
-                       phase_number):
+                       phase_number, output_type=None):
             doc = storyboard.load(context.state_dir)
             counter["n"] += 1
             k = counter["n"]

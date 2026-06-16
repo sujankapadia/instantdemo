@@ -19,6 +19,11 @@ Test: `tests/test_chaptered_plan.py`
 | O2 | 1 chapter / 13 chapters | Problem (2–12 rule) | Degenerate arcs (everything one chapter) or runaway fragmentation |
 | O3 | Duplicate names, missing purpose, bad est_scenes | Problems each | Duplicate chapter names break contiguity downstream; unscoped chapters plan blind |
 
+(M9 port: `run_structured_query` gained an `output_type=None` kwarg — the
+phase passes a Pydantic model so the backend can use native structured
+output. The monkeypatch fakes — both the narrate fake and the gather fake
+— accept and ignore it; assertions unchanged.)
+
 ## run() — the chaptered build (run_structured_query monkeypatched)
 
 | ID | Scenario | Assertion | Risk if broken |

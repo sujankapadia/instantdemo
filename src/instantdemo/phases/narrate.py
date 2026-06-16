@@ -30,6 +30,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import BaseModel as _BaseModel
+from pydantic import Field as _Field
+
 from .. import prompts, revise, storyboard
 from ..actions import CANONICAL_ACTIONS
 from ..agent_client import session_id_for_phase
@@ -195,6 +198,44 @@ def _build_chapter_plan_prompt(
         prompts.load("phase2"),
     ]
     return "\n".join(lines)
+
+
+# ── Pydantic output models (M9 port) ─────────────────────────────────
+# The structured-output schemas for Phase 2's three calls. The field
+# descriptions become the schema the model sees; the EXISTING validators
+# above run on each model's `.model_dump()`, so the runner's downstream
+# (dict-consuming) code is unchanged.
+class ChapterSpec(_BaseModel):
+    name: str = _Field(description="Film-register chapter name")
+    purpose: str = _Field(description="What this beat shows and why")
+    est_scenes: int = _Field(description="Honest scene estimate, 1-12")
+
+
+class OutlinePayload(_BaseModel):
+    title: str = _Field(description="Demo title")
+    summary: str = _Field(default="", description="One line on the whole film")
+    chapters: list[ChapterSpec]
+
+
+class SceneSpec(_BaseModel):
+    title: str = _Field(description="Short scene title")
+    narration: str = _Field(default="", description='Spoken narration, "" if silent')
+    action: str = _Field(description="One canonical action verb (goto, click, …)")
+    target_hint: str = _Field(default="", description="High-level locator (page/URL/what to point at)")
+    section: str = _Field(default="", description="The chapter name this scene belongs to")
+
+
+class ScenesPayload(_BaseModel):
+    scenes: list[SceneSpec]
+
+
+class ContinuityPayload(_BaseModel):
+    kind: str = _Field(default="rewrite", description="Always 'rewrite'")
+    explanation: str = _Field(default="", description="One sentence on what you smoothed")
+    rewrites: dict[str, str] = _Field(
+        default_factory=dict,
+        description="1-based scene number -> new narration; empty if it reads fine",
+    )
 
 
 def _validate_outline(payload: dict) -> list[str]:
@@ -403,6 +444,7 @@ async def _run_scoped(context: Context) -> None:
         session_id_for_phase(2, context.run_id),
         validate=_scoped_validator(section),
         phase_number=2,
+        output_type=ScenesPayload,
     )
 
     # Out-of-scope scenes must come through byte-identical (modulo
@@ -528,6 +570,7 @@ async def _continuity_pass(
         session_id,
         validate=_continuity_validator(len(scenes)),
         phase_number=2,
+        output_type=ContinuityPayload,
     )
     rewrites = payload.get("rewrites") or {}
     if rewrites:
@@ -542,10 +585,10 @@ async def _continuity_pass(
 
 
 async def run(context: Context) -> None:
-    if context.client is None:
+    if context.client is None and context.backend is None:
         raise RuntimeError(
-            "Phase 2: no agent client provided in context. The CLI is "
-            "responsible for creating and passing through a ClaudeSDKClient."
+            "Phase 2: no agent runtime in context — provide a "
+            "ClaudeSDKClient (legacy) or a Pydantic AI backend (M9)."
         )
 
     if context.section_scope:
@@ -580,6 +623,7 @@ async def run(context: Context) -> None:
         session_id,
         validate=_validate_outline,
         phase_number=2,
+        output_type=OutlinePayload,
     )
     total_turns += int(getattr(result, "num_turns", 0) or 0)
     chapters = outline["chapters"]
@@ -620,6 +664,7 @@ async def run(context: Context) -> None:
             session_id,
             validate=_scoped_validator(chapter["name"]),
             phase_number=2,
+            output_type=ScenesPayload,
         )
         total_turns += int(getattr(result, "num_turns", 0) or 0)
         for scene in payload["scenes"]:
