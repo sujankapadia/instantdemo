@@ -3,6 +3,9 @@
 Source: `src/instantdemo/phases/analyze.py`
 Test: `tests/test_phase1_explore.py`
 
+The test imports `MIN_SCREENS` from `analyze` so PV7/PV10 stay in sync with
+the source's breadth floor rather than hard-coding the threshold.
+
 ## Methods not tested (and why)
 
 | Method | Reason |
@@ -21,9 +24,17 @@ Test: `tests/test_phase1_explore.py`
 | PV4 | focus as a string instead of list | Problem naming the field | Malformed intent crashes IntentEditor / intent.json round-trip |
 | PV5 | screens entry without name; screenshot with path separators | Two problems | Path-traversal-ish screenshot refs reach the exploration file endpoint |
 | PV6 | Missing screens/warnings entirely | No problems (optional) | Overly strict validator rejects minimal-but-valid output, burning retries |
-| PV7 | exp_dir given; screens reference a PNG that exists on disk | No problems | Valid screenshot-laden output rejected, retry loop burns money |
+| PV7 | exp_dir given; MIN_SCREENS screens each reference a PNG that exists on disk | No problems | Valid screenshot-laden output rejected, retry loop burns money |
 | PV8 | exp_dir given; screens present but NO referenced PNG exists | Problem instructing the agent to capture and re-emit | Agent skips screenshots (observed in the first live gate) — filmstrip and confirm card ship empty |
 | PV9 | exp_dir given; one reference exists, another doesn't | Problem naming the missing file | Hallucinated screenshot refs 404 in the GUI filmstrip |
+| PV10 | exp_dir given; 1 screen grounded by a real PNG (0 < grounded < MIN_SCREENS) | Breadth-floor problem telling the agent to visit every nav link | The M9 shallow-exploration finding: DeepSeek stops after 1-2 screens, the ≥1-screenshot contract lets it pass, demos miss most of the product |
+
+(M9 breadth floor: `MIN_SCREENS` distinct screenshotted screens are required
+when exp_dir is supplied. PV7 now uses MIN_SCREENS screens to validate clean;
+PV9's missing-file payload also trips the floor, but its assertion targets the
+missing-file message and is unaffected. The floor only fires when at least one
+screenshot exists — a zero-shot payload still gets PV8's "no screenshots"
+message, not the floor.)
 
 ## _normalized_proposal()
 

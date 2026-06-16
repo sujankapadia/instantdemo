@@ -42,6 +42,30 @@ with sync_playwright() as p:
     browser.close()
 ```
 
+**Do the entire exploration in ONE Bash call with ONE browser
+session — and make it EXHAUSTIVE.** Launching a browser is slow and
+expensive; running one script per screen is the wrong approach. Write
+a single Python script that:
+
+1. opens the browser once;
+2. loads the start page and collects EVERY navigation link / route it
+   exposes (read the nav, the menu, any obvious routes);
+3. loops over ALL of them — visit each destination, screenshot it,
+   and for list/table screens open one representative item to reach
+   the detail screen behind it;
+4. prints what it observed on each screen (title, URL, main regions)
+   to stdout;
+5. closes the browser at the end.
+
+Then read that one script's stdout to write your answer. A demo is
+only as good as this map: if you screenshot 2 screens when the app
+has 6, the demo will miss most of the product. Visit every screen the
+main navigation reaches before you stop — do NOT emit your final
+answer after seeing only the landing page and one other screen. Run a
+second Bash script only to fill a specific gap the first one missed
+(e.g. a screen that failed to load), not to visit screens one at a
+time.
+
 ## Safety rules (important)
 
 - Read-only exploration. Do NOT trigger destructive or data-mutating

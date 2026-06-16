@@ -12,6 +12,7 @@ from instantdemo.checkpoints import parse_answer_block
 from instantdemo.intent import Intent
 from instantdemo.phases import Context
 from instantdemo.phases.analyze import (
+    MIN_SCREENS,
     _normalized_proposal,
     _render_view,
     _validate_payload,
@@ -95,8 +96,14 @@ class TestValidatePayload:
         assert _validate_payload(payload) == []
 
     def test_screenshot_exists_on_disk(self, tmp_path: Path):  # PV7
-        (tmp_path / "001-home.png").write_bytes(b"x")
-        assert _validate_payload(make_payload(), tmp_path) == []
+        names = [f"00{i}-screen.png" for i in range(1, MIN_SCREENS + 1)]
+        for n in names:
+            (tmp_path / n).write_bytes(b"x")
+        payload = make_payload(
+            screens=[{"name": f"Screen {i}", "screenshot": n}
+                     for i, n in enumerate(names, start=1)]
+        )
+        assert _validate_payload(payload, tmp_path) == []
 
     def test_no_screenshots_saved(self, tmp_path: Path):  # PV8
         problems = _validate_payload(make_payload(), tmp_path)
@@ -112,6 +119,12 @@ class TestValidatePayload:
         )
         problems = _validate_payload(payload, tmp_path)
         assert any("009-ghost.png" in p for p in problems)
+
+    def test_breadth_floor(self, tmp_path: Path):  # PV10
+        (tmp_path / "001-home.png").write_bytes(b"x")
+        # One grounded screen — below MIN_SCREENS — trips the floor.
+        problems = _validate_payload(make_payload(), tmp_path)
+        assert any("navigation link" in p for p in problems)
 
 
 class TestNormalizedProposal:

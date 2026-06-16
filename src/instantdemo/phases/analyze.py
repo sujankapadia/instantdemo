@@ -25,6 +25,9 @@ import re
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel as _BaseModel
+from pydantic import Field as _Field
+
 from .. import prompts
 from .. import state as state_mod
 from ..agent_client import session_id_for_phase
@@ -35,10 +38,46 @@ from . import (
     summarize_run,
 )
 
+
+# ── Pydantic output models (M9 port) ──────────────────────────────────
+# The explore-first payload, typed. Field descriptions become the schema
+# the model fills; the disk-side screenshot check stays in the validator
+# (output_type can't see the filesystem) and runs as an output_validator.
+class _ProposedIntent(_BaseModel):
+    goal: str = _Field(description="One-sentence demo goal, grounded in what you saw")
+    audience: str | None = _Field(default=None, description="Who the demo is for")
+    tone: str | None = _Field(default=None, description="Desired narration tone")
+    focus: list[str] = _Field(default_factory=list, description="Areas to emphasize")
+    excludes: list[str] = _Field(default_factory=list, description="Areas to avoid")
+    addenda: list[str] = _Field(default_factory=list, description="Extra guidance")
+
+
+class _Screen(_BaseModel):
+    name: str = _Field(description="Human name of the screen")
+    route: str | None = _Field(default=None, description="URL path, if known")
+    notes: str | None = _Field(default=None, description="What's on this screen")
+    screenshot: str | None = _Field(
+        default=None, description="Bare PNG filename saved in the exploration dir"
+    )
+
+
+class ExplorePayload(_BaseModel):
+    app_model: str = _Field(description="What the product is and does, from the live app")
+    proposed_intent: _ProposedIntent = _Field(description="Proposed demo intent for confirmation")
+    screens: list[_Screen] = _Field(default_factory=list, description="Screens visited")
+    warnings: list[str] = _Field(default_factory=list, description="Discrepancies / caveats")
+
 EXPLORATION_DIRNAME = "exploration"
 DOCS_FILENAME = "product-context.md"
 DOCS_MAX_CHARS = 10_000
 SCREENSHOT_RE = re.compile(r"^[A-Za-z0-9._-]+\.png$")
+# Breadth floor (M9): a demo built on a 1-2 screen map misses most of
+# the product. DeepSeek sometimes stops exploring early and the rest of
+# the contract (>=1 screenshot) lets it pass — so require a minimum of
+# distinct, screenshotted screens. The corrective retry sends it back to
+# walk the full navigation. Apps genuinely smaller than this are rare;
+# tune here if one shows up.
+MIN_SCREENS = 3
 
 _DOCS_SECTION = """\
 The user has provided product documentation for this app (e.g. a
@@ -200,6 +239,15 @@ def _validate_payload(payload: dict, exp_dir: Path | None = None) -> list[str]:
                 f"screen into {exp_dir} (page.screenshot) and reference "
                 "the filenames in screens[].screenshot, then re-emit "
                 "the JSON"
+            )
+        # Breadth floor: count screens backed by a real screenshot.
+        grounded = sum(1 for r in referenced if r in existing)
+        if 0 < grounded < MIN_SCREENS:
+            problems.append(
+                f"only {grounded} screen(s) explored — a demo needs broad "
+                f"coverage. Visit EVERY navigation link the app exposes "
+                f"(at least {MIN_SCREENS} distinct screens) in one browser "
+                "session, screenshot each, and re-emit."
             )
     return problems
 
@@ -377,10 +425,10 @@ async def tail_progress_log(
 
 
 async def run(context: Context) -> None:
-    if context.client is None:
+    if context.client is None and context.backend is None:
         raise RuntimeError(
-            "Phase 1: no agent client provided in context. The CLI is "
-            "responsible for creating and passing through a ClaudeSDKClient."
+            "Phase 1: no agent runtime in context — provide a "
+            "ClaudeSDKClient (legacy) or a Pydantic AI backend (M9)."
         )
 
     artifact = context.phase_artifact(1)
@@ -411,6 +459,7 @@ async def run(context: Context) -> None:
             session_id_for_phase(1, context.run_id),
             validate=_make_validator(exp_dir),
             phase_number=1,
+            output_type=ExplorePayload,
         )
     finally:
         if watcher is not None and emit is not None:
