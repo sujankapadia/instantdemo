@@ -106,6 +106,13 @@ class Context:
     section_scope: str | None = None
     section_instruction: str | None = None
 
+    # M9 port: an optional Pydantic AI backend. When a phase number is in
+    # `pydantic_phases`, the two query functions delegate to this backend
+    # instead of the Claude Agent SDK. Empty by default → every phase
+    # keeps the SDK path (behavior-preserving until a phase is enabled).
+    backend: Any | None = None
+    pydantic_phases: frozenset[int] = field(default_factory=frozenset)
+
     @property
     def script_path(self) -> Path:
         """Path to the user-facing demo-script.json (Phase 4 output).
@@ -197,6 +204,22 @@ async def run_query(prompt: str, options: "ClaudeAgentOptions") -> tuple[str, An
     return "\n".join(text_chunks), result
 
 
+def _phase_num(session_id: str) -> int:
+    """Extract the phase number from a session id ('phase4-abc' -> 4)."""
+    head = session_id.split("-", 1)[0]
+    try:
+        return int(head.removeprefix("phase"))
+    except ValueError:
+        return 0
+
+
+def _use_backend(context: "Context", phase_number: int) -> bool:
+    return (
+        context.backend is not None
+        and phase_number in context.pydantic_phases
+    )
+
+
 async def run_query_on_client(
     context: "Context",
     prompt: str,
@@ -212,6 +235,13 @@ async def run_query_on_client(
     final ResultMessage; the loop breaks on it so the iterator doesn't
     block waiting for further messages on this turn.
     """
+    # M9: text-output phases (4/6) delegate to the Pydantic AI backend
+    # when enabled. Structured phases never reach here — run_structured_query
+    # handles them via backend.run_structured before calling this.
+    if _use_backend(context, _phase_num(session_id)):
+        result = await context.backend.run_text(context, prompt, session_id)
+        return result.output, result
+
     from claude_agent_sdk import (
         AssistantMessage,
         ResultMessage,
@@ -339,9 +369,17 @@ async def run_structured_query(
     *,
     validate,
     phase_number: int,
+    output_type=None,
 ) -> tuple[dict, Any]:
     """Run a prompt that must yield a fenced JSON payload; validate;
     retry once with the problems before failing.
+
+    When this phase is ported (in `context.pydantic_phases`) and an
+    `output_type` Pydantic model is supplied, delegates to the Pydantic
+    AI backend: the model emits structured output (tool-mode, reliable),
+    the same `validate` runs as an output_validator with native retry,
+    and the typed result is returned to the caller as a dict — so the
+    runner's downstream (dict-consuming) code is unchanged.
 
     The generalized #57 pattern: agents may reason in prose, but the
     response must end with one fenced ```json block. `validate` is a
@@ -356,6 +394,19 @@ async def run_structured_query(
     combined cost of both turns (recording per-turn would keep only
     the retry's delta — see record_phase_result).
     """
+    # M9: structured phases (1/2/3) delegate to the Pydantic AI backend
+    # when enabled. The typed output is converted back to a dict so the
+    # runner's existing payload-consuming code needs no change.
+    if _use_backend(context, phase_number) and output_type is not None:
+        result = await context.backend.run_structured(
+            context, prompt, session_id,
+            output_type=output_type, validate=validate,
+            phase_number=phase_number,
+        )
+        out = result.output
+        payload = out.model_dump() if hasattr(out, "model_dump") else out
+        return payload, result
+
     from ..storyboard import extract_json_block
 
     def _problems_for(text: str) -> tuple[dict | None, list[str]]:
