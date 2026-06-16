@@ -28,13 +28,21 @@ from __future__ import annotations
 
 import re
 import subprocess
+import time
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from pydantic_ai import (
+    Agent,
+    CachePoint,
     FilteredToolset,
+    FunctionToolCallEvent,
     FunctionToolset,
     ModelRetry,
+    PartDeltaEvent,
     RunContext,
+    TextPartDelta,
     WrapperToolset,
 )
 
@@ -162,3 +170,175 @@ def build_phase_toolset(phase_key: str, allowed_roots: list[Path], cwd: Path):
     return FilteredToolset(
         jailed, lambda ctx, td: phase_allows(phase_key, td.name)
     )
+
+
+# ── model routing ─────────────────────────────────────────────────────
+def resolve_model(spec: str):
+    """`anthropic:claude-...` (or any provider:model) passes through as a
+    native pydantic-ai model string; `openrouter:<id>` routes through
+    OpenRouter's OpenAI-compatible endpoint (one key, many models)."""
+    if spec.startswith("openrouter:"):
+        from pydantic_ai.models.openai import OpenAIChatModel
+        from pydantic_ai.providers.openrouter import OpenRouterProvider
+
+        return OpenAIChatModel(
+            spec.split(":", 1)[1], provider=OpenRouterProvider()
+        )
+    return spec
+
+
+def _cost_usd(spec: str, usage) -> float:
+    """Best-effort per-call cost from token usage via genai-prices.
+    Returns 0.0 if the price lookup fails (cost is non-fatal telemetry)."""
+    import genai_prices
+
+    provider, _, model_ref = spec.partition(":")
+    provider_id = "openrouter" if provider == "openrouter" else provider
+    if provider == "openrouter":
+        model_ref = spec.split(":", 1)[1]
+    gusage = genai_prices.Usage(
+        input_tokens=usage.input_tokens or 0,
+        output_tokens=usage.output_tokens or 0,
+        cache_read_tokens=getattr(usage, "cache_read_tokens", 0) or 0,
+        cache_write_tokens=getattr(usage, "cache_write_tokens", 0) or 0,
+    )
+    try:
+        calc = genai_prices.calc_price(
+            gusage, model_ref=model_ref, provider_id=provider_id
+        )
+        return float(getattr(calc, "total_price", 0.0) or 0.0)
+    except Exception:  # noqa: BLE001 — pricing is best-effort telemetry
+        return 0.0
+
+
+# ── normalized result (the fields record_phase_result reads) ──────────
+@dataclass
+class AgentResult:
+    output: Any           # the typed Pydantic object, or str for text runs
+    session_id: str
+    usage: dict           # SDK-shaped: input/output/cache_* token counts
+    total_cost_usd: float = 0.0
+    num_turns: int = 1
+    duration_ms: int | None = None
+    duration_api_ms: int | None = None
+    is_error: bool = False
+    stop_reason: str | None = "end_turn"
+
+
+# ── the Pydantic AI backend ───────────────────────────────────────────
+class PydanticAIBackend:
+    """Runs a phase's agent on Pydantic AI with a per-phase model. Keeps
+    a `session_id -> message_history` store so multi-call phases (2/3)
+    accumulate context as the SDK sessions did; a `CachePoint` on each
+    turn preserves the M7 "paid once" prompt-caching economics (verified
+    by scripts/explore/cache_probe.py)."""
+
+    def __init__(
+        self,
+        *,
+        default_model: str = "anthropic:claude-sonnet-4-6",
+        models: dict[str, str] | None = None,
+        allowed_roots: list[Path] | None = None,
+        cwd: Path | None = None,
+    ):
+        self.default_model = default_model
+        self.models = models or {}          # phase_key -> model spec
+        self.allowed_roots = [Path(r) for r in (allowed_roots or [])]
+        self.cwd = Path(cwd or Path.cwd())
+        self._sessions: dict[str, list] = {}
+
+    def _spec_for(self, phase_key: str) -> str:
+        return self.models.get(phase_key, self.default_model)
+
+    async def run_structured(
+        self, context, prompt: str, session_id: str, *,
+        output_type, validate=None, phase_number: int = 0,
+    ) -> AgentResult:
+        """Run a structured-output call. `validate` is the existing
+        dict->problems validator; it's wrapped as an output_validator
+        that raises ModelRetry (native retry replaces the manual one)."""
+        def _ov(ctx, output):  # noqa: ARG001
+            if validate is not None:
+                payload = output.model_dump() if hasattr(output, "model_dump") else output
+                problems = validate(payload)
+                if problems:
+                    raise ModelRetry(
+                        "Your output failed validation:\n"
+                        + "\n".join(f"- {p}" for p in problems)
+                        + "\nRe-emit the corrected output."
+                    )
+            return output
+
+        return await self._run(
+            context, prompt, session_id,
+            output_type=output_type, output_validator=_ov,
+        )
+
+    async def run_text(self, context, prompt: str, session_id: str) -> AgentResult:
+        """Run a plain-text call (phases 4/6: findings/directive parsed
+        from prose by the runner)."""
+        return await self._run(
+            context, prompt, session_id, output_type=str, output_validator=None,
+        )
+
+    async def _run(
+        self, context, prompt: str, session_id: str, *,
+        output_type, output_validator,
+    ) -> AgentResult:
+        phase_key = session_id.split("-", 1)[0]
+        spec = self._spec_for(phase_key)
+        toolsets = []
+        if PHASE_TOOLS.get(phase_key):
+            toolsets = [build_phase_toolset(phase_key, self.allowed_roots, self.cwd)]
+        agent = Agent(
+            resolve_model(spec), output_type=output_type, retries=2,
+            toolsets=toolsets,
+        )
+        if output_validator is not None:
+            agent.output_validator(output_validator)
+
+        emit = getattr(context, "event_emitter", None)
+
+        # SSE parity. NOTE: structured (output_type) runs use tool-mode
+        # output, so they emit NO text deltas — `text_chunk` fires only on
+        # text runs (phases 4/6). `tool_use` fires for real tool calls;
+        # the runner-emitted progress events (chapter/scene/render, M7/M8)
+        # carry the rest of the GUI's progress UX.
+        async def handler(ctx, stream):  # noqa: ARG001
+            async for ev in stream:
+                if isinstance(ev, PartDeltaEvent) and isinstance(ev.delta, TextPartDelta):
+                    tok = ev.delta.content_delta
+                    if tok and emit is not None:
+                        emit({"type": "text_chunk", "session_id": session_id, "text": tok})
+                elif isinstance(ev, FunctionToolCallEvent) and emit is not None:
+                    p = ev.part
+                    emit({
+                        "type": "tool_use", "session_id": session_id,
+                        "tool": getattr(p, "tool_name", ""),
+                        "tool_input": getattr(p, "args", {}),
+                    })
+
+        history = self._sessions.get(session_id)
+        t0 = time.monotonic()
+        result = await agent.run(
+            [prompt, CachePoint()],           # CachePoint → prefix paid once
+            message_history=history,
+            event_stream_handler=handler,
+        )
+        dur_ms = int((time.monotonic() - t0) * 1000)
+        self._sessions[session_id] = result.all_messages()
+
+        u = result.usage
+        return AgentResult(
+            output=result.output,
+            session_id=session_id,
+            usage={
+                "input_tokens": u.input_tokens,
+                "output_tokens": u.output_tokens,
+                "cache_creation_input_tokens": getattr(u, "cache_write_tokens", None),
+                "cache_read_input_tokens": getattr(u, "cache_read_tokens", None),
+            },
+            total_cost_usd=_cost_usd(spec, u),
+            num_turns=getattr(u, "requests", 1) or 1,
+            duration_ms=dur_ms,
+        )
