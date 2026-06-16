@@ -10,7 +10,7 @@ Test: `tests/test_agent_backend.py`
 | Method | Reason |
 |---|---|
 | `make_tools` / `build_phase_toolset` wiring through a live Agent | Needs a model; integration-tested when a phase is ported. The tool *bodies*, the jail *rule*, and the allowlist are unit-tested here. |
-| `JailToolset.call_tool` interception end-to-end | Needs Pydantic AI's tool-call plumbing (ctx/tool); the *decision* it enforces (`_jail_violation`) is tested directly. |
+| `JailToolset.call_tool` *allowed* path end-to-end | The pass-through to `super().call_tool` needs Pydantic AI's tool-call plumbing (ctx/tool). The *decision* (`_jail_violation`) and the *denial* path (AB6) are tested directly; the denial path returns before touching super(), so it needs no plumbing. |
 
 ## Tool bodies
 
@@ -26,3 +26,4 @@ Test: `tests/test_agent_backend.py`
 |----|----------|-----------|----------------|
 | AB4 | `phase_allows` for each phase | phase1 allows Bash/Read/Glob/Grep; phase3 allows Read/Glob/Grep but NOT Bash; phase2 allows nothing; unknown phase denies all | A phase gains a tool it shouldn't (e.g. phase 2 running Bash) or loses one it needs |
 | AB5 | The jail rule (`_jail_violation`, as `JailToolset` uses it) | A Read whose `file_path` is outside `allowed_roots` is a violation; one inside is allowed; Bash is never a path violation | The agent reads/writes outside the project — the filesystem jail is the security boundary |
+| AB6 | `JailToolset.call_tool` on a violating path (ctx/tool passed as None — the denial returns before super()) | RETURNS a string containing "Blocked by the sandbox" (does NOT raise) so the model is informed and continues | Live finding: a raised ModelRetry counts toward the per-tool retry budget; a fast model that hammers a jailed path exhausts it and pydantic-ai escalates to a fatal UnexpectedModelBehavior that kills the whole phase. The SDK's hook denial informed-and-continued; the port must too |

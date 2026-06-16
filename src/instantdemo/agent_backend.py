@@ -26,12 +26,23 @@ because they need no model.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+# Env-gated diagnostics (INSTANTDEMO_BACKEND_DEBUG=1). Prints flush to
+# stderr immediately so they survive even if the run is killed mid-emit.
+_DEBUG = bool(os.environ.get("INSTANTDEMO_BACKEND_DEBUG"))
+
+
+def _dbg(msg: str) -> None:
+    if _DEBUG:
+        print(f"[backend {time.monotonic():.1f}] {msg}", file=sys.stderr, flush=True)
 
 from pydantic_ai import (
     Agent,
@@ -57,7 +68,9 @@ _REQUEST_LIMIT = 300
 # per-phase tool sets. Do NOT re-derive (they encode tested behavior).
 from .agent_client import PHASE_TOOLS, _jail_violation
 
-_BASH_TIMEOUT_S = 120
+# Phases 1/4 drive Playwright through Bash — a single exploration or
+# rehearsal script can visit several screens and outrun a 2-min cap.
+_BASH_TIMEOUT_S = 300
 _OUTPUT_CAP = 8000
 _READ_DEFAULT_LIMIT = 2000
 _MATCH_CAP = 200
@@ -165,11 +178,22 @@ class JailToolset(WrapperToolset):
     async def call_tool(self, name, tool_args, ctx, tool):
         violation = _jail_violation(name, tool_args or {}, self._roots, self._cwd)
         if violation is not None:
-            raise ModelRetry(
-                f"Blocked by the sandbox: {violation} is outside the "
-                "allowed directories. Stay within the project."
+            # INFORM and continue — do NOT raise. A raised ModelRetry counts
+            # toward pydantic-ai's per-tool retry budget; a fast model that
+            # hammers a jailed path exhausts it and pydantic-ai escalates to
+            # a fatal UnexpectedModelBehavior that kills the whole phase
+            # (observed live with Qwen3 on Glob). The SDK's PreToolUse denial
+            # returned a message and the agent carried on; mirror that.
+            return (
+                f"Blocked by the sandbox: {violation} is outside the allowed "
+                "directories. Stay within the project and use a path inside it."
             )
-        return await super().call_tool(name, tool_args, ctx, tool)
+        try:
+            return await super().call_tool(name, tool_args, ctx, tool)
+        except ModelRetry:
+            raise
+        except Exception as exc:  # noqa: BLE001 — a tool error must inform, not crash
+            return f"Tool {name} failed: {exc}"
 
 
 def phase_allows(phase_key: str, tool_name: str) -> bool:
@@ -255,11 +279,17 @@ class PydanticAIBackend:
         models: dict[str, str] | None = None,
         allowed_roots: list[Path] | None = None,
         cwd: Path | None = None,
+        model_settings: dict | None = None,
     ):
         self.default_model = default_model
         self.models = models or {}          # phase_key -> model spec
         self.allowed_roots = [Path(r) for r in (allowed_roots or [])]
         self.cwd = Path(cwd or Path.cwd())
+        # Per-run model settings passed to agent.run — e.g. OpenRouter's
+        # `extra_body={"reasoning": {"enabled": False}}` to force a hybrid
+        # model into non-thinking mode, or openai_prompt_cache_key for
+        # cache routing. None → provider defaults.
+        self.model_settings = model_settings
         self._sessions: dict[str, list] = {}
 
     def _spec_for(self, phase_key: str) -> str:
@@ -276,6 +306,10 @@ class PydanticAIBackend:
             if validate is not None:
                 payload = output.model_dump() if hasattr(output, "model_dump") else output
                 problems = validate(payload)
+                _dbg(
+                    f"output_validator: {len(problems)} problems"
+                    + (": " + " | ".join(problems[:3]) if problems else " (accepted)")
+                )
                 if problems:
                     raise ModelRetry(
                         "Your output failed validation:\n"
@@ -325,23 +359,28 @@ class PydanticAIBackend:
                     tok = ev.delta.content_delta
                     if tok and emit is not None:
                         emit({"type": "text_chunk", "session_id": session_id, "text": tok})
-                elif isinstance(ev, FunctionToolCallEvent) and emit is not None:
+                elif isinstance(ev, FunctionToolCallEvent):
                     p = ev.part
-                    emit({
-                        "type": "tool_use", "session_id": session_id,
-                        "tool": getattr(p, "tool_name", ""),
-                        "tool_input": getattr(p, "args", {}),
-                    })
+                    _dbg(f"tool_call -> {getattr(p, 'tool_name', '')}")
+                    if emit is not None:
+                        emit({
+                            "type": "tool_use", "session_id": session_id,
+                            "tool": getattr(p, "tool_name", ""),
+                            "tool_input": getattr(p, "args", {}),
+                        })
 
         history = self._sessions.get(session_id)
+        _dbg(f"run start: phase={phase_key} model={spec} output_type={getattr(output_type, '__name__', output_type)}")
         t0 = time.monotonic()
         result = await agent.run(
             [prompt, CachePoint()],           # CachePoint → prefix paid once
             message_history=history,
             event_stream_handler=handler,
             usage_limits=UsageLimits(request_limit=_REQUEST_LIMIT),
+            model_settings=self.model_settings or None,  # type: ignore[arg-type]
         )
         dur_ms = int((time.monotonic() - t0) * 1000)
+        _dbg(f"run done: {dur_ms}ms requests={getattr(result.usage, 'requests', '?')}")
         self._sessions[session_id] = result.all_messages()
 
         u = result.usage

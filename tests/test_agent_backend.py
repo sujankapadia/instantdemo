@@ -3,9 +3,12 @@ Spec: tests/test-specs/test_agent_backend.md."""
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from instantdemo.agent_backend import (
+    JailToolset,
+    make_tools,
     phase_allows,
     tool_glob,
     tool_grep,
@@ -62,3 +65,16 @@ def test_jail_rule_blocks_outside_roots(tmp_path: Path):  # AB5
     assert _jail_violation("Read", {"file_path": str(outside)}, roots, root) is not None
     # Bash carries no path field → never a path violation.
     assert _jail_violation("Bash", {"command": "ls /etc"}, roots, root) is None
+
+
+def test_jail_denial_informs_not_raises(tmp_path: Path):  # AB6
+    root = tmp_path / "project"
+    root.mkdir()
+    jail = JailToolset(make_tools(root), [root], root)
+    outside = tmp_path / "secret.txt"
+    # ctx/tool are unused on the denial path (it returns before super()).
+    result = asyncio.run(
+        jail.call_tool("Read", {"file_path": str(outside)}, None, None)
+    )
+    assert isinstance(result, str)
+    assert "Blocked by the sandbox" in result
