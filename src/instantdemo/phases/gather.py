@@ -20,6 +20,9 @@ from __future__ import annotations
 
 import json
 
+from pydantic import BaseModel as _BaseModel
+from pydantic import Field as _Field
+
 from .. import prompts, storyboard
 from . import (
     Context,
@@ -27,6 +30,27 @@ from . import (
     run_structured_query,
     summarize_run,
 )
+
+
+# ── Pydantic output model (M9 port) ───────────────────────────────────
+# Enrichment keyed by stable scene id. Unset fields stay None/[]; the
+# existing `_merge` skips them (so model_dump matches the SDK payload).
+class EnrichScene(_BaseModel):
+    id: str = _Field(description="The scene's stable id from the plan — never invent")
+    action: str | None = _Field(default=None, description="Refined canonical action, only if it changed")
+    url: str | None = _Field(default=None, description="For goto/navigate actions")
+    selector: list[str] = _Field(default_factory=list, description="Primary + fallback CSS selectors")
+    wait_for: list[str] = _Field(default_factory=list, description="Primary + fallback wait-for selectors")
+    value: str | None = _Field(default=None, description="For fill/select_option")
+    key: str | None = _Field(default=None, description="For press")
+    expression: str | None = _Field(default=None, description="For evaluate")
+    pixels: int | None = _Field(default=None, description="For scroll")
+    pause_after_ms: int | None = _Field(default=None, description="Pacing (ms)")
+    notes: str | None = _Field(default=None, description="Where the selector is grounded")
+
+
+class EnrichPayload(_BaseModel):
+    scenes: list[EnrichScene]
 
 
 def _scoped_ids(doc: dict, section: str | None) -> list[str] | None:
@@ -200,6 +224,7 @@ async def run_for_section(
         session_id,
         validate=_make_validator(doc, scope_ids),
         phase_number=3,
+        output_type=EnrichPayload,
     )
     _merge(doc, payload)
     storyboard.save(context.state_dir, doc)
@@ -212,10 +237,10 @@ async def run_for_section(
 
 
 async def run(context: Context) -> None:
-    if context.client is None:
+    if context.client is None and context.backend is None:
         raise RuntimeError(
-            "Phase 3: no agent client provided in context. The CLI is "
-            "responsible for creating and passing through a ClaudeSDKClient."
+            "Phase 3: no agent runtime in context — provide a "
+            "ClaudeSDKClient (legacy) or a Pydantic AI backend (M9)."
         )
 
     doc = storyboard.load(context.state_dir)

@@ -43,8 +43,15 @@ from pydantic_ai import (
     PartDeltaEvent,
     RunContext,
     TextPartDelta,
+    UsageLimits,
     WrapperToolset,
 )
+
+# Pydantic AI defaults to request_limit=50 per agent.run(); the SDK had
+# no such cap. Tool-heavy phases (1/3/4 read source + drive Playwright
+# over many calls) exceed 50 in one run — raise to a generous backstop
+# that still catches a runaway loop.
+_REQUEST_LIMIT = 300
 
 # Reuse the SDK-era jail + allowlist verbatim — same path rules, same
 # per-phase tool sets. Do NOT re-derive (they encode tested behavior).
@@ -107,6 +114,14 @@ def tool_grep(
     return "\n".join(out) or "(no matches)"
 
 
+def _resolve(path: str, cwd: Path) -> Path:
+    """Resolve a (possibly relative) tool path against the agent's working
+    directory — the SDK ran tools with cwd set, and the jail checks
+    containment against the same cwd, so the bodies must match."""
+    p = Path(path)
+    return p if p.is_absolute() else cwd / p
+
+
 def make_tools(cwd: Path) -> FunctionToolset:
     """The four tools as a FunctionToolset, named to match PHASE_TOOLS."""
     ts = FunctionToolset()
@@ -120,18 +135,18 @@ def make_tools(cwd: Path) -> FunctionToolset:
     def _read(ctx: RunContext, file_path: str, offset: int = 0,  # noqa: ARG001
               limit: int = _READ_DEFAULT_LIMIT) -> str:
         """Read a file as numbered lines."""
-        return tool_read(file_path, offset, limit)
+        return tool_read(str(_resolve(file_path, cwd)), offset, limit)
 
     @ts.tool(name="Glob")
     def _glob(ctx: RunContext, pattern: str, path: str = "") -> str:  # noqa: ARG001
         """List files matching a glob pattern."""
-        return tool_glob(pattern, path, cwd)
+        return tool_glob(pattern, str(_resolve(path, cwd)) if path else "", cwd)
 
     @ts.tool(name="Grep")
     def _grep(ctx: RunContext, pattern: str, path: str = "",  # noqa: ARG001
               glob: str = "*") -> str:
         """Regex-search files; returns file:line: text."""
-        return tool_grep(pattern, path, glob, cwd)
+        return tool_grep(pattern, str(_resolve(path, cwd)) if path else "", glob, cwd)
 
     return ts
 
@@ -324,6 +339,7 @@ class PydanticAIBackend:
             [prompt, CachePoint()],           # CachePoint → prefix paid once
             message_history=history,
             event_stream_handler=handler,
+            usage_limits=UsageLimits(request_limit=_REQUEST_LIMIT),
         )
         dur_ms = int((time.monotonic() - t0) * 1000)
         self._sessions[session_id] = result.all_messages()
