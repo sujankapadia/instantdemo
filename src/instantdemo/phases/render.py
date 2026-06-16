@@ -28,8 +28,11 @@ for the probe.
 from __future__ import annotations
 
 import asyncio
-import re
 import time
+from typing import Literal
+
+from pydantic import BaseModel as _BaseModel
+from pydantic import Field as _Field
 
 from .. import prompts, takes
 from ..agent_client import session_id_for_phase
@@ -38,15 +41,33 @@ from ..render import render_section_main
 from . import (
     Context,
     record_phase_result,
-    run_query_on_client,
+    run_structured_query,
     summarize_run,
 )
 
 
-DIRECTIVE_RE = re.compile(
-    r"^\s*(?P<directive>RENDER_OK|RENDER_BLOCKED)(?:\s*:\s*(?P<reason>.+))?\s*$",
-    re.MULTILINE,
-)
+# ── Pydantic output model (M9 port) ───────────────────────────────────
+# The drift gate's verdict, typed. A Literal enum removes the free-text
+# regex parse that could trip a cheap model (e.g. "RENDER OK" without the
+# underscore would have crashed the gate).
+class DriftDirective(_BaseModel):
+    directive: Literal["RENDER_OK", "RENDER_BLOCKED"] = _Field(
+        description="RENDER_OK to proceed; RENDER_BLOCKED to abort the render"
+    )
+    reason: str = _Field(
+        default="", description="One-sentence cause — required when RENDER_BLOCKED"
+    )
+
+
+def _validate_directive(payload: dict) -> list[str]:
+    """SDK-path validator (fenced JSON). The Literal already pins the enum
+    on the backend path; this guards the legacy fenced-JSON path."""
+    d = payload.get("directive")
+    if d not in ("RENDER_OK", "RENDER_BLOCKED"):
+        return ["directive must be exactly RENDER_OK or RENDER_BLOCKED"]
+    if d == "RENDER_BLOCKED" and not (payload.get("reason") or "").strip():
+        return ["RENDER_BLOCKED requires a one-sentence reason"]
+    return []
 
 
 def _build_prompt(context: Context) -> str:
@@ -59,34 +80,23 @@ def _build_prompt(context: Context) -> str:
     )
 
 
-def _parse_directive(report: str) -> tuple[str, str | None]:
-    """Pull the last RENDER_OK / RENDER_BLOCKED directive from the report.
-
-    Returns (directive, reason). `reason` is None for RENDER_OK.
-    Raises RuntimeError if no directive is found — the agent didn't
-    follow the prompt.
-    """
-    matches = list(DIRECTIVE_RE.finditer(report))
-    if not matches:
+async def _run_drift_check(context: Context) -> tuple[dict, "object | None"]:
+    """Run the agent drift check. Returns (directive_payload, ResultMessage).
+    The payload is {directive, reason} — typed via output_type on the
+    backend, validated as fenced JSON on the legacy SDK path."""
+    if context.client is None and context.backend is None:
         raise RuntimeError(
-            "Phase 6 finished but the report has no RENDER_OK / "
-            "RENDER_BLOCKED directive. The agent didn't follow the "
-            "prompt — re-running Phase 6 will likely help."
-        )
-    last = matches[-1]
-    return last.group("directive"), last.group("reason")
-
-
-async def _run_drift_check(context: Context) -> tuple[str, "object | None"]:
-    """Run the agent drift check. Returns (report_text, ResultMessage)."""
-    if context.client is None:
-        raise RuntimeError(
-            "Phase 6: no agent client provided in context. The CLI is "
-            "responsible for creating and passing through a ClaudeSDKClient."
+            "Phase 6: no agent runtime in context — provide a "
+            "ClaudeSDKClient (legacy) or a Pydantic AI backend (M9)."
         )
     prompt = _build_prompt(context)
-    return await run_query_on_client(
-        context, prompt, session_id=session_id_for_phase(6, context.run_id)
+    return await run_structured_query(
+        context,
+        prompt,
+        session_id=session_id_for_phase(6, context.run_id),
+        validate=_validate_directive,
+        phase_number=6,
+        output_type=DriftDirective,
     )
 
 
@@ -221,16 +231,20 @@ async def run(context: Context) -> None:
     # `result.duration_ms` only covers the agent query.
     phase_start = time.monotonic()
 
-    report_text, result = await _run_drift_check(context)
+    payload, result = await _run_drift_check(context)
 
     if result is None:
         raise RuntimeError(
-            "Phase 6: the Claude Agent SDK did not return a ResultMessage."
+            "Phase 6: the agent runtime did not return a result."
         )
 
-    artifact.write_text(report_text + "\n")
+    directive = payload["directive"]
+    reason = (payload.get("reason") or "").strip() or None
 
-    directive, reason = _parse_directive(report_text)
+    # phase6.md is the drift gate's record (the prose report is gone
+    # under typed output — the verdict + reason is what the GUI shows).
+    report_text = directive + (f": {reason}" if reason else "")
+    artifact.write_text(report_text + "\n")
 
     if directive == "RENDER_BLOCKED":
         # The drift check is the whole phase here — no executor.

@@ -30,11 +30,17 @@ and a small Playwright smoke check.
 
 ### Output
 
-Concise markdown report — a few lines is fine. End with **exactly
-one** of these directive lines on its own line:
+Report your verdict as a single object with two fields:
 
-    RENDER_OK
-    RENDER_BLOCKED: <one-sentence reason>
+- `directive`: exactly `RENDER_OK` or `RENDER_BLOCKED`
+- `reason`: a one-sentence cause — required when `RENDER_BLOCKED`,
+  may be empty for `RENDER_OK`
+
+As fenced JSON:
+
+```json
+{"directive": "RENDER_OK", "reason": ""}
+```
 
 **Strict policy: any selector failure observed during this drift
 check is RENDER_BLOCKED.** There is no "non-critical" loophole.
