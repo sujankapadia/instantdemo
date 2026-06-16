@@ -40,10 +40,15 @@ See DRESS_REHEARSAL_DESIGN.md.
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import time
 from pathlib import Path
 from typing import Any
+
+from pydantic import BaseModel as _BaseModel
+from pydantic import ConfigDict as _ConfigDict
+from pydantic import Field as _Field
 
 from .. import prompts, storyboard
 from .. import state as state_mod
@@ -58,6 +63,7 @@ from . import (
     Context,
     record_phase_result,
     run_query_on_client,
+    run_structured_query,
     summarize_run,
 )
 
@@ -73,6 +79,71 @@ _OPTION_SELECTOR_RE = re.compile(r"(?:^|[\s>+~])option\b")
 
 def rehearsal_dir(state_dir: Path) -> Path:
     return state_dir / REHEARSAL_DIRNAME
+
+
+# ── Pydantic output models (M9 port) ──────────────────────────────────
+# The findings contract from prompts/phase4.md, typed. Unset fields stay
+# None and are dropped on model_dump(exclude_none=True) so the resulting
+# dict matches the SDK fenced-JSON shape the merge/diff/view code expects
+# (e.g. `"action" in updates` stays false when the agent didn't set it).
+# `status` is a plain str validated in code (NOT a Literal — DeepSeek
+# intermittently fails Literal enums in output_type and crashes the phase).
+FINDING_STATUSES = {"PASS", "WARN", "FAIL_SELECTOR", "FAIL_NARRATIVE"}
+
+
+class SegmentUpdates(_BaseModel):
+    action: str | None = _Field(default=None, description="Canonical action-kind change (Level-1, e.g. press)")
+    key: str | None = _Field(default=None, description="Key for a press action")
+    wait_for: list[str] | None = _Field(default=None, description="Refined wait-for selectors")
+    pause_after_ms: int | None = _Field(default=None, description="Adjusted pacing (ms)")
+
+
+class SegmentFinding(_BaseModel):
+    model_config = _ConfigDict(populate_by_name=True)
+    index: int = _Field(description="Segment number, 1-based, matching the plan headings")
+    status: str = _Field(description="PASS | WARN | FAIL_SELECTOR | FAIL_NARRATIVE")
+    reason: str = _Field(default="", description="Technical observation for a developer")
+    note_for_user: str | None = _Field(default=None, description="One plain sentence for the film's maker (WARN/FAIL)")
+    suggestion: str | None = _Field(default=None, description="User-facing fix (FAIL only)")
+    selector_swapped: bool | None = _Field(default=None, description="True if Phase 3's primary was replaced")
+    from_: str | None = _Field(default=None, alias="from", description="Original primary selector (when swapped)")
+    to: str | None = _Field(default=None, description="Replacement selector (when swapped)")
+    narration_revised: bool | None = _Field(default=None, description="True if narration was regrounded")
+    narration_from: str | None = _Field(default=None, description="Original narration (when revised)")
+    narration_to: str | None = _Field(default=None, description="Replacement narration (when revised)")
+    updates: SegmentUpdates | None = _Field(default=None, description="Level-1 timing/action refinements")
+
+
+class FindingsSummary(_BaseModel):
+    total: int | None = None
+    overall: str | None = _Field(default=None, description="Informational; the runner derives its own from per-segment statuses")
+
+
+class FindingsPayload(_BaseModel):
+    summary: FindingsSummary | None = None
+    segments: list[SegmentFinding] = _Field(description="One entry per rehearsed segment, keyed by global index")
+
+
+def _validate_findings(payload: dict) -> list[str]:
+    """Findings discipline shared by the backend output_validator and the
+    SDK fenced-JSON corrective retry: non-empty segments, integer indices,
+    and statuses drawn from the closed vocabulary (the str-not-Literal
+    safety — an out-of-vocab status would slip past the merge as 'failed')."""
+    problems: list[str] = []
+    segments = payload.get("segments")
+    if not isinstance(segments, list) or not segments:
+        return ["findings must contain a non-empty 'segments' array"]
+    for seg in segments:
+        idx = seg.get("index") if isinstance(seg, dict) else None
+        if not isinstance(idx, int):
+            problems.append(f"segment index {idx!r} must be an integer")
+        status = seg.get("status") if isinstance(seg, dict) else None
+        if status not in FINDING_STATUSES:
+            problems.append(
+                f"segment {idx}: status {status!r} must be one of "
+                f"{', '.join(sorted(FINDING_STATUSES))}"
+            )
+    return problems
 
 # Legacy fallback: parse the old text directive if no JSON block is
 # present. Maps EXPLORE_OK/PARTIAL/BLOCKED to the new strict outcome.
@@ -671,6 +742,10 @@ async def run_for_section(
     cost_before = 0.0
     if context.dispatcher is not None:
         cost_before = sum(context.dispatcher.session_cost_totals.values())
+    # Backend path has no dispatcher; sum each call's per-call cost instead.
+    # (The rare corrective sub-calls — scope re-ask, screenshot nudge — are
+    # recorded individually via record_phase_result but not summed here.)
+    backend_cost = 0.0
 
     findings: dict[str, Any] | None = None
     overall: str | None = None
@@ -690,25 +765,29 @@ async def run_for_section(
             prompt = _build_retry_prompt(findings, iteration)
 
         start_ts = time.monotonic()
-        # Soft ceiling: the SDK call runs to completion. We check
-        # elapsed AFTER the call and only refuse to start iteration
-        # N+1 if N already overran. Mid-call hard cancellation would
-        # discard all in-flight work.
-        verified_text, result = await run_query_on_client(
-            context, prompt, session_id=session_id
+        # Soft ceiling: the call runs to completion. We check elapsed
+        # AFTER it and only refuse to START iteration N+1 if N overran;
+        # mid-call cancellation would discard all in-flight work.
+        # run_structured_query owns the fenced-JSON extraction (SDK) /
+        # output_type emission (backend) plus the _validate_findings
+        # retry, returning the findings as a validated dict.
+        findings, result = await run_structured_query(
+            context, prompt, session_id,
+            validate=_validate_findings, phase_number=4,
+            output_type=FindingsPayload,
         )
         elapsed = time.monotonic() - start_ts
 
         if result is None:
             raise RuntimeError(
-                "Phase 4: the Claude Agent SDK did not return a "
-                f"ResultMessage on iteration {iteration}."
+                "Phase 4: the agent runtime returned no result on "
+                f"iteration {iteration}."
             )
+        backend_cost += float(getattr(result, "total_cost_usd", 0.0) or 0.0)
 
-        # Persist this iteration's text as the artifact (later
-        # iterations overwrite — phase4.md reflects the LAST report
-        # until the final rendered view lands). Record metrics per
-        # iteration (per-section sessions keep cost deltas correct).
+        # Persist this iteration's findings as the artifact (later
+        # iterations overwrite; the final rendered view lands at the end).
+        verified_text = json.dumps(findings, indent=2)
         artifact.write_text(verified_text + "\n")
         record_phase_result(context, 4, result)
         label = f"{section!r} " if section else ""
@@ -716,11 +795,6 @@ async def run_for_section(
             summarize_run(4, artifact, result)
             + f" [{label}iter {iteration}, {elapsed:.1f}s]"
         )
-
-        findings = _parse_findings(verified_text)
-        if findings is None:
-            # No parseable findings — legacy directive logic decides.
-            break
 
         if scope_indices is not None:
             findings = await _correct_scope_indices(
@@ -782,24 +856,25 @@ async def run_for_section(
     else:
         overall = _legacy_overall(verified_text)
 
-    # The section's true cost: how much the dispatcher's summed
-    # session totals grew during this section — robust regardless of
-    # which key the SDK reports results under.
-    section_cost = 0.0
+    # The section's true cost. SDK path: how much the dispatcher's summed
+    # session totals grew during this section (robust regardless of which
+    # key the SDK reports under). Backend path: the per-call sum.
     if context.dispatcher is not None:
         section_cost = max(
             0.0,
             sum(context.dispatcher.session_cost_totals.values())
             - cost_before,
         )
+    else:
+        section_cost = backend_cost
     return findings, overall, verified_text, final_iteration, section_cost
 
 
 async def run(context: Context) -> None:
-    if context.client is None:
+    if context.client is None and context.backend is None:
         raise RuntimeError(
-            "Phase 4: no agent client provided in context. The CLI is "
-            "responsible for creating and passing through a ClaudeSDKClient."
+            "Phase 4: no agent runtime in context — provide a "
+            "ClaudeSDKClient (legacy) or a Pydantic AI backend (M9)."
         )
 
     doc = storyboard.load(context.state_dir)

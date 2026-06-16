@@ -404,7 +404,16 @@ async def run_structured_query(
             phase_number=phase_number,
         )
         out = result.output
-        payload = out.model_dump() if hasattr(out, "model_dump") else out
+        # by_alias → fields like Phase 4's `from` (a Python keyword aliased
+        # to `from_`) dump under their real JSON key. exclude_none → unset
+        # optional fields are absent, not null, so the dict matches the SDK
+        # fenced-JSON shape the runners expect (`"action" in updates` etc.).
+        # No-op for phases 1/2/3 (no aliases; downstream uses .get()).
+        payload = (
+            out.model_dump(by_alias=True, exclude_none=True)
+            if hasattr(out, "model_dump")
+            else out
+        )
         return payload, result
 
     from ..storyboard import extract_json_block

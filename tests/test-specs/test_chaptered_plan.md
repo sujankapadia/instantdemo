@@ -24,6 +24,18 @@ phase passes a Pydantic model so the backend can use native structured
 output. The monkeypatch fakes — both the narrate fake and the gather fake
 — accept and ignore it; assertions unchanged.)
 
+(M9 Phase 4 port: explore's per-iteration rehearsal call moved from
+`run_query_on_client` (prose + manual JSON parse) to `run_structured_query`
+with `output_type=FindingsPayload` (returns the findings as a validated
+dict). The corrective scope-index re-ask (EL5/EL6) STAYS on
+`run_query_on_client`. So the EL harness now installs TWO fakes: a
+`run_structured_query` fake returning `(findings_dict, FakeResult)` for the
+main calls (and emulating the SDK dispatcher growth for EL4), and a
+`run_query_on_client` fake returning the fenced-JSON STRING for the re-ask.
+Both append the session id, so EL5's `[c1, c2, c2, c3]` sequence is
+unchanged. Cost: EL4 still exercises the dispatcher-delta path (dispatcher
+set); the backend per-call-sum path is used only when no dispatcher.)
+
 ## run() — the chaptered build (run_structured_query monkeypatched)
 
 | ID | Scenario | Assertion | Risk if broken |

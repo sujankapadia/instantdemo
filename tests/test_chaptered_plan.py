@@ -319,32 +319,48 @@ class TestExploreLoop:
         from instantdemo.phases import explore
 
         sessions: list[str] = []
+        from instantdemo.storyboard import extract_json_block
 
-        async def fake_query(context, prompt, *, session_id):
-            sessions.append(session_id)
+        def _grow_dispatcher():
+            # Emulate the live delta accounting: the SDK reports every
+            # result under ITS OWN session UUID (one key for the whole
+            # client), never our logical phase4-…-cN ids.
             if dispatcher is not None:
-                # Emulate the live delta accounting: the SDK reports
-                # every result under ITS OWN session UUID (one key for
-                # the whole client), never our logical phase4-…-cN ids.
                 totals = dispatcher.session_cost_totals
                 totals["0d673829-sdk-uuid"] = (
                     totals.get("0d673829-sdk-uuid", 0.0) + 0.10
                 )
+
+        # M9: the per-iteration rehearsal call is run_structured_query
+        # (output_type=FindingsPayload) — returns the findings as a DICT.
+        async def fake_structured(context, prompt, session_id, *, validate,
+                                  phase_number, output_type=None):
+            sessions.append(session_id)
+            _grow_dispatcher()
             doc = storyboard.load(context.state_dir)
             k = int(session_id.rsplit("-c", 1)[1])
             name = OUTLINE["chapters"][k - 1]["name"]
-            if "Re-emit ONLY the corrected" in prompt:
-                # The corrective re-ask (EL5/EL6): JSON-only re-emit.
-                if correction_fixes:
-                    return explore_findings(doc, name), FakeResult()
-                return local_explore_findings(doc, name), FakeResult()
             if name == local_indices_chapter:
-                return local_explore_findings(doc, name), FakeResult()
-            status = (
-                "FAIL_SELECTOR" if name == blocked_chapter else "PASS"
-            )
-            return explore_findings(doc, name, status), FakeResult()
+                text = local_explore_findings(doc, name)
+            else:
+                status = "FAIL_SELECTOR" if name == blocked_chapter else "PASS"
+                text = explore_findings(doc, name, status)
+            return extract_json_block(text), FakeResult()
 
+        # The corrective scope-index re-ask (EL5/EL6) stays a text call.
+        async def fake_query(context, prompt, *, session_id):
+            sessions.append(session_id)
+            _grow_dispatcher()
+            doc = storyboard.load(context.state_dir)
+            k = int(session_id.rsplit("-c", 1)[1])
+            name = OUTLINE["chapters"][k - 1]["name"]
+            if correction_fixes:
+                return explore_findings(doc, name), FakeResult()
+            return local_explore_findings(doc, name), FakeResult()
+
+        monkeypatch.setattr(
+            "instantdemo.phases.explore.run_structured_query", fake_structured
+        )
         monkeypatch.setattr(
             "instantdemo.phases.explore.run_query_on_client", fake_query
         )
