@@ -360,6 +360,24 @@ Phase-3 test, blind prose reads of the DeepSeek judgment output, and the
 actual port of `phases/` to Pydantic AI (bounded — the SDK mechanics are
 proven).
 
+## Context-caching check (M9 Step-0 de-risk, 2026-06-15)
+
+The one risk that could undercut the port: the SDK auto-applies prompt
+caching (the M7 "paid once" multi-call economics — metrics track
+`cache_read`/`cache_creation` tokens), and Pydantic AI threads
+`message_history` instead. Probe (`scripts/explore/cache_probe.py`):
+a heavy prefix + `CachePoint`, then a continuation sharing it.
+
+- **Claude:** call 1 `cache_write=2989`, call 2 `cache_read=2989` —
+  caching works via `CachePoint`; M7 economics preserved.
+- **DeepSeek via OpenRouter:** no cache hit (`CachePoint` is filtered;
+  OpenRouter lists caching for Anthropic/Gemini, not DeepSeek). But
+  moot: re-paying the ~2.8k prefix at DeepSeek's $0.21/M (~$0.0006/call)
+  is *cheaper than Claude's cache-read rate* ($0.30/M). Uncached DeepSeek
+  beats cached Claude.
+
+Verdict: the multi-call phases stay cheap on either tier. Risk retired.
+
 ## Sources
 
 Primary docs and verified comparisons (2026):
