@@ -46,7 +46,6 @@ def _dbg(msg: str) -> None:
 
 from pydantic_ai import (
     Agent,
-    CachePoint,
     FilteredToolset,
     FunctionToolCallEvent,
     FunctionToolset,
@@ -211,6 +210,32 @@ def build_phase_toolset(phase_key: str, allowed_roots: list[Path], cwd: Path):
     )
 
 
+# ── prompt caching ────────────────────────────────────────────────────
+def _cache_settings(spec: str) -> dict:
+    """Keep the GROWING tool-loop context prompt-cached PER TURN — the
+    Claude Agent SDK did this; pydantic-ai defaults it OFF, and a lone
+    `CachePoint` only pins the static prefix, so a 19-turn phase re-prefills
+    uncached every turn (~10x cost). See pydantic-ai #1041/#3453.
+
+    Native Anthropic → `anthropic_cache` (top-level auto-cache whose
+    breakpoint MOVES FORWARD as the conversation grows) + cache the system
+    prompt and tool definitions. Anthropic-via-OpenRouter → per-block
+    `anthropic_cache_messages` (a generic gateway may drop the top-level
+    cache_control). Non-Anthropic providers (DeepSeek) don't cache — return
+    nothing. Verify with result.usage cache_read tokens before trusting it.
+    """
+    low = spec.lower()
+    if spec.startswith("anthropic:") or low.startswith("claude"):
+        return {
+            "anthropic_cache": True,
+            "anthropic_cache_instructions": True,
+            "anthropic_cache_tool_definitions": True,
+        }
+    if spec.startswith("openrouter:") and ("anthropic" in low or "claude" in low):
+        return {"anthropic_cache_messages": True}
+    return {}
+
+
 # ── model routing ─────────────────────────────────────────────────────
 def resolve_model(spec: str):
     """`anthropic:claude-...` (or any provider:model) passes through as a
@@ -370,14 +395,18 @@ class PydanticAIBackend:
                         })
 
         history = self._sessions.get(session_id)
-        _dbg(f"run start: phase={phase_key} model={spec} output_type={getattr(output_type, '__name__', output_type)}")
+        # Cache the growing tool-loop context per turn (route-aware), merged
+        # over any caller-supplied settings. Replaces the lone CachePoint,
+        # which only pinned the static prefix (the cost regression).
+        settings = {**_cache_settings(spec), **(self.model_settings or {})}
+        _dbg(f"run start: phase={phase_key} model={spec} output_type={getattr(output_type, '__name__', output_type)} cache={bool(_cache_settings(spec))}")
         t0 = time.monotonic()
         result = await agent.run(
-            [prompt, CachePoint()],           # CachePoint → prefix paid once
+            prompt,
             message_history=history,
             event_stream_handler=handler,
             usage_limits=UsageLimits(request_limit=_REQUEST_LIMIT),
-            model_settings=self.model_settings or None,  # type: ignore[arg-type]
+            model_settings=settings or None,  # type: ignore[arg-type]
         )
         dur_ms = int((time.monotonic() - t0) * 1000)
         _dbg(f"run done: {dur_ms}ms requests={getattr(result.usage, 'requests', '?')}")
