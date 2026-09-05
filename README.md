@@ -110,7 +110,7 @@ instantdemo generate \
   --describe "show the signup flow"
 ```
 
-The CLI walks through 5 phases, opening each intermediate artifact in `$EDITOR` for review. To skip the editor checkpoints, add `--no-edit`. To resume mid-pipeline after edits, add `--from-phase N`.
+The CLI walks through all six phases, opening each intermediate artifact in `$EDITOR` for review. To skip the editor checkpoints, add `--no-edit`. To resume mid-pipeline after edits, add `--from-phase N`.
 
 Common variations:
 
@@ -119,7 +119,7 @@ Common variations:
 instantdemo phase 3 --url ... --source ...
 
 # Render-only from an existing demo-script.json
-instantdemo render demo-script.json --tts kokoro -o demo.mp4
+instantdemo render demo-script.json -o demo.mp4
 
 # Use a different TTS voice
 instantdemo render demo-script.json --tts kokoro --kokoro-voice af_bella
