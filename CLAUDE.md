@@ -24,7 +24,7 @@ and a Claude Code skill.
 InstantDemo runs in two surfaces:
 
 1. **GUI** (primary surface) — `instantdemo serve` spawns a local
-   FastAPI + React app at `http://127.0.0.1:8770` (or user-specified
+   FastAPI + React app at `http://127.0.0.1:8765` (or user-specified
    port). Since the one-object pass (2026-06-11, DESIGN.md) the GUI
    is ONE maturing center surface — the Stage (front door w/ brief
    box → live filmstrip → proposal → storyboard gate → film) —
@@ -88,7 +88,7 @@ so end users don't need Node.
 
 ```bash
 # GUI (primary path)
-instantdemo serve --project /path/to/project --port 8770
+instantdemo serve --project /path/to/project   # default port 8765
 
 # CLI - full pipeline
 instantdemo generate --url http://localhost:3000 --source /path/to/code --describe "Show the bookmarks page"
@@ -322,7 +322,7 @@ self-contained restoration of a prior run.
   defects on this project (PR #94)
 
 To restore: `cp -r fixtures/<name>/. /tmp/restore && instantdemo
-serve --project /tmp/restore --port 8770`.
+serve --project /tmp/restore`.
 
 ## Key conventions
 
