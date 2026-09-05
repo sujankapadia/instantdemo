@@ -237,16 +237,67 @@ def _cache_settings(spec: str) -> dict:
 
 
 # ── model routing ─────────────────────────────────────────────────────
+ZAI_BASE_URL = "https://api.z.ai/api/paas/v4/"
+FIREWORKS_BASE_URL = "https://api.fireworks.ai/inference/v1"
+
+
 def resolve_model(spec: str):
     """`anthropic:claude-...` (or any provider:model) passes through as a
     native pydantic-ai model string; `openrouter:<id>` routes through
-    OpenRouter's OpenAI-compatible endpoint (one key, many models)."""
+    OpenRouter's OpenAI-compatible endpoint (one key, many models);
+    `zai:<id>` routes to z.ai's FIRST-PARTY OpenAI-compatible endpoint.
+
+    Why a first-party z.ai route: OpenRouter fans a model out across many
+    third-party endpoints of differing quantization (fp4/fp8/full) and
+    health — GLM-5.2 runs there hit `Upstream idle timeout` 2 of 3 times,
+    and we can't tell which precision served us. z.ai-direct is the
+    apples-to-apples counterpart to Anthropic-hosted Claude: full
+    precision, one endpoint, first-party caching (implicit, server-side —
+    hence no cache settings needed; see GLM_5.2_EVALUATION.md).
+    """
     if spec.startswith("openrouter:"):
         from pydantic_ai.models.openai import OpenAIChatModel
         from pydantic_ai.providers.openrouter import OpenRouterProvider
 
         return OpenAIChatModel(
             spec.split(":", 1)[1], provider=OpenRouterProvider()
+        )
+    if spec.startswith("zai:"):
+        import os
+
+        from pydantic_ai.models.openai import OpenAIChatModel
+        from pydantic_ai.providers.openai import OpenAIProvider
+
+        key = os.environ.get("ZAI_API_KEY")
+        if not key:
+            raise RuntimeError(
+                "zai: models need ZAI_API_KEY in the environment (.env). "
+                "Get one from z.ai's API platform."
+            )
+        return OpenAIChatModel(
+            spec.split(":", 1)[1],
+            provider=OpenAIProvider(base_url=ZAI_BASE_URL, api_key=key),
+        )
+    if spec.startswith("fireworks:"):
+        import os
+
+        from pydantic_ai.models.openai import OpenAIChatModel
+        from pydantic_ai.providers.openai import OpenAIProvider
+
+        key = os.environ.get("FIREWORKS_API_KEY")
+        if not key:
+            raise RuntimeError(
+                "fireworks: models need FIREWORKS_API_KEY in the "
+                "environment (.env). Get one from fireworks.ai."
+            )
+        model_id = spec.split(":", 1)[1]
+        # Fireworks ids are fully qualified; accept a bare slug for
+        # convenience (fireworks:glm-5p2 -> accounts/fireworks/models/glm-5p2).
+        if not model_id.startswith("accounts/"):
+            model_id = f"accounts/fireworks/models/{model_id}"
+        return OpenAIChatModel(
+            model_id,
+            provider=OpenAIProvider(base_url=FIREWORKS_BASE_URL, api_key=key),
         )
     return spec
 
@@ -305,6 +356,7 @@ class PydanticAIBackend:
         allowed_roots: list[Path] | None = None,
         cwd: Path | None = None,
         model_settings: dict | None = None,
+        temperature: float | None = None,
     ):
         self.default_model = default_model
         self.models = models or {}          # phase_key -> model spec
@@ -315,6 +367,12 @@ class PydanticAIBackend:
         # model into non-thinking mode, or openai_prompt_cache_key for
         # cache routing. None → provider defaults.
         self.model_settings = model_settings
+        # Sampling temperature. The pipeline wants REPEATABILITY (the same
+        # app + brief should explore to the same depth), but provider
+        # defaults are typically 1.0 — maximum variance. Measured run-to-run
+        # swings at the default: screens found 4/7 (GLM) and 8/10 (Claude),
+        # tool calls 4→13. None → provider default.
+        self.temperature = temperature
         self._sessions: dict[str, list] = {}
 
     def _spec_for(self, phase_key: str) -> str:
@@ -399,6 +457,8 @@ class PydanticAIBackend:
         # over any caller-supplied settings. Replaces the lone CachePoint,
         # which only pinned the static prefix (the cost regression).
         settings = {**_cache_settings(spec), **(self.model_settings or {})}
+        if self.temperature is not None:
+            settings.setdefault("temperature", self.temperature)
         _dbg(f"run start: phase={phase_key} model={spec} output_type={getattr(output_type, '__name__', output_type)} cache={bool(_cache_settings(spec))}")
         t0 = time.monotonic()
         result = await agent.run(
