@@ -25,10 +25,17 @@ htmlcov/
 # wheel via hatch force-include).
 src/instantdemo/server/web/
 
+# Secrets — API keys live here, never commit.
+.env
+.env.*
+!.env.example
+
 # Local-only test fixtures and baseline artifacts. Not committed —
 # treat each subfolder as a personal scratch / backup directory.
 fixtures/
-scripts/explore/out/tts-bakeoff/
+# Ad-hoc research OUTPUT from explore scripts — derived from private
+# apps and personal data; never commit.
+scripts/explore/out/
 frontend/.vite/
 
 # Session/scratch files — never commit (see PR #65 postmortem)
