@@ -9,13 +9,19 @@ Subcommand layout:
         --url URL                      (required)
         [--source PATH]                (default: cwd)
         [--describe TEXT]              (optional flow description)
-        [--tts {kokoro,google,...}]    (default: kokoro)
+        [--tts {pocket-tts,kokoro,google,elevenlabs,piper}]
+                                       (default: project tts.json,
+                                        else pocket-tts)
         [--output PATH]                (default: demo.mp4 in source)
         [--from-phase N]               (resume from phase N)
         [--no-edit]                    (skip $EDITOR checkpoints)
 
-    instantdemo phase {1..5}
+    instantdemo phase {1..6}
         [--source PATH] [other generate flags as needed]
+
+    instantdemo serve
+        [--project PATH] [--host HOST] [--port PORT]
+        (starts the local GUI; requires the [gui] extra)
 
     instantdemo render <forwarded args>
         (delegates entirely to instantdemo.render.main())
@@ -145,7 +151,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             "Subcommands:\n"
             "  generate  Run all 6 phases end-to-end (analyze → render)\n"
-            "  phase N   Run a single phase by number (1..5)\n"
+            "  phase N   Run a single phase by number (1..6)\n"
             "  render    Render an MP4 from a demo-script.json\n"
             "  serve     Start the GUI server (requires `instantdemo[gui]`)\n"
             "\n"
@@ -163,7 +169,7 @@ def build_parser() -> argparse.ArgumentParser:
     # generate
     generate = subparsers.add_parser(
         "generate",
-        help="Run the full 5-phase workflow end-to-end",
+        help="Run the full 6-phase workflow end-to-end",
         description="Run all 6 phases end-to-end with optional $EDITOR checkpoints.",
     )
     _add_common_flags(generate)
@@ -173,13 +179,13 @@ def build_parser() -> argparse.ArgumentParser:
         choices=range(1, len(PHASES) + 1),
         default=1,
         metavar="N",
-        help="Resume from phase N (1..5). Earlier phases must already have artifacts.",
+        help="Resume from phase N (1..6). Earlier phases must already have artifacts.",
     )
 
     # phase
     phase = subparsers.add_parser(
         "phase",
-        help="Run a single phase by number (1..5)",
+        help="Run a single phase by number (1..6)",
         description="Run a single phase. Useful for debugging and dev iteration.",
     )
     phase.add_argument(
@@ -187,7 +193,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         choices=range(1, len(PHASES) + 1),
         metavar="N",
-        help="Phase number (1..5)",
+        help="Phase number (1..6)",
     )
     _add_common_flags(phase)
 
