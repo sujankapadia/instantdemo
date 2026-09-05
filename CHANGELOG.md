@@ -4,11 +4,10 @@ All notable changes to this project are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] — 2026-09-05
 
 Everything since 0.1.0. The project changed shape substantially: it grew a
-GUI, a sixth phase, and a canonical storyboard document. Not yet released —
-`pyproject.toml` is still at 0.1.0.
+GUI, a sixth phase, and a canonical storyboard document.
 
 ### Added
 

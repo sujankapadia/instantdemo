@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "instantdemo"
-version = "0.1.0"
+version = "0.2.0"
 description = "Generate narrated demo videos of web applications from a JSON script"
 readme = "README.md"
 license = { file = "LICENSE" }
