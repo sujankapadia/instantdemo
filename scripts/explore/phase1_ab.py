@@ -17,6 +17,7 @@ attachments, sources, local/private) vs invented?
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import tempfile
 import time
@@ -29,6 +30,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pydantic_ai_spike import Jail, make_toolset, resolve_model  # noqa: E402
 
 APP_URL = "http://localhost:8001"
+PROJECT = Path("/tmp/m8-l5")
+
+
+def load_brief() -> str:
+    """The user's real brief (goal/focus/excludes), fed to Phase 1 the
+    way analyze.py does (src/instantdemo/phases/analyze.py:87-94)."""
+    intent = json.loads((PROJECT / "intent.json").read_text())
+    lines = []
+    goal = (intent.get("goal") or "").strip()
+    if goal:
+        lines.append(f"The user wants to demo: {goal}")
+    if intent.get("focus"):
+        lines.append("Focus on: " + "; ".join(intent["focus"]))
+    if intent.get("excludes"):
+        lines.append("Exclude (do NOT propose these): " + "; ".join(intent["excludes"]))
+    return "\n".join(lines)
 
 
 class IntentProposal(BaseModel):
@@ -68,8 +85,15 @@ EXPLORE_PROTOCOL = (
 
 
 def run(
-    model_spec: str, guided: bool = False
+    model_spec: str, guided: bool = False, brief: bool = False
 ) -> tuple[IntentProposal | None, object, float, str | None]:
+    brief_block = (
+        f"\n\n--- The user's brief ---\n{load_brief()}\n"
+        "Scope your exploration to the brief: prioritise the focus areas, "
+        "honor the excludes, and propose a demo that serves this goal.\n"
+        if brief
+        else ""
+    )
     with tempfile.TemporaryDirectory(prefix="pai-p1-") as td:
         jail_dir = Path(td)
         base = make_toolset(jail_dir)
@@ -89,6 +113,7 @@ def run(
                 "audience, the flows worth showing, the key screens, and any "
                 "warnings. GROUND everything in what you observed — do NOT "
                 "invent features, counts, or data you did not see."
+                + brief_block
                 + (EXPLORE_PROTOCOL if guided else "")
             ),
             toolsets=[allowed],
@@ -110,10 +135,14 @@ def main() -> None:
     ap.add_argument("--model", default="anthropic:claude-sonnet-4-6")
     ap.add_argument("--guided", action="store_true",
                     help="add the explicit exploration checklist")
+    ap.add_argument("--brief", action="store_true",
+                    help="feed the user's real goal/focus/excludes (scoped)")
     args = ap.parse_args()
 
-    out, usage, secs, err = run(args.model, guided=args.guided)
-    mode = "guided" if args.guided else "unguided"
+    out, usage, secs, err = run(args.model, guided=args.guided, brief=args.brief)
+    mode = "+".join(
+        [m for m, on in (("brief", args.brief), ("guided", args.guided)) if on]
+    ) or "unguided"
     print(f"\n{'=' * 70}\nMODEL: {args.model}  [{mode}]  ({secs:.0f}s)\n{'=' * 70}")
     if err:
         print(f"ERROR: {err}")

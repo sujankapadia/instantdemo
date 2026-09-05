@@ -2,7 +2,7 @@ import asyncio, time
 from pathlib import Path
 from pydantic import BaseModel
 from dotenv import load_dotenv
-load_dotenv("/Users/user/dev/personal/instantdemo/.env")
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 from instantdemo.agent_backend import PydanticAIBackend
 
 class Ans(BaseModel):

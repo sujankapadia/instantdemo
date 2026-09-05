@@ -46,7 +46,7 @@ top, and the precedence + data model for the
   handles pronunciation overrides at TTS time.
 
 Reference implementation pattern:
-`/Users/user/dev/personal/kokoro-say/kokoro_say.py` — the
+`<kokoro-say>/kokoro_say.py` (a separate local project) — the
 two-layer system (lexicon + text_replacements) is the direct
 template for InstantDemo. The InstantDemo design **adds**
 deterministic detection + auto-resolution on top.

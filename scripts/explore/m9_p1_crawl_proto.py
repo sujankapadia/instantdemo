@@ -12,7 +12,7 @@ import asyncio, time
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 from dotenv import load_dotenv
-load_dotenv("/Users/user/dev/personal/instantdemo/.env")
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 from playwright.sync_api import sync_playwright
 from instantdemo.agent_backend import PydanticAIBackend
 from instantdemo.phases.analyze import ExplorePayload, _validate_payload, _normalized_proposal

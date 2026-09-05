@@ -250,8 +250,8 @@ The skeleton-first sequence below front-loads packaging and infrastructure so ea
 
 ## References
 
-- **Spike report**: `/Users/user/dev/personal/instantdemo-sdk-spike/REPORT.md`
-- **Spike code (use as `query()` template)**: `/Users/user/dev/personal/instantdemo-sdk-spike/spike.py`
+- **Spike report**: `<sdk-spike>/REPORT.md` (local, not in this repo)
+- **Spike code (use as `query()` template)**: `<sdk-spike>/spike.py` (local, not in this repo)
 - **Source skill**: `plugins/instantdemo/skills/generate-demo/SKILL.md`
 - **Schema reference (for Phase 4)**: `plugins/instantdemo/skills/generate-demo/references/REFERENCE.md`
 - **--auto flag tracking issue**: https://github.com/sujankapadia/instantdemo/issues/1

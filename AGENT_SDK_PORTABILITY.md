@@ -221,7 +221,7 @@ ARC and the continuity pass, which the isolated test couldn't. It
 - **Gemini hallucinated the core facts, consistently.** Run 1 narrated
   "14,285 Notes"; run 2 "4,287 notes" — the real count is **500**. It
   invented search examples ("recipe"/"basil pesto"; "Project Alpha")
-  instead of the actual 'REDACTED-TERM'/'kubernetes' in the Phase-1 data, and
+  instead of the actual search terms observed in the Phase-1 data, and
   referenced the **import button that intent.excludes lists**. Two for
   two: the small model defaults to plausible placeholders instead of
   grounding to provided data — disqualifying for a demo tool, where the
@@ -233,7 +233,8 @@ ARC and the continuity pass, which the isolated test couldn't. It
 - **Gemini under-covered** the comprehensive brief (4 chapters vs 7;
   dropped the export-count verification beat).
 - **Claude did all three right:** grounded every specific to the
-  observed values (500, REDACTED-TERM→50, kubernetes→34, 100/file × 5), built
+  observed values (500 notes, two real search terms with exact hit
+  counts of 50 and 34, 100/file × 5), built
   a strong payoff-first 7-chapter arc, and its continuity pass caught
   **4 genuine cross-chapter problems** with precise reasoning (duplicate
   opener, a line repeated across a chapter break, a premature privacy
@@ -257,13 +258,13 @@ tier:
 |---|---|---|---|---|
 | `gemini-3.1-flash-lite` | ~0.10/0.40 | NO — fabricates the count (14,285 / 4,287; real 500) | fake (0 rewrites, claims fixes) | no |
 | `gemini-2.5-flash` | 0.30/2.50 | partial — stops fabricating, goes vague/generic ("Meeting") | — | no |
-| `gemini-3-flash-preview` | 0.50/3.00 | mostly — uses 500 + REDACTED-TERM/kubernetes, but kubernetes "3" not 34, invents a PDF | fake (0 rewrites, claims fixes) | no |
-| **`deepseek-chat-v3.1`** | **0.21/0.79** | **yes — 500, REDACTED-TERM, kubernetes→34 (exact)** | **WORKS — 6 real cross-chapter rewrites** | **no (non-reasoning V3)** |
+| `gemini-3-flash-preview` | 0.50/3.00 | mostly — uses 500 + both real search terms, but one hit count "3" not 34, invents a PDF | fake (0 rewrites, claims fixes) | no |
+| **`deepseek-chat-v3.1`** | **0.21/0.79** | **yes — 500, both real terms, hit count 34 (exact)** | **WORKS — 6 real cross-chapter rewrites** | **no (non-reasoning V3)** |
 | Claude Sonnet 4.6 | ~3/15 | yes (reference) | works (4 rewrites) | no |
 
 **The standout: `deepseek/deepseek-chat-v3.1`.** It is the only
 cheap+fast model that cleared BOTH bars Flash-Lite failed — it grounded
-to the exact observed values (including kubernetes→34, which gemini-3-flash
+to the exact observed values (including the hit count of 34, which gemini-3-flash
 got wrong) AND its continuity pass actually found and fixed 6
 cross-chapter issues (the Gemini family uniformly returned 0 rewrites
 while *claiming* fixes — a non-functional whole-document pass). It's
@@ -292,7 +293,7 @@ but NONE hallucinate features (unlike Phase 2):
 
 | Model | tool calls | intent depth |
 |---|---|---|
-| Claude Sonnet 4.6 | **38** | exhaustive — *discovered* counts by experimenting ('REDACTED-TERM'→22, 'REDACTED-TERM'→6, 'REDACTED-TERM'→1), found attachments/sources/API endpoints/250ms debounce, 6 sharp warnings |
+| Claude Sonnet 4.6 | **38** | exhaustive — *discovered* counts by experimenting (three search terms → 22, 6 and 1 hits), found attachments/sources/API endpoints/250ms debounce, 6 sharp warnings |
 | `deepseek-chat-v3.1` | 7 | solid — grounded (500 across 5 files), found attachments + sources, good warnings (incl. "test data may be confidential") |
 | `gemini-3.1-flash-lite` | 5 | shallow but grounded — note list + search only; MISSED attachments + sources; generic |
 
