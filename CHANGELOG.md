@@ -4,6 +4,65 @@ All notable changes to this project are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Everything since 0.1.0. The project changed shape substantially: it grew a
+GUI, a sixth phase, and a canonical storyboard document. Not yet released —
+`pyproject.toml` is still at 0.1.0.
+
+### Added
+
+- **Local GUI** (`instantdemo serve`, 2026-05-14) — FastAPI + React app on
+  `http://127.0.0.1:8765`, now the primary surface. Watch exploration
+  stream in, confirm intent, review the storyboard, edit narration inline.
+  Developer detail (phase rail, artifacts, agent log, costs) sits behind
+  the Inspector.
+- **Phase 4 — the dress rehearsal** (`explore`, 2026-05-14). The pipeline
+  went from five phases to **six**. Before recording, it walks every
+  segment against the live app, verifies each selector resolves, and
+  self-corrects within bounded authority: selector swaps (Level 1) and
+  narration regrounding (Level 2). Structural changes stay blocked and
+  surface as suggestions.
+- **`storyboard.json`** (M0) — the canonical artifact phases 2–5 read and
+  write. The `phaseN.md` files became rendered *views* of it.
+- **Explore-first Phase 1** (M1) — Phase 1 now drives the **live app**
+  with Playwright and proposes a demo intent for confirmation, rather
+  than reading the codebase. Source became optional enrichment; the
+  running app is the ground truth.
+- **Storyboard approval gate** (M2) — scene cards with rehearsal
+  thumbnails, verification notices, and inline narration editing.
+- **Pocket TTS** (M3) — now the default provider: local, CPU, 26 stock
+  voices, plus voice cloning. Per-project voice config in `tts.json`
+  with pronunciation respellings.
+- **Versioned takes** (M4) — every render is restorable history.
+- **Chapters** (M5a) and **scoped chapter revision** (M5b) — revise one
+  chapter and splice it into the existing film without re-recording.
+- **Captions** (M6) — `demo.srt`, regenerated at every timing write.
+- **Chaptered cold start** (M7) — the chapter is the unit of agent work
+  in phases 2, 3 and 4; cost becomes linear in film length.
+- **Filesystem jail** for agent file access, always on for server runs.
+- **Closed action contract** (`actions.py`), validated at build and
+  render time.
+- **CI dependency CVE gate** (npm audit + pip-audit) and Dependabot.
+
+### Changed
+
+- **Phase numbering**: `1 analyze → 2 narrate → 3 gather → 4 explore →
+  5 script → 6 render`. Phase 5 became a *deterministic projection* of
+  the storyboard (no agent); the old phase-5 "validate" role is now
+  phase 6's lightweight drift check before recording.
+- **Default TTS** is Pocket TTS (was Kokoro). The `--tts` flag now
+  overrides the project's `tts.json`, which itself falls back to
+  pocket-tts.
+- `instantdemo phase` accepts **1..6**.
+
+### Fixed
+
+- All Dependabot vulnerabilities (44: 17 high, 23 moderate, 4 low).
+- `.env` was not gitignored on `main` — API keys were unprotected.
+- Documentation drift: README described a five-phase, GUI-less pipeline;
+  the GUI port was wrong in three docs; CLI help contradicted itself.
+
 ## [0.1.0] — 2026-05-01
 
 The first packaged release. Adds a standalone CLI alongside the existing
