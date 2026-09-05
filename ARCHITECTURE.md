@@ -16,7 +16,7 @@ and renders the result as MP4 with TTS narration.
 Two surfaces wrap the same pipeline:
 
 - **Local GUI** — `instantdemo serve` spawns a FastAPI + React app
-  at `http://127.0.0.1:8770`. Primary user interface.
+  at `http://127.0.0.1:8765`. Primary user interface.
 - **CLI** — `instantdemo generate` / `instantdemo phase N`. Older
   surface; still maintained for headless / scripting use cases.
 
