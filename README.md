@@ -5,16 +5,15 @@ at a URL, say what you want shown, and InstantDemo explores the live app,
 plans a demo, rehearses it against the real thing, then records an MP4 —
 no screen recording, no voiceover sessions, no video editing.
 
-Three ways to use it:
+Two ways to use it:
 
 - **GUI** (primary) — `instantdemo serve` opens a local app where you watch
   it explore, confirm what the demo should cover, review the storyboard,
   and edit narration inline.
 - **CLI** — `instantdemo generate ...` from any terminal.
-- **Claude Code skill** — `/generate-demo` inside a Claude Code session.
 
-All three share the same engine (the `instantdemo` Python package) and
-produce the same JSON script format.
+Both share the same engine (the `instantdemo` Python package) and produce
+the same JSON script format.
 
 ## How it works
 
@@ -73,17 +72,6 @@ The free-via-subscription path is the default. If you have `ANTHROPIC_API_KEY` s
 unset ANTHROPIC_API_KEY
 ```
 
-### Claude Code skill (optional)
-
-The skill is a thin wrapper around the same `instantdemo` package — it provides a Claude Code-native conversational UX with `AskUserQuestion`-driven checkpoints. After installing the CLI prerequisites above:
-
-```bash
-/plugin marketplace add sujankapadia/instantdemo
-/plugin install instantdemo@sujankapadia-instantdemo
-```
-
-The skill calls `instantdemo render` under the hood, so the pip install is a hard prerequisite.
-
 ## Usage
 
 ### GUI (primary)
@@ -123,18 +111,6 @@ instantdemo render demo-script.json -o demo.mp4
 
 # Use a different TTS voice
 instantdemo render demo-script.json --tts kokoro --kokoro-voice af_bella
-```
-
-### Claude Code skill
-
-```
-/generate-demo show the Active Sessions page and click a session card
-```
-
-Or with no arguments — the skill explores the codebase and asks which flow to demo:
-
-```
-/generate-demo
 ```
 
 ## TTS providers

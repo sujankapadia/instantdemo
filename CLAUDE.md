@@ -17,7 +17,7 @@ TTS + ffmpeg. Output is an MP4 + the JSON script that produced it.
 Extracted from `claude-code-analytics`
 (`github.com/sujankapadia/claude-code-analytics`), where the original
 pipeline was built. Now a standalone project with a CLI, a local GUI,
-and a Claude Code skill.
+and a local GUI.
 
 ## Surfaces
 
@@ -39,9 +39,11 @@ The pipeline logic is the **same in both surfaces** — orchestration
 is shared (`src/instantdemo/phases/`); only the user interface
 differs.
 
-There's also a **Claude Code skill** at
-`plugins/instantdemo/skills/generate-demo/` for invoking the pipeline
-from another project's Claude Code session via `/generate-demo`.
+A Claude Code skill (`plugins/`) existed until 2026-09-05 but was
+removed: it hadn't been updated since the GUI landed (2026-05-14) and
+still described the pre-M1 five-phase, source-analysis pipeline. The
+design notes remain in `CLI-DESIGN.md` and `docs/manifest-design.md` if
+it's ever revived.
 
 ## Installing dependencies
 
