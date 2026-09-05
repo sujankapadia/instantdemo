@@ -1,6 +1,0 @@
-{
-  "name": "instantdemo",
-  "description": "Generate narrated demo videos of web applications. Analyzes your codebase, produces a demo script with narration and browser actions, validates it, and renders an MP4.",
-  "version": "1.0.0",
-  "repository": "https://github.com/sujankapadia/instantdemo"
-}
