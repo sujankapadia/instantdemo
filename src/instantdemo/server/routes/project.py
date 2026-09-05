@@ -232,7 +232,7 @@ def get_artifact(
     pdir = _project_dir()
     path, fmt = _artifact_path(pdir, phase)
 
-    # phase has been validated 1..5 by the path constraint; cast for the
+    # phase has been validated 1..6 by the path constraint; cast for the
     # Pydantic literal type.
     phase_typed: PhaseNumber = phase  # type: ignore[assignment]
 
