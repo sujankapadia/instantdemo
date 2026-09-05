@@ -89,14 +89,15 @@ The skill calls `instantdemo render` under the hood, so the pip install is a har
 ### GUI (primary)
 
 ```bash
-instantdemo serve --project /path/to/project --port 8770
+instantdemo serve --project /path/to/project
 ```
 
-Opens a local app at `http://127.0.0.1:8770`. You describe the demo in the
-brief box, watch screenshots stream in as it explores, confirm the proposed
-intent, then review the storyboard — editing any scene's narration inline —
-before approving the render. Developer detail (phase rail, artifacts, agent
-log, costs) lives behind the header's Inspector.
+Opens a local app at `http://127.0.0.1:8765` (override with `--port`).
+You describe the demo in the brief box, watch screenshots stream in as
+it explores, confirm the proposed intent, then review the storyboard —
+editing any scene's narration inline — before approving the render.
+Developer detail (phase rail, artifacts, agent log, costs) lives behind
+the header's Inspector.
 
 ### CLI
 
